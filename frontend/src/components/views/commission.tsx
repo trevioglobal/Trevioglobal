@@ -9,7 +9,6 @@ import {
   Plane, Building2, Palmtree, Users, Percent, Edit,
   CheckCircle2, Clock, Award, TrendingUp, Wallet, ArrowDownLeft,
 } from "lucide-react";
-import { WALLET_TXNS, REVENUE_DATA } from "@/lib/mock-data";
 import { api } from "@/lib/api";
 import { mapApiCommission, type MappedCommission } from "@/lib/api-mappers";
 import {
@@ -101,86 +100,16 @@ function EditRuleDialog({ rule, open, onOpenChange }: { rule: typeof RULE_CARDS[
 }
 
 function CommissionRulesTab() {
-  const { toast } = useToast();
-  const [editRule, setEditRule] = useState<typeof RULE_CARDS[number] | null>(null);
-  const [editOpen, setEditOpen] = useState(false);
-
-  function openEdit(rule: typeof RULE_CARDS[number]) {
-    setEditRule(rule);
-    setEditOpen(true);
-  }
-
   return (
-    <div className="space-y-4">
-      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-6">
-        {RULE_CARDS.map((r, i) => (
-          <motion.div key={r.id} initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: i * 0.05 }}>
-            <Card className="hover:border-primary/25 transition-all duration-200">
-              <CardContent className="p-4">
-                <div className="flex items-start justify-between">
-                  <div className={cn("w-10 h-10 rounded-xl flex items-center justify-center", r.color)}>
-                    <r.icon className="w-5 h-5" />
-                  </div>
-                  <Button variant="ghost" size="sm" className="h-7 w-7 p-0" onClick={() => openEdit(r)}>
-                    <Edit className="w-3.5 h-3.5" />
-                  </Button>
-                </div>
-                <p className="text-sm font-semibold mt-3">{r.title}</p>
-                <p className="text-[11px] text-muted-foreground mt-1 leading-snug">{r.desc}</p>
-                <div className="mt-3 pt-3 border-t flex items-center justify-between">
-                  <div>
-                    <p className="text-[10px] text-muted-foreground uppercase">{r.type}</p>
-                    <p className="text-base font-semibold text-primary dark:text-brand-teal">{r.rate}</p>
-                  </div>
-                  <Badge variant="secondary" className="text-[10px] bg-emerald-100 text-emerald-700 dark:bg-emerald-500/15 dark:text-emerald-400">Active</Badge>
-                </div>
-              </CardContent>
-            </Card>
-          </motion.div>
-        ))}
-      </div>
-
-      <Card>
-        <CardHeader>
-          <SectionHeader title="Airline Commission Rates" description="Carrier-wise commission percentage on base fare" />
-        </CardHeader>
-        <CardContent className="p-0">
-          <div className="rounded-lg border max-h-96 overflow-y-auto scroll-thin mx-4 mb-4">
-            <Table>
-              <TableHeader className="sticky top-0 bg-card">
-                <TableRow>
-                  <TableHead>Airline</TableHead>
-                  <TableHead>Code</TableHead>
-                  <TableHead className="text-right">Domestic</TableHead>
-                  <TableHead className="text-right">International</TableHead>
-                  <TableHead className="text-right">Effective Rate</TableHead>
-                </TableRow>
-              </TableHeader>
-              <TableBody>
-                {AIRLINE_RATES.map((a) => (
-                  <TableRow key={a.code} className="hover:bg-muted/40">
-                    <TableCell>
-                      <span className="flex items-center gap-2">
-                        <span className={cn("w-7 h-7 rounded-md flex items-center justify-center text-[10px] font-bold", a.color)}>{a.code}</span>
-                        <span className="text-sm font-medium">{a.airline}</span>
-                      </span>
-                    </TableCell>
-                    <TableCell className="text-xs text-muted-foreground font-mono">{a.code}</TableCell>
-                    <TableCell className="text-right text-xs">{a.domestic > 0 ? `${a.domestic}%` : "—"}</TableCell>
-                    <TableCell className="text-right text-xs">{a.international > 0 ? `${a.international}%` : "—"}</TableCell>
-                    <TableCell className="text-right">
-                      <Badge variant="secondary" className={cn("text-[10px]", a.color)}>{Math.max(a.domestic, a.international)}%</Badge>
-                    </TableCell>
-                  </TableRow>
-                ))}
-              </TableBody>
-            </Table>
-          </div>
-        </CardContent>
-      </Card>
-
-      <EditRuleDialog rule={editRule} open={editOpen} onOpenChange={setEditOpen} />
-    </div>
+    <Card>
+      <CardContent className="p-6 space-y-2">
+        <p className="text-sm font-medium">Commission rules editor coming soon</p>
+        <p className="text-sm text-muted-foreground">
+          Rates are currently taken from booking commission fields. Use Monthly Settlement and My Commission
+          for live totals from the API — carrier rule cards are not persisted yet.
+        </p>
+      </CardContent>
+    </Card>
   );
 }
 
@@ -194,9 +123,9 @@ function MonthlySettlementTab({ data }: { data: MappedCommission | null }) {
         status: "Settled" as const,
         settledOn: "05 " + m.label,
       }))
-    : SETTLEMENTS;
+    : [];
 
-  const totalCommission = data ? data.summary.totalCommission : SETTLEMENTS.reduce((s, m) => s + m.totalCommission, 0);
+  const totalCommission = data ? data.summary.totalCommission : 0;
   const totalPayouts = data ? data.summary.paidCommission : SETTLEMENTS.reduce((s, m) => s + m.employeePayouts, 0);
   const totalAgency = data ? data.summary.totalRevenue : SETTLEMENTS.reduce((s, m) => s + m.agencyShare, 0);
   const pendingMonths = data ? 1 : SETTLEMENTS.filter((m) => m.status === "Pending").length;
@@ -250,11 +179,11 @@ function MonthlySettlementTab({ data }: { data: MappedCommission | null }) {
 function MyCommissionTab({ data }: { data: MappedCommission | null }) {
   const chartData = data
     ? data.monthly.map((m) => ({ month: m.label, commission: m.commission }))
-    : REVENUE_DATA.map((d) => ({ month: d.month, commission: d.commission }));
+    : [];
 
   const maxCommission = Math.max(...chartData.map((d) => d.commission), 0);
-  const myCommissionCredits = WALLET_TXNS.filter((t) => t.source === "Commission");
-  const totalEarned = data ? data.summary.totalCommission : myCommissionCredits.reduce((s, t) => s + t.amount, 0);
+  const myCommissionCredits: Array<{ id: string; date: string; description: string; amount: number; balance: number }> = [];
+  const totalEarned = data ? data.summary.totalCommission : 0;
   const lastMonth = chartData.length ? chartData[chartData.length - 1].commission : 0;
   const prevMonth = chartData.length > 1 ? chartData[chartData.length - 2].commission : 0;
   const growth = prevMonth > 0 ? ((lastMonth - prevMonth) / prevMonth) * 100 : 0;
@@ -268,7 +197,7 @@ function MyCommissionTab({ data }: { data: MappedCommission | null }) {
           subtitle="Commission earned in recent months"
           className="sm:col-span-1"
         />
-        <MetricCard icon={TrendingUp} label={`Last Month (${REVENUE_DATA[REVENUE_DATA.length - 1].month})`} value={formatINR(lastMonth)} color="bg-emerald-100 text-emerald-600 dark:bg-emerald-500/15 dark:text-emerald-400" index={0} />
+        <MetricCard icon={TrendingUp} label="Last Month" value={formatINR(lastMonth)} color="bg-emerald-100 text-emerald-600 dark:bg-emerald-500/15 dark:text-emerald-400" index={0} />
         <MetricCard
           icon={Percent}
           label="Month-over-month Growth"
@@ -331,6 +260,13 @@ function MyCommissionTab({ data }: { data: MappedCommission | null }) {
                 </TableRow>
               </TableHeader>
               <TableBody>
+                {myCommissionCredits.length === 0 && (
+                  <TableRow>
+                    <TableCell colSpan={4} className="py-8 text-center text-sm text-muted-foreground">
+                      No wallet commission credits yet — totals above come from booking commissions.
+                    </TableCell>
+                  </TableRow>
+                )}
                 {myCommissionCredits.map((t) => (
                   <TableRow key={t.id} className="hover:bg-muted/40">
                     <TableCell className="text-xs text-muted-foreground">{new Date(t.date).toLocaleDateString("en-IN", { day: "2-digit", month: "short", year: "2-digit" })}</TableCell>
@@ -368,22 +304,17 @@ export function CommissionView() {
     <PageShell>
       <PageHeader
         title="Commission"
-        subtitle="Configure commission rules, track monthly settlements and monitor your earnings."
-        action={
-          <Badge variant="outline" className="border-amber-300 text-amber-800 dark:text-amber-300">
-            Partial demo data
-          </Badge>
-        }
+        subtitle="Live settlement totals from booking commissions. Rule editor not wired yet."
       />
-      <Tabs defaultValue="rules">
+      <Tabs defaultValue="settlement">
         <TabsList className="bg-muted/60">
-          <TabsTrigger value="rules">Commission Rules</TabsTrigger>
           <TabsTrigger value="settlement">Monthly Settlement</TabsTrigger>
           <TabsTrigger value="my">My Commission</TabsTrigger>
+          <TabsTrigger value="rules">Rules</TabsTrigger>
         </TabsList>
-        <TabsContent value="rules" className="mt-4"><CommissionRulesTab /></TabsContent>
         <TabsContent value="settlement" className="mt-4"><MonthlySettlementTab data={data} /></TabsContent>
         <TabsContent value="my" className="mt-4"><MyCommissionTab data={data} /></TabsContent>
+        <TabsContent value="rules" className="mt-4"><CommissionRulesTab /></TabsContent>
       </Tabs>
     </PageShell>
   );

@@ -123,6 +123,41 @@ export const quotationSchema = z.object({
     title: z.string().optional(),
     meta: z.string().optional(),
   })).optional(),
+  couponCode: z.string().max(40).optional(),
+  couponDiscount: z.number().int().min(0).optional(),
+});
+
+export const couponCreateSchema = z.object({
+  code: z.string().min(3).max(40),
+  type: z.enum(["Flat", "Percent"]),
+  value: z.number().int().positive(),
+  minOrderAmount: z.number().int().min(0).optional().default(0),
+  usageLimit: z.number().int().min(0).optional().default(0),
+  maxDiscount: z.number().int().positive().optional().nullable(),
+  validFrom: z.string().optional(),
+  validTill: z.string().min(1),
+  status: z.enum(["Active", "Paused", "Expired"]).optional(),
+  description: z.string().max(500).optional().nullable(),
+  agencyId: z.string().optional(),
+});
+
+export const couponUpdateSchema = z.object({
+  code: z.string().min(3).max(40).optional(),
+  type: z.enum(["Flat", "Percent"]).optional(),
+  value: z.number().int().positive().optional(),
+  minOrderAmount: z.number().int().min(0).optional(),
+  usageLimit: z.number().int().min(0).optional(),
+  maxDiscount: z.number().int().positive().optional().nullable(),
+  validFrom: z.string().optional(),
+  validTill: z.string().optional(),
+  status: z.enum(["Active", "Paused", "Expired"]).optional(),
+  description: z.string().max(500).optional().nullable(),
+});
+
+export const couponValidateSchema = z.object({
+  code: z.string().min(1).max(40),
+  orderAmount: z.number().positive(),
+  agencyId: z.string().optional(),
 });
 
 export const internationalQuotationSchema = z.object({

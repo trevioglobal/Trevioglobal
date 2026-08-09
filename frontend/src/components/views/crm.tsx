@@ -21,7 +21,6 @@ import { useToast } from "@/hooks/use-toast";
 import {
   BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Cell,
 } from "recharts";
-import { ENQUIRY_SOURCE_DATA } from "@/lib/mock-data";
 import { useDemoDataStore } from "@/store/demo-data-store";
 import type { Lead } from "@/types";
 import {
@@ -348,16 +347,32 @@ function LeadsPipeline() {
 
 function EnquiriesTab() {
   const leads = useDemoDataStore((s) => s.leads);
+  const sourceMap = new Map<string, number>();
+  for (const lead of leads) {
+    const src = lead.source || "Other";
+    sourceMap.set(src, (sourceMap.get(src) || 0) + 1);
+  }
+  const ENQUIRY_SOURCE_DATA = Array.from(sourceMap.entries()).map(([source, count]) => ({ source, count }));
   const total = ENQUIRY_SOURCE_DATA.reduce((s, d) => s + d.count, 0);
-  const maxCount = Math.max(...ENQUIRY_SOURCE_DATA.map((d) => d.count));
+  const maxCount = Math.max(...ENQUIRY_SOURCE_DATA.map((d) => d.count), 1);
   const colors = ["#0d9488", "#f59e0b", "#f43f5e", "#8b5cf6", "#06b6d4", "#10b981", "#f97316", "#ec4899"];
+
+  if (!ENQUIRY_SOURCE_DATA.length) {
+    return (
+      <Card>
+        <CardContent className="p-8 text-center text-sm text-muted-foreground">
+          No leads yet — enquiry source chart fills from live CRM leads.
+        </CardContent>
+      </Card>
+    );
+  }
 
   return (
     <div className="space-y-4">
       <Card>
         <CardHeader>
           <CardTitle>Enquiries by Source</CardTitle>
-          <CardDescription>Total {total} enquiries across all channels (last 30 days)</CardDescription>
+          <CardDescription>Total {total} enquiries from live leads</CardDescription>
         </CardHeader>
         <CardContent>
           <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">

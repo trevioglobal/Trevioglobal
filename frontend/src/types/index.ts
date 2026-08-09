@@ -7,7 +7,10 @@ export type Role =
   | "employee"
   | "accountant"
   | "sales_executive"
-  | "product_executive";
+  | "product_executive"
+  | "operations"
+  | "travel_agent"
+  | "management";
 
 export type Module =
   | "flights" | "hotels" | "activities" | "transfers" | "holiday" | "destinations" | "packages" | "bookings" | "crm" | "customers"
@@ -164,6 +167,83 @@ export interface Lead {
   notes: string;
 }
 
+export type BookingStatus =
+  | "Draft"
+  | "Awaiting Passenger Details"
+  | "Pending Initial Payment"
+  | "Partially Paid"
+  | "Payment Received"
+  | "In Progress"
+  | "Partially Confirmed"
+  | "Confirmed"
+  | "Travel Documents Ready"
+  | "Completed"
+  | "Cancelled"
+  | "Pending"
+  | "Ticketed"
+  | "Refunded"
+  | "Failed";
+
+export interface BookingPassenger {
+  id: string;
+  bookingId?: string;
+  roomIndex: number;
+  isLead: boolean;
+  title?: string | null;
+  firstName: string;
+  lastName: string;
+  gender?: string | null;
+  dateOfBirth?: string | null;
+  nationality?: string | null;
+  passportNumber?: string | null;
+  passportIssueDate?: string | null;
+  passportExpiry?: string | null;
+  mobile?: string | null;
+  email?: string | null;
+  panNumber?: string | null;
+  panVerified?: boolean;
+  panRegisteredName?: string | null;
+  panStatus?: string;
+}
+
+export interface PaymentRequestItem {
+  id: string;
+  requestRef: string;
+  label: string;
+  amount: number;
+  amountPaid: number;
+  dueDate?: string | null;
+  status: string;
+  notes?: string | null;
+}
+
+export interface BookingServiceItem {
+  id: string;
+  serviceType: string;
+  title: string;
+  status: string;
+  confirmationNo?: string | null;
+  supplierName?: string | null;
+  voucherUrl?: string | null;
+  ticketUrl?: string | null;
+  costPrice: number;
+  sellingPrice: number;
+  notes?: string | null;
+}
+
+export interface ChangeRequestItem {
+  id: string;
+  requestRef: string;
+  requestType: string;
+  category: string;
+  status: string;
+  priority: string;
+  description?: string | null;
+  estimatedAdditionalCost: number;
+  requestedBy: string;
+  createdAt: string;
+}
+
 export interface Booking {
   id: string;
   bookingRef: string;
@@ -173,12 +253,42 @@ export interface Booking {
   travelDate: string;
   amount: number;
   commission: number;
-  status: "Pending" | "Confirmed" | "Ticketed" | "Completed" | "Cancelled" | "Refunded" | "Failed";
+  status: BookingStatus;
   paymentStatus: "Paid" | "Pending" | "Partial" | "Refunded";
   paymentMethod?: string;
   agent: string;
   agency: string;
   createdAt: string;
+  quotationId?: string | null;
+  quoteNo?: string | null;
+  destination?: string | null;
+  nights?: number | null;
+  totalRooms?: number | null;
+  adults?: number | null;
+  children?: number | null;
+  infants?: number | null;
+  packageValue?: number | null;
+  amountPaid?: number;
+  balanceAmount?: number;
+  costPrice?: number;
+  grossProfit?: number;
+  netProfit?: number;
+  salesExecutiveName?: string | null;
+  operationsExecutiveName?: string | null;
+  isInternational?: boolean;
+  policiesAcceptedAt?: string | null;
+  termsAndConditions?: string | null;
+  paymentTerms?: string | null;
+  cancellationPolicy?: string | null;
+  packageIncludes?: unknown;
+  packageExcludes?: unknown;
+  passengers?: BookingPassenger[];
+  paymentRequests?: PaymentRequestItem[];
+  services?: BookingServiceItem[];
+  changeRequests?: ChangeRequestItem[];
+  addOns?: { id: string; addOnType: string; title: string; amount: number }[];
+  invoices?: { id: string; invoiceNo: string; invoiceType: string; total: number; status: string }[];
+  documents?: { id: string; docType: string; fileName: string; fileUrl: string }[];
 }
 
 export interface Payment {
@@ -238,6 +348,45 @@ export interface Task {
   createdAt: string;
 }
 
+export type QuotationStatus =
+  | "Draft"
+  | "In Progress"
+  | "Pending Approval"
+  | "Sent to Agent"
+  | "Sent"
+  | "Customer Reviewing"
+  | "Revision Requested"
+  | "Accepted"
+  | "Rejected"
+  | "Expired"
+  | "Converted to Booking"
+  | "Archived";
+
+export interface QuotationPackage {
+  id?: string;
+  name: string;
+  sortOrder?: number;
+  isSelected?: boolean;
+  description?: string;
+  hotels?: Array<Record<string, unknown>>;
+  flights?: Array<Record<string, unknown>>;
+  transfers?: Array<Record<string, unknown>>;
+  activities?: Array<Record<string, unknown>>;
+  meals?: Array<Record<string, unknown>>;
+  itinerary?: Array<Record<string, unknown>>;
+  visa?: Record<string, unknown> | null;
+  insurance?: Record<string, unknown> | null;
+  addOns?: Array<Record<string, unknown>>;
+  inclusions?: string[];
+  exclusions?: string[];
+  totalNetCost?: number;
+  totalSelling?: number;
+  grossProfit?: number;
+  gst?: number;
+  total?: number;
+  perPersonCost?: number;
+}
+
 export interface Quotation {
   id: string;
   quoteNo: string;
@@ -247,7 +396,7 @@ export interface Quotation {
   amount: number;
   gst: number;
   total: number;
-  status: "Draft" | "Sent" | "Accepted" | "Rejected" | "Expired";
+  status: QuotationStatus;
   validTill: string;
   createdBy: string;
   createdAt: string;
@@ -280,6 +429,8 @@ export interface Quotation {
   salesExecutivePhone?: string;
   salesExecutiveEmail?: string;
   approvalStatus?: "Draft" | "Pending" | "Approved" | "Rejected";
+  couponCode?: string;
+  couponDiscount?: number;
   lineItems?: Array<{
     description: string;
     qty: number;
@@ -288,6 +439,27 @@ export interface Quotation {
     imageUrl?: string;
     currency?: string;
   }>;
+  quoteDate?: string;
+  travelStartDate?: string;
+  travelEndDate?: string;
+  agentName?: string;
+  specialRequests?: string;
+  internalNotes?: string;
+  totalNetCost?: number;
+  totalSelling?: number;
+  grossProfit?: number;
+  profitMargin?: number;
+  discountType?: string | null;
+  discountValue?: number;
+  discountAmount?: number;
+  taxRate?: number;
+  perPersonCost?: number;
+  currentVersion?: number;
+  wizardStep?: number;
+  enquiryRef?: string;
+  selectedPackageId?: string | null;
+  convertedBookingId?: string | null;
+  packages?: QuotationPackage[];
 }
 
 export type NewQuotationInput = {
@@ -329,6 +501,8 @@ export type NewQuotationInput = {
   salesExecutiveName?: string;
   salesExecutivePhone?: string;
   salesExecutiveEmail?: string;
+  couponCode?: string;
+  couponDiscount?: number;
   lineItems?: Quotation["lineItems"];
 };
 

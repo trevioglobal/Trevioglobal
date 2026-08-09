@@ -1,12 +1,13 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import {
   FileText, Send, FileDown, Plus, Trash2, CheckCircle2, Clock,
-  Mail, MessageCircle, Eye, TrendingUp, Wallet, Percent,
+  Mail, MessageCircle, Eye, TrendingUp, Wallet, Percent, Ticket, Loader2, Copy, Archive,
 } from "lucide-react";
 import { useDemoDataStore } from "@/store/demo-data-store";
 import { useAuthStore } from "@/store/app-store";
+import { api, ApiError } from "@/lib/api";
 import type { Quotation } from "@/types";
 import {
   formatINR, formatFullINR, StatusBadge, PageHeader, PageShell, MetricCard,
@@ -33,12 +34,14 @@ import { useToast } from "@/hooks/use-toast";
 import { cn } from "@/lib/utils";
 import { InternationalQuotationDialog } from "@/components/views/international-quotation";
 import { ProductQuoteBuilderDialog } from "@/components/shared/product-quote-builder";
+import { QuotationWizardDialog } from "@/components/views/quotation-wizard";
 import {
   downloadQuotationPdf,
   getQuotationLineItems,
   shareQuotationViaEmail,
   shareQuotationViaWhatsApp,
 } from "@/lib/quotation-actions";
+import { mapApiQuotation } from "@/lib/api-mappers";
 
 const SERVICE_COLORS: Record<string, string> = {
   Flight: "bg-teal-100 text-teal-700 dark:bg-teal-500/15 dark:text-teal-400",
@@ -50,6 +53,40 @@ const SERVICE_COLORS: Record<string, string> = {
 };
 
 interface QuoteItem { id: string; description: string; qty: number; price: number; }
+
+function useProceedToBooking() {
+  const { toast } = useToast();
+  const upsertBooking = useDemoDataStore((s) => s.upsertBooking);
+  const updateQuotationStatus = useDemoDataStore((s) => s.updateQuotationStatus);
+  const [busyId, setBusyId] = useState<string | null>(null);
+
+  async function proceed(quote: Quotation) {
+    setBusyId(quote.id);
+    try {
+      if (quote.status !== "Accepted") {
+        updateQuotationStatus(quote.id, "Accepted");
+        await api.updateQuotation(quote.id, { status: "Accepted" }).catch(() => undefined);
+      }
+      const res = await api.proceedToBooking(quote.id);
+      const booking = (await import("@/lib/api-mappers")).mapApiBooking(res.booking);
+      upsertBooking(booking);
+      toast({
+        title: "Booking created",
+        description: `${booking.bookingRef} — open Bookings to continue passenger details`,
+      });
+    } catch (e) {
+      toast({
+        title: "Proceed to Booking failed",
+        description: e instanceof ApiError ? e.message : "Could not create booking",
+        variant: "destructive",
+      });
+    } finally {
+      setBusyId(null);
+    }
+  }
+
+  return { proceed, busyId };
+}
 
 function useQuoteActions() {
   const { toast } = useToast();
@@ -108,14 +145,51 @@ function CreateQuotationDialog() {
     { id: "1", description: "Flight - DEL → DXB (Return)", qty: 1, price: 28000 },
   ]);
   const [discount, setDiscount] = useState(0);
+  const [couponCode, setCouponCode] = useState("");
+  const [appliedCoupon, setAppliedCoupon] = useState<{ code: string; discountAmount: number } | null>(null);
+  const [couponBusy, setCouponBusy] = useState(false);
   const [shareQuote, setShareQuote] = useState<Quotation | null>(null);
 
   const selectedCustomer = customers.find((c) => c.name === customer);
   const subtotal = items.reduce((s, i) => s + i.qty * i.price, 0);
-  const discountAmount = (subtotal * discount) / 100;
-  const taxableAmount = subtotal - discountAmount;
+  const couponDiscountAmount = Math.min(subtotal, appliedCoupon?.discountAmount ?? 0);
+  const afterCoupon = Math.max(0, subtotal - couponDiscountAmount);
+  const manualDiscountAmount = Math.round((afterCoupon * discount) / 100);
+  const taxableAmount = Math.max(0, afterCoupon - manualDiscountAmount);
   const gst = Math.round(taxableAmount * 0.18);
   const total = taxableAmount + gst;
+
+  async function applyCoupon() {
+    const code = couponCode.trim().toUpperCase();
+    if (!code) {
+      toast({ title: "Enter a coupon code", variant: "destructive" });
+      return;
+    }
+    if (subtotal <= 0) {
+      toast({ title: "Add line items first", description: "Coupon needs an order amount.", variant: "destructive" });
+      return;
+    }
+    setCouponBusy(true);
+    try {
+      const res = await api.validateCoupon({
+        code,
+        orderAmount: subtotal,
+        agencyId: user?.agencyId || undefined,
+      });
+      setAppliedCoupon({ code: res.coupon.code, discountAmount: res.discountAmount });
+      setCouponCode(res.coupon.code);
+      toast({ title: "Coupon applied", description: `${res.coupon.code} · −₹${res.discountAmount.toLocaleString("en-IN")}` });
+    } catch (e) {
+      setAppliedCoupon(null);
+      toast({
+        title: "Coupon not valid",
+        description: e instanceof ApiError || e instanceof Error ? e.message : "Try another code",
+        variant: "destructive",
+      });
+    } finally {
+      setCouponBusy(false);
+    }
+  }
 
   function addRow() {
     setItems([...items, { id: Date.now().toString(), description: "", qty: 1, price: 0 }]);
@@ -148,6 +222,8 @@ function CreateQuotationDialog() {
       contactEmail: selectedCustomer?.email,
       contactPhone: selectedCustomer?.phone,
       status: asDraft ? "Draft" : "Sent",
+      couponCode: appliedCoupon?.code,
+      couponDiscount: appliedCoupon?.discountAmount ?? 0,
       lineItems: items.map((i) => ({
         description: i.description || `${service} item`,
         qty: i.qty,
@@ -156,13 +232,15 @@ function CreateQuotationDialog() {
     });
     toast({
       title: asDraft ? "Quotation saved as draft" : "Quotation created",
-      description: `${customer} · Total ${formatINR(total)}`,
+      description: `${customer} · Total ${formatINR(total)}${appliedCoupon ? ` · ${appliedCoupon.code}` : ""}`,
     });
     setOpen(false);
     setCustomer("");
     setService("Flight");
     setItems([{ id: "1", description: "", qty: 1, price: 0 }]);
     setDiscount(0);
+    setCouponCode("");
+    setAppliedCoupon(null);
     if (!asDraft) setShareQuote(quote);
   }
 
@@ -243,9 +321,40 @@ function CreateQuotationDialog() {
             </div>
           </div>
 
+          <div className="space-y-2">
+            <Label>Coupon code</Label>
+            <div className="flex gap-2">
+              <div className="relative flex-1">
+                <Ticket className="absolute left-2.5 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-muted-foreground" />
+                <Input
+                  className="pl-8 uppercase"
+                  placeholder="e.g. FLY500"
+                  value={couponCode}
+                  onChange={(e) => {
+                    setCouponCode(e.target.value);
+                    if (appliedCoupon) setAppliedCoupon(null);
+                  }}
+                />
+              </div>
+              <Button type="button" variant="outline" onClick={() => void applyCoupon()} disabled={couponBusy}>
+                {couponBusy ? <Loader2 className="w-4 h-4 animate-spin" /> : "Apply"}
+              </Button>
+              {appliedCoupon && (
+                <Button type="button" variant="ghost" onClick={() => { setAppliedCoupon(null); setCouponCode(""); }}>
+                  Clear
+                </Button>
+              )}
+            </div>
+            {appliedCoupon && (
+              <p className="text-xs text-emerald-600">
+                {appliedCoupon.code} applied (−{formatFullINR(appliedCoupon.discountAmount)})
+              </p>
+            )}
+          </div>
+
           <div className="grid grid-cols-2 gap-3">
             <div>
-              <Label>Discount (%)</Label>
+              <Label>Extra discount (%)</Label>
               <div className="relative">
                 <Percent className="absolute left-2.5 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-muted-foreground" />
                 <Input type="number" min={0} max={100} value={discount} onChange={(e) => setDiscount(Number(e.target.value))} className="pl-8" />
@@ -253,7 +362,18 @@ function CreateQuotationDialog() {
             </div>
             <div className="rounded-lg bg-muted/40 p-3 text-xs space-y-1">
               <div className="flex justify-between"><span className="text-muted-foreground">Subtotal</span><span>{formatFullINR(subtotal)}</span></div>
-              {discount > 0 && <div className="flex justify-between text-emerald-600"><span>Discount ({discount}%)</span><span>-{formatFullINR(discountAmount)}</span></div>}
+              {couponDiscountAmount > 0 && (
+                <div className="flex justify-between text-emerald-600">
+                  <span>Coupon ({appliedCoupon?.code})</span>
+                  <span>-{formatFullINR(couponDiscountAmount)}</span>
+                </div>
+              )}
+              {manualDiscountAmount > 0 && (
+                <div className="flex justify-between text-emerald-600">
+                  <span>Extra ({discount}%)</span>
+                  <span>-{formatFullINR(manualDiscountAmount)}</span>
+                </div>
+              )}
               <div className="flex justify-between"><span className="text-muted-foreground">GST @ 18%</span><span>{formatFullINR(gst)}</span></div>
               <Separator className="my-1" />
               <div className="flex justify-between font-semibold text-sm"><span>Total</span><span className="text-teal-600">{formatFullINR(total)}</span></div>
@@ -315,6 +435,8 @@ const APPROVAL_STEPS = [
 function QuoteDetailDialog({ quote, open, onOpenChange }: { quote: Quotation | null; open: boolean; onOpenChange: (v: boolean) => void }) {
   const { toast } = useToast();
   const { pdf, email, whatsapp, markSent } = useQuoteActions();
+  const { proceed, busyId } = useProceedToBooking();
+  const updateQuotationStatus = useDemoDataStore((s) => s.updateQuotationStatus);
   const [approvalStep, setApprovalStep] = useState(0);
   if (!quote) return null;
   const items = getQuotationLineItems(quote);
@@ -324,6 +446,13 @@ function QuoteDetailDialog({ quote, open, onOpenChange }: { quote: Quotation | n
       setApprovalStep(approvalStep + 1);
       toast({ title: "Approval workflow updated", description: `Status: ${APPROVAL_STEPS[approvalStep + 1].key}` });
     }
+  }
+
+  function acceptQuote() {
+    if (!quote) return;
+    updateQuotationStatus(quote.id, "Accepted");
+    api.updateQuotation(quote.id, { status: "Accepted" }).catch(() => undefined);
+    toast({ title: "Quotation accepted", description: "Proceed to Booking is now available" });
   }
 
   return (
@@ -420,9 +549,61 @@ function QuoteDetailDialog({ quote, open, onOpenChange }: { quote: Quotation | n
             {quote.status === "Draft" && (
               <Button variant="outline" size="sm" onClick={() => markSent(quote)}><Send className="w-3.5 h-3.5 mr-1" /> Mark Sent</Button>
             )}
-            {approvalStep < 2 && (
-              <Button size="sm" className="bg-primary hover:bg-primary/90 ml-auto" onClick={requestApproval}>
-                <CheckCircle2 className="w-3.5 h-3.5 mr-1" /> {approvalStep === 0 ? "Request Approval" : "Mark Approved"}
+            {["Sent", "Sent to Agent", "Customer Reviewing", "Draft", "In Progress"].includes(quote.status) && (
+              <Button variant="outline" size="sm" onClick={async () => {
+                try {
+                  await api.acceptQuotation(quote.id, { personName: quote.customerName });
+                  acceptQuote();
+                } catch { acceptQuote(); }
+              }}>
+                <CheckCircle2 className="w-3.5 h-3.5 mr-1" /> Accept Quote
+              </Button>
+            )}
+            {["Sent to Agent", "Customer Reviewing", "Sent"].includes(quote.status) && (
+              <Button variant="outline" size="sm" onClick={async () => {
+                try {
+                  await api.requestQuotationRevision(quote.id, { comments: "Please revise pricing / hotels" });
+                  toast({ title: "Revision requested" });
+                } catch (e) {
+                  toast({ title: "Revision failed", description: e instanceof ApiError ? e.message : "Error", variant: "destructive" });
+                }
+              }}>
+                Request Revision
+              </Button>
+            )}
+            {(quote.status === "Accepted" || quote.status === "Converted to Booking" || approvalStep >= 2) && (
+              <Button
+                size="sm"
+                className="bg-teal-600 hover:bg-teal-700 text-white"
+                disabled={busyId === quote.id || quote.status === "Converted to Booking"}
+                onClick={() => proceed(quote)}
+              >
+                {busyId === quote.id ? <Loader2 className="w-3.5 h-3.5 mr-1 animate-spin" /> : <Ticket className="w-3.5 h-3.5 mr-1" />}
+                {quote.status === "Converted to Booking" ? "Booking Created" : "Convert to Booking"}
+              </Button>
+            )}
+            {["Draft", "In Progress"].includes(quote.status) && (
+              <Button size="sm" className="bg-primary hover:bg-primary/90" onClick={async () => {
+                try {
+                  await api.submitQuotationApproval(quote.id);
+                  toast({ title: "Submitted for approval" });
+                } catch {
+                  requestApproval();
+                }
+              }}>
+                <CheckCircle2 className="w-3.5 h-3.5 mr-1" /> Submit Approval
+              </Button>
+            )}
+            {quote.status === "Pending Approval" && (
+              <Button size="sm" className="ml-auto" onClick={async () => {
+                try {
+                  await api.approveQuotation(quote.id, { readyToSend: true, stage: "Team Lead" });
+                  toast({ title: "Approved & ready to send" });
+                } catch {
+                  requestApproval();
+                }
+              }}>
+                Approve & Send
               </Button>
             )}
           </div>
@@ -433,34 +614,61 @@ function QuoteDetailDialog({ quote, open, onOpenChange }: { quote: Quotation | n
 }
 
 export function QuotationsView() {
+  const { toast } = useToast();
   const { pdf, markSent } = useQuoteActions();
+  const user = useAuthStore((s) => s.user);
   const quotations = useDemoDataStore((s) => s.quotations);
+  const upsertQuotation = useDemoDataStore((s) => s.upsertQuotation);
+  const hydrateFromApi = useDemoDataStore((s) => s.hydrateFromApi);
   const [selected, setSelected] = useState<Quotation | null>(null);
   const [detailOpen, setDetailOpen] = useState(false);
+  const [wizardOpen, setWizardOpen] = useState(false);
+  const [editWizardId, setEditWizardId] = useState<string | null>(null);
   const [search, setSearch] = useState("");
+  const [statusFilter, setStatusFilter] = useState("All");
+  const [sort, setSort] = useState("latest");
+  const [analytics, setAnalytics] = useState<Record<string, number | undefined>>({});
+  const isAgent = user?.role === "travel_agent";
+
+  useEffect(() => {
+    api.getQuotationAnalytics()
+      .then((a) => setAnalytics(a as Record<string, number | undefined>))
+      .catch(() => undefined);
+    api.getQuotationsManage({ pageSize: "100", sort })
+      .then((res) => {
+        res.quotations.forEach((q) => upsertQuotation(mapApiQuotation(q)));
+      })
+      .catch(() => undefined);
+  }, [sort, upsertQuotation]);
 
   const filtered = useMemo(() => {
-    if (!search) return quotations;
-    const q = search.toLowerCase();
-    return quotations.filter((qt) =>
-      qt.quoteNo.toLowerCase().includes(q) ||
-      qt.customerName.toLowerCase().includes(q) ||
-      (qt.destination || "").toLowerCase().includes(q)
-    );
-  }, [search, quotations]);
-
-  const total = quotations.length;
-  const sent = quotations.filter((q) => q.status === "Sent").length;
-  const accepted = quotations.filter((q) => q.status === "Accepted").length;
-  const totalValue = quotations.reduce((s, q) => s + q.total, 0);
-  const conversionRate = sent + accepted > 0 ? Math.round((accepted / (sent + accepted)) * 100) : 0;
+    let list = quotations;
+    if (statusFilter !== "All") list = list.filter((q) => q.status === statusFilter);
+    if (search) {
+      const q = search.toLowerCase();
+      list = list.filter((qt) =>
+        qt.quoteNo.toLowerCase().includes(q) ||
+        qt.customerName.toLowerCase().includes(q) ||
+        (qt.destination || "").toLowerCase().includes(q) ||
+        (qt.agentName || "").toLowerCase().includes(q) ||
+        (qt.salesExecutiveName || "").toLowerCase().includes(q) ||
+        (qt.enquiryRef || "").toLowerCase().includes(q)
+      );
+    }
+    return list;
+  }, [search, quotations, statusFilter]);
 
   const stats = [
-    { icon: FileText, label: "Total Quotes", value: String(total), color: "bg-teal-100 text-teal-600 dark:bg-teal-500/15 dark:text-teal-400" },
-    { icon: Send, label: "Sent", value: String(sent), color: "bg-cyan-100 text-cyan-600 dark:bg-cyan-500/15 dark:text-cyan-400" },
-    { icon: CheckCircle2, label: "Accepted", value: String(accepted), color: "bg-emerald-100 text-emerald-600 dark:bg-emerald-500/15 dark:text-emerald-400" },
-    { icon: TrendingUp, label: "Conversion Rate", value: `${conversionRate}%`, color: "bg-amber-100 text-amber-600 dark:bg-amber-500/15 dark:text-amber-400" },
-    { icon: Wallet, label: "Total Value", value: formatINR(totalValue), color: "bg-rose-100 text-rose-600 dark:bg-rose-500/15 dark:text-rose-400" },
+    { icon: FileText, label: "Total Quotes", value: String(analytics.total ?? quotations.length), color: "bg-teal-100 text-teal-600 dark:bg-teal-500/15 dark:text-teal-400" },
+    { icon: Clock, label: "In Progress", value: String(analytics.inProgress ?? 0), color: "bg-sky-100 text-sky-600 dark:bg-sky-500/15 dark:text-sky-400" },
+    { icon: Send, label: "Sent", value: String(analytics.sent ?? 0), color: "bg-cyan-100 text-cyan-600 dark:bg-cyan-500/15 dark:text-cyan-400" },
+    { icon: CheckCircle2, label: "Accepted", value: String(analytics.accepted ?? 0), color: "bg-emerald-100 text-emerald-600 dark:bg-emerald-500/15 dark:text-emerald-400" },
+    { icon: Ticket, label: "Converted", value: String(analytics.converted ?? 0), color: "bg-violet-100 text-violet-600 dark:bg-violet-500/15 dark:text-violet-400" },
+    { icon: TrendingUp, label: "Conversion", value: `${analytics.conversionRate ?? 0}%`, color: "bg-amber-100 text-amber-600 dark:bg-amber-500/15 dark:text-amber-400" },
+    { icon: Wallet, label: "Quoted Value", value: formatINR(Number(analytics.totalQuotedValue ?? 0)), color: "bg-rose-100 text-rose-600 dark:bg-rose-500/15 dark:text-rose-400" },
+    ...(!isAgent && analytics.expectedProfit != null
+      ? [{ icon: Percent, label: "Expected Profit", value: formatINR(Number(analytics.expectedProfit)), color: "bg-emerald-100 text-emerald-700 dark:bg-emerald-500/15 dark:text-emerald-400" }]
+      : []),
   ];
 
   function openDetail(q: Quotation) {
@@ -468,32 +676,69 @@ export function QuotationsView() {
     setDetailOpen(true);
   }
 
+  async function runAction(label: string, fn: () => Promise<void>) {
+    try {
+      await fn();
+      toast({ title: label });
+      await hydrateFromApi();
+      const a = await api.getQuotationAnalytics();
+      setAnalytics(a as Record<string, number | undefined>);
+    } catch (e) {
+      toast({ title: `${label} failed`, description: e instanceof ApiError ? e.message : "Error", variant: "destructive" });
+    }
+  }
+
   return (
     <PageShell>
       <PageHeader
-        title="Quotations"
-        subtitle="Create client quotes (classic, product with images/places, or international), download PDF, and share via email or WhatsApp."
+        title="Quotation Management"
+        subtitle="Enquiry → draft → approval → send → revise → accept → convert to booking"
         action={
           <div className="flex flex-wrap gap-2">
-            <ProductQuoteBuilderDialog />
-            <InternationalQuotationDialog />
-            <CreateQuotationDialog />
+            {!isAgent && (
+              <Button className="bg-teal-600 hover:bg-teal-700" onClick={() => { setEditWizardId(null); setWizardOpen(true); }}>
+                <Plus className="w-4 h-4 mr-1" /> Create New Quote
+              </Button>
+            )}
+            {!isAgent && <ProductQuoteBuilderDialog />}
+            {!isAgent && <InternationalQuotationDialog />}
+            {!isAgent && <CreateQuotationDialog />}
           </div>
         }
       />
 
-      <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-3">
+      <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-8 gap-3">
         {stats.map((s, i) => <MetricCard key={s.label} {...s} index={i} />)}
       </div>
 
       <Card>
         <CardContent className="p-4">
-          <Input
-            placeholder="Search by quote no, customer, or destination..."
-            value={search}
-            onChange={(e) => setSearch(e.target.value)}
-            className="max-w-sm mb-3 h-9"
-          />
+          <div className="flex flex-wrap gap-2 mb-3">
+            <Input
+              placeholder="Search quote no, customer, agent, destination, enquiry…"
+              value={search}
+              onChange={(e) => setSearch(e.target.value)}
+              className="max-w-sm h-9"
+            />
+            <Select value={statusFilter} onValueChange={setStatusFilter}>
+              <SelectTrigger className="w-44 h-9"><SelectValue placeholder="Status" /></SelectTrigger>
+              <SelectContent>
+                {["All", "Draft", "In Progress", "Pending Approval", "Sent to Agent", "Customer Reviewing", "Revision Requested", "Accepted", "Rejected", "Expired", "Converted to Booking", "Archived"].map((s) => (
+                  <SelectItem key={s} value={s}>{s}</SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+            <Select value={sort} onValueChange={setSort}>
+              <SelectTrigger className="w-36 h-9"><SelectValue /></SelectTrigger>
+              <SelectContent>
+                <SelectItem value="latest">Latest</SelectItem>
+                <SelectItem value="oldest">Oldest</SelectItem>
+                <SelectItem value="value">Quote Value</SelectItem>
+                <SelectItem value="profit">Profit</SelectItem>
+                <SelectItem value="status">Status</SelectItem>
+              </SelectContent>
+            </Select>
+          </div>
           <div className="rounded-lg border border-border max-h-[60vh] overflow-y-auto scroll-thin">
             <Table>
               <TableHeader className="sticky top-0 bg-card z-10">
@@ -532,18 +777,45 @@ export function QuotationsView() {
                         <Button variant="ghost" size="sm" className="h-7 w-7 p-0" title="View" onClick={() => openDetail(q)}>
                           <Eye className="w-3.5 h-3.5" />
                         </Button>
-                        <Button variant="ghost" size="sm" className="h-7 w-7 p-0 text-cyan-600" title="Mark sent" onClick={() => markSent(q)}>
+                        {!isAgent && ["Draft", "In Progress", "Revision Requested"].includes(q.status) && (
+                          <Button variant="ghost" size="sm" className="h-7 w-7 p-0" title="Edit wizard" onClick={() => { setEditWizardId(q.id); setWizardOpen(true); }}>
+                            <FileText className="w-3.5 h-3.5" />
+                          </Button>
+                        )}
+                        {!isAgent && (
+                          <Button variant="ghost" size="sm" className="h-7 w-7 p-0" title="Duplicate" onClick={() => runAction("Duplicated", async () => {
+                            const res = await api.duplicateQuotation(q.id);
+                            upsertQuotation(mapApiQuotation(res.quotation));
+                          })}>
+                            <Copy className="w-3.5 h-3.5" />
+                          </Button>
+                        )}
+                        <Button variant="ghost" size="sm" className="h-7 w-7 p-0 text-cyan-600" title="Share / send" onClick={() => runAction("Shared", async () => {
+                          const res = await api.shareQuotation(q.id, { channel: "Email", recipient: q.contactEmail });
+                          if (res.mailto) window.location.href = res.mailto;
+                          else markSent(q);
+                        })}>
                           <Send className="w-3.5 h-3.5" />
                         </Button>
                         <Button variant="ghost" size="sm" className="h-7 w-7 p-0 text-rose-600" title="Download PDF" onClick={() => pdf(q)}>
                           <FileDown className="w-3.5 h-3.5" />
                         </Button>
+                        {!isAgent && q.status === "Draft" && (
+                          <Button variant="ghost" size="sm" className="h-7 w-7 p-0 text-destructive" title="Delete draft" onClick={() => runAction("Draft deleted", () => api.deleteQuotationDraft(q.id).then(() => undefined))}>
+                            <Trash2 className="w-3.5 h-3.5" />
+                          </Button>
+                        )}
+                        {!isAgent && q.status !== "Archived" && (
+                          <Button variant="ghost" size="sm" className="h-7 w-7 p-0" title="Archive" onClick={() => runAction("Archived", () => api.archiveQuotation(q.id).then(() => undefined))}>
+                            <Archive className="w-3.5 h-3.5" />
+                          </Button>
+                        )}
                       </div>
                     </TableCell>
                   </TableRow>
                 ))}
                 {filtered.length === 0 && (
-                  <TableRow><TableCell colSpan={11} className="text-center text-sm text-muted-foreground py-8">No quotations found.</TableCell></TableRow>
+                  <TableRow><TableCell colSpan={11} className="text-center text-sm text-muted-foreground py-8">No quotations found. Create a quote with the wizard to start.</TableCell></TableRow>
                 )}
               </TableBody>
             </Table>
@@ -552,6 +824,12 @@ export function QuotationsView() {
       </Card>
 
       <QuoteDetailDialog quote={selected} open={detailOpen} onOpenChange={setDetailOpen} />
+      <QuotationWizardDialog
+        open={wizardOpen}
+        onOpenChange={setWizardOpen}
+        quotationId={editWizardId}
+        onSaved={(q) => upsertQuotation(q)}
+      />
     </PageShell>
   );
 }

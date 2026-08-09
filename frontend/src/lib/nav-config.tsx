@@ -78,7 +78,7 @@ export const NAV_SECTIONS: NavSection[] = [
     title: "Insights",
     items: [
       { key: "reports", label: "Reports & Analytics", icon: BarChart3, module: "reports" },
-      { key: "analytics", label: "Platform Analytics", icon: LineChart, module: "analytics" },
+      { key: "analytics", label: "Platform Analytics", icon: LineChart, module: "analytics", roles: ["super_admin"] },
     ],
   },
   {
@@ -105,8 +105,8 @@ export const NAV_SECTIONS: NavSection[] = [
       { key: "branches", label: "Branches", icon: GitBranch, module: "branches" },
       { key: "api-marketplace", label: "API Marketplace", icon: Store, module: "api-marketplace", stubOnly: true, badge: "Demo" },
       { key: "api-management", label: "API Management", icon: KeyRound, module: "api-management", stubOnly: true, badge: "Demo" },
-      { key: "monitoring", label: "Monitoring", icon: Activity, module: "monitoring", stubOnly: true, badge: "Demo" },
-      { key: "marketing", label: "Marketing", icon: Megaphone, module: "marketing", stubOnly: true, badge: "Demo" },
+      { key: "monitoring", label: "Monitoring", icon: Activity, module: "monitoring", roles: ["super_admin"] },
+      { key: "marketing", label: "Coupons", icon: Megaphone, module: "marketing" },
       { key: "cms", label: "CMS", icon: LayoutGrid, module: "cms", stubOnly: true, badge: "Demo" },
       { key: "audit-logs", label: "Audit Logs", icon: History, module: "audit-logs" },
       { key: "settings", label: "Settings", icon: Settings, module: "settings" },

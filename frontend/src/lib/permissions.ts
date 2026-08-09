@@ -41,6 +41,17 @@ export const ROLE_DEFAULT_PERMISSIONS: Record<Role, Module[]> = {
   product_executive: [
     "hotels", "activities", "transfers", "holiday", "destinations", "packages", "suppliers", "quotations", "notifications",
   ],
+  operations: [
+    "bookings", "holiday", "hotels", "activities", "transfers", "suppliers", "tasks", "customers",
+    "support", "notifications", "attendance", "leaves",
+  ],
+  travel_agent: [
+    "bookings", "quotations", "payments", "customers", "notifications", "travel-proposals",
+  ],
+  management: [
+    "bookings", "crm", "customers", "quotations", "payments", "finance", "reports", "analytics",
+    "employees", "tasks", "notifications", "audit-logs", "commission",
+  ],
 };
 
 const FULL: CrudAction[] = ["view", "add", "edit", "delete"];
@@ -55,6 +66,9 @@ export const ROLE_CRUD: Record<Role, Record<string, CrudAction[]>> = {
   accountant: Object.fromEntries(MODULES.map((m) => [m, ["payments", "wallet", "commission", "finance", "reports"].includes(m) ? SALES : READ])),
   sales_executive: Object.fromEntries(MODULES.map((m) => [m, ["hotels", "activities", "transfers", "destinations", "packages", "suppliers"].includes(m) ? READ : SALES])),
   product_executive: Object.fromEntries(MODULES.map((m) => [m, ["hotels", "activities", "transfers", "holiday", "destinations", "packages", "suppliers"].includes(m) ? FULL : m === "quotations" ? SALES : READ])),
+  operations: Object.fromEntries(MODULES.map((m) => [m, ["bookings", "suppliers", "tasks", "holiday", "hotels", "activities", "transfers"].includes(m) ? SALES : READ])),
+  travel_agent: Object.fromEntries(MODULES.map((m) => [m, ["bookings", "quotations", "payments", "customers"].includes(m) ? SALES : READ])),
+  management: Object.fromEntries(MODULES.map((m) => [m, READ])),
 };
 
 export function effectivePermissions(user: Pick<User, "role" | "permissions">): Module[] {

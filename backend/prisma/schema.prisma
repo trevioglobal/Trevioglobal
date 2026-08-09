@@ -31,7 +31,9 @@ model User {
 
   agency       Agency?  @relation(fields: [agencyId], references: [id])
   branch       Branch?  @relation(fields: [branchId], references: [id])
-  bookings     Booking[]
+  bookings     Booking[] @relation("BookingAgent")
+  salesBookings Booking[] @relation("BookingSales")
+  opsBookings  Booking[] @relation("BookingOps")
   leads        Lead[]
   tasks        Task[]   @relation("TaskAssignee")
   quotations   Quotation[]
@@ -40,6 +42,7 @@ model User {
   attendance   Attendance[]
   leaves       Leave[]  @relation("LeaveOwner")
   approvedLeaves Leave[] @relation("LeaveApprover")
+  assignedChangeRequests ChangeRequest[] @relation("ChangeRequestAssignee")
 
   @@index([agencyId])
   @@index([branchId])
@@ -124,7 +127,8 @@ model Booking {
   travelDate    String
   amount        Int
   commission    Int      @default(0)
-  status        String   @default("Pending") // Pending|Confirmed|Ticketed|Completed|Cancelled|Refunded|Failed
+  // FRD: Draft|Awaiting Passenger Details|Pending Initial Payment|Partially Paid|Payment Received|In Progress|Partially Confirmed|Confirmed|Travel Documents Ready|Completed|Cancelled (+ legacy Pending|Ticketed|Refunded|Failed)
+  status        String   @default("Draft")
   paymentStatus String   @default("Pending") // Paid|Pending|Partial|Refunded
   paymentMethod String?
   agentId       String?
@@ -132,18 +136,62 @@ model Booking {
   agencyId      String?
   agencyName    String
   branchId      String?
+  // BMS fields
+  quotationId   String?
+  quoteNo       String?
+  destination   String?
+  nights        Int?
+  totalRooms    Int?
+  adults        Int?
+  children      Int?
+  infants       Int?
+  packageValue  Int?
+  amountPaid    Int      @default(0)
+  balanceAmount Int      @default(0)
+  costPrice     Int      @default(0)
+  grossProfit   Int      @default(0)
+  netProfit     Int      @default(0)
+  salesExecutiveId       String?
+  salesExecutiveName     String?
+  operationsExecutiveId  String?
+  operationsExecutiveName String?
+  isInternational Boolean @default(false)
+  policiesAcceptedAt DateTime?
+  pricingLocked   Boolean  @default(true)
+  pricingSnapshot Json?
+  termsAndConditions String? @db.Text
+  paymentTerms       String? @db.Text
+  cancellationPolicy String? @db.Text
+  packageIncludes    Json    @default("[]")
+  packageExcludes    Json    @default("[]")
+  currency           String  @default("INR")
   createdAt     DateTime @default(now())
   updatedAt     DateTime @updatedAt
 
   customer      Customer? @relation(fields: [customerId], references: [id])
   agency        Agency?   @relation(fields: [agencyId], references: [id])
-  agent         User?     @relation(fields: [agentId], references: [id])
+  agent         User?     @relation("BookingAgent", fields: [agentId], references: [id])
+  salesExecutive User?    @relation("BookingSales", fields: [salesExecutiveId], references: [id])
+  operationsExecutive User? @relation("BookingOps", fields: [operationsExecutiveId], references: [id])
+  quotation     Quotation? @relation(fields: [quotationId], references: [id])
   payments      Payment[]
+  passengers    BookingPassenger[]
+  paymentRequests PaymentRequest[]
+  services      BookingService[]
+  supplierLines BookingSupplierLine[]
+  documents     BookingDocument[]
+  invoices      BookingInvoice[]
+  changeRequests ChangeRequest[]
+  addOns        BookingAddOn[]
+  supplierPayouts SupplierPayout[]
+  modifications BookingModification[]
 
   @@index([agencyId])
   @@index([customerId])
   @@index([agentId])
   @@index([branchId])
+  @@index([quotationId])
+  @@index([status])
 }
 
 model Payment {
@@ -209,7 +257,8 @@ model Quotation {
   amount     Int
   gst        Int
   total      Int
-  status     String   @default("Draft") // Draft|Sent|Accepted|Rejected|Expired
+  // FRD: Draft|In Progress|Pending Approval|Sent to Agent|Customer Reviewing|Revision Requested|Accepted|Rejected|Expired|Converted to Booking|Archived (+ legacy Sent)
+  status     String   @default("Draft")
   validTill  String
   createdById String?
   createdBy  String
@@ -243,33 +292,207 @@ model Quotation {
   salesExecutiveEmail String?
   approvalStatus  String  @default("Draft") // Draft|Pending|Approved|Rejected
   lineItems       Json    @default("[]")
+  couponCode      String?
+  couponDiscount  Int     @default(0)
+  // Quotation Management Module (FRD)
+  quoteDate       String?
+  travelStartDate String?
+  travelEndDate   String?
+  agentName       String?
+  agentId         String?
+  specialRequests String?  @db.Text
+  internalNotes   String?  @db.Text
+  refundPolicy    String?  @db.Text
+  hotelTerms      String?  @db.Text
+  flightTerms     String?  @db.Text
+  visaTerms       String?  @db.Text
+  insuranceTerms  String?  @db.Text
+  forceMajeure    String?  @db.Text
+  travelDisclaimer String? @db.Text
+  termsSnapshot   Json?
+  baseCurrency    String   @default("INR")
+  exchangeRate    Float    @default(1)
+  totalNetCost    Int      @default(0)
+  totalSelling    Int      @default(0)
+  grossProfit     Int      @default(0)
+  profitMargin    Float    @default(0)
+  discountType    String?  // Fixed|Percentage
+  discountValue   Float    @default(0)
+  discountAmount  Int      @default(0)
+  taxRate         Float    @default(18)
+  taxableAmount   Int      @default(0)
+  perPersonCost   Int      @default(0)
+  currentVersion  Int      @default(1)
+  wizardStep      Int      @default(1)
+  enquiryRef      String?
+  selectedPackageId String?
+  acceptedByName  String?
+  acceptedByEmail String?
+  acceptedAt      DateTime?
+  rejectedReason  String?
+  convertedBookingId String?
+  convertedAt     DateTime?
+  convertedBy     String?
+  archivedAt      DateTime?
+  deletedAt       DateTime?
+  travelProposalId String?
   createdAt  DateTime @default(now())
+  updatedAt  DateTime @default(now()) @updatedAt
 
   createdByUser User? @relation(fields: [createdById], references: [id])
+  bookings      Booking[]
+  packages      QuotationPackage[]
+  versions      QuotationVersion[]
+  approvals     QuotationApproval[]
+  revisions     QuotationRevision[]
+  shares        QuotationShare[]
+  documents     QuotationDocument[]
 
   @@index([agencyId])
+  @@index([couponCode])
   @@index([branchId])
+  @@index([status])
+  @@index([deletedAt])
+  @@index([destination])
+}
+
+model QuotationPackage {
+  id              String   @id @default(cuid())
+  quotationId     String
+  name            String   // Economy|Deluxe|Premium|Luxury|Custom
+  sortOrder       Int      @default(0)
+  isSelected      Boolean  @default(false)
+  description     String?
+  hotels          Json     @default("[]")
+  flights         Json     @default("[]")
+  transfers       Json     @default("[]")
+  activities      Json     @default("[]")
+  meals           Json     @default("[]")
+  itinerary       Json     @default("[]")
+  visa            Json?
+  insurance       Json?
+  addOns          Json     @default("[]")
+  inclusions      Json     @default("[]")
+  exclusions      Json     @default("[]")
+  totalNetCost    Int      @default(0)
+  totalSelling    Int      @default(0)
+  grossProfit     Int      @default(0)
+  gst             Int      @default(0)
+  total           Int      @default(0)
+  perPersonCost   Int      @default(0)
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  quotation       Quotation @relation(fields: [quotationId], references: [id], onDelete: Cascade)
+
+  @@index([quotationId])
+}
+
+model QuotationVersion {
+  id            String   @id @default(cuid())
+  quotationId   String
+  versionNumber Int
+  snapshot      Json
+  changeSummary String?
+  reason        String?
+  createdByName String?
+  createdById   String?
+  createdAt     DateTime @default(now())
+
+  quotation     Quotation @relation(fields: [quotationId], references: [id], onDelete: Cascade)
+
+  @@unique([quotationId, versionNumber])
+  @@index([quotationId])
+}
+
+model QuotationApproval {
+  id            String   @id @default(cuid())
+  quotationId   String
+  stage         String   // Team Lead|Finance|Ready to Send
+  status        String   @default("Pending") // Pending|Approved|Rejected
+  approverName  String?
+  approverRole  String?
+  comments      String?
+  decidedAt     DateTime?
+  createdAt     DateTime @default(now())
+
+  quotation     Quotation @relation(fields: [quotationId], references: [id], onDelete: Cascade)
+
+  @@index([quotationId])
+}
+
+model QuotationRevision {
+  id            String   @id @default(cuid())
+  quotationId   String
+  requestedBy   String
+  requestedByRole String?
+  comments      String?  @db.Text
+  requestedChanges String? @db.Text
+  status        String   @default("Open") // Open|Addressed|Closed
+  createdAt     DateTime @default(now())
+
+  quotation     Quotation @relation(fields: [quotationId], references: [id], onDelete: Cascade)
+
+  @@index([quotationId])
+}
+
+model QuotationShare {
+  id            String   @id @default(cuid())
+  quotationId   String
+  channel       String   // Email|WhatsApp|Link
+  recipient     String?
+  senderName    String?
+  message       String?
+  status        String   @default("Attempted") // Attempted|Sent|Failed
+  createdAt     DateTime @default(now())
+
+  quotation     Quotation @relation(fields: [quotationId], references: [id], onDelete: Cascade)
+
+  @@index([quotationId])
+}
+
+model QuotationDocument {
+  id            String   @id @default(cuid())
+  quotationId   String
+  docType       String
+  fileName      String
+  fileUrl       String
+  mimeType      String?
+  sizeBytes     Int      @default(0)
+  visibility    String   @default("Internal") // Internal|Agent|Customer
+  relatedEntity String?
+  uploadedBy    String?
+  createdAt     DateTime @default(now())
+
+  quotation     Quotation @relation(fields: [quotationId], references: [id], onDelete: Cascade)
+
+  @@index([quotationId])
 }
 
 model Task {
   id          String   @id @default(cuid())
   agencyId    String?
   branchId    String?
+  bookingId   String?
   title       String
   description String?
   assignedToId String?
   assignedTo  String
   assignedBy  String
-  priority    String   @default("Medium") // Low|Medium|High|Urgent
-  status      String   @default("To Do") // To Do|In Progress|Review|Completed
+  department  String?  // Sales|Operations|Finance|Management
+  priority    String   @default("Medium") // Low|Medium|High|Urgent|Critical
+  status      String   @default("To Do") // To Do|Pending|In Progress|On Hold|Review|Completed|Cancelled
   dueDate     String
+  dueTime     String?
   relatedTo   String?
+  remarks     String?
   createdAt   DateTime @default(now())
 
   assignee    User?    @relation("TaskAssignee", fields: [assignedToId], references: [id])
 
   @@index([agencyId])
   @@index([branchId])
+  @@index([bookingId])
 }
 
 model WalletTransaction {
@@ -354,20 +577,26 @@ model Leave {
 }
 
 model AuditLog {
-  id        String   @id @default(cuid())
-  userId    String?
-  agencyId  String?
-  userName  String
-  action    String
-  module    String
-  ip        String?
-  details   String?
-  createdAt DateTime @default(now())
+  id            String   @id @default(cuid())
+  userId        String?
+  agencyId      String?
+  bookingId     String?
+  userName      String
+  userRole      String?
+  action        String
+  module        String
+  ip            String?
+  details       String?
+  previousValue Json?
+  updatedValue  Json?
+  comments      String?
+  createdAt     DateTime @default(now())
 
   user      User?    @relation(fields: [userId], references: [id])
 
   @@index([userId])
   @@index([agencyId])
+  @@index([bookingId])
 }
 
 model Notification {
@@ -399,6 +628,52 @@ model MarketingCampaign {
   updatedAt   DateTime @updatedAt
 
   @@index([agencyId])
+}
+
+/// Agency-scoped discount codes — create in Marketing, apply on quotations (and future checkout).
+model Coupon {
+  id             String   @id @default(cuid())
+  agencyId       String
+  code           String
+  type           String   // Flat|Percent
+  value          Int
+  minOrderAmount Int      @default(0)
+  usageLimit     Int      @default(0) // 0 = unlimited
+  usedCount      Int      @default(0)
+  maxDiscount    Int?     // optional cap for Percent coupons (INR)
+  validFrom      DateTime @default(now())
+  validTill      DateTime
+  status         String   @default("Active") // Active|Paused|Expired
+  description    String?
+  createdById    String?
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  redemptions    CouponRedemption[]
+
+  @@unique([agencyId, code])
+  @@index([agencyId])
+  @@index([status])
+  @@index([validTill])
+}
+
+model CouponRedemption {
+  id             String   @id @default(cuid())
+  couponId       String
+  agencyId       String
+  userId         String?
+  quotationId    String?
+  orderAmount    Int
+  discountAmount Int
+  code           String
+  createdAt      DateTime @default(now())
+
+  coupon         Coupon   @relation(fields: [couponId], references: [id], onDelete: Cascade)
+
+  @@index([couponId])
+  @@index([agencyId])
+  @@index([quotationId])
+  @@index([code])
 }
 
 model ContentPage {
@@ -1231,3 +1506,223 @@ model ProposalHistory {
   @@index([proposalId])
 }
 
+
+// --- BMS (Booking Management System) ---------------------------------------
+
+model BookingPassenger {
+  id              String   @id @default(cuid())
+  bookingId       String
+  roomIndex       Int      @default(0)
+  isLead          Boolean  @default(false)
+  title           String?
+  firstName       String
+  lastName        String
+  gender          String?
+  dateOfBirth     String?
+  nationality     String?
+  passportNumber  String?
+  passportIssueDate String?
+  passportExpiry  String?
+  mobile          String?
+  email           String?
+  panNumber       String?
+  panVerified     Boolean  @default(false)
+  panRegisteredName String?
+  panStatus       String   @default("Pending") // Pending|Verified|Failed|Skipped
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  booking         Booking  @relation(fields: [bookingId], references: [id], onDelete: Cascade)
+  documents       BookingDocument[]
+
+  @@index([bookingId])
+}
+
+model PaymentRequest {
+  id            String   @id @default(cuid())
+  bookingId     String
+  agencyId      String?
+  requestRef    String   @unique
+  label         String   // Advance|Installment|Partial|Final|Additional
+  amount        Int
+  amountPaid    Int      @default(0)
+  dueDate       String?
+  status        String   @default("Pending") // Pending|Partially Paid|Paid|Failed|Refunded
+  notes         String?
+  createdById   String?
+  createdByName String?
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  booking       Booking  @relation(fields: [bookingId], references: [id], onDelete: Cascade)
+
+  @@index([bookingId])
+  @@index([agencyId])
+}
+
+model BookingService {
+  id               String   @id @default(cuid())
+  bookingId        String
+  serviceType      String   // Hotel|Flight|Transfer|Attraction|Visa|Insurance|Other
+  title            String
+  status           String   @default("Pending") // Pending|Confirmed|Partially Confirmed|Cancelled|Issued
+  confirmationNo   String?
+  supplierName     String?
+  supplierRef      String?
+  costPrice        Int      @default(0)
+  sellingPrice     Int      @default(0)
+  voucherUrl       String?
+  ticketUrl        String?
+  notes            String?
+  confirmedAt      DateTime?
+  createdAt        DateTime @default(now())
+  updatedAt        DateTime @updatedAt
+
+  booking          Booking  @relation(fields: [bookingId], references: [id], onDelete: Cascade)
+
+  @@index([bookingId])
+}
+
+model BookingSupplierLine {
+  id               String   @id @default(cuid())
+  bookingId        String
+  agencyId         String?
+  supplierId       String?
+  supplierName     String
+  contactPerson    String?
+  supplierRef      String?
+  confirmationNo   String?
+  costPrice        Int      @default(0)
+  sellingPrice     Int      @default(0)
+  voucherUrl       String?
+  paymentStatus    String   @default("Pending") // Pending|Partial|Paid|Overdue
+  createdAt        DateTime @default(now())
+  updatedAt        DateTime @updatedAt
+
+  booking          Booking  @relation(fields: [bookingId], references: [id], onDelete: Cascade)
+
+  @@index([bookingId])
+  @@index([agencyId])
+}
+
+model BookingDocument {
+  id            String   @id @default(cuid())
+  bookingId     String
+  passengerId   String?
+  docType       String   // Passport Front|Passport Back|PAN Card|Voucher|Ticket|Insurance|Other
+  fileName      String
+  fileUrl       String
+  mimeType      String?
+  sizeBytes     Int      @default(0)
+  uploadedBy    String?
+  createdAt     DateTime @default(now())
+
+  booking       Booking  @relation(fields: [bookingId], references: [id], onDelete: Cascade)
+  passenger     BookingPassenger? @relation(fields: [passengerId], references: [id], onDelete: SetNull)
+
+  @@index([bookingId])
+  @@index([passengerId])
+}
+
+model BookingInvoice {
+  id            String   @id @default(cuid())
+  bookingId     String
+  agencyId      String?
+  invoiceNo     String   @unique
+  invoiceType   String   // Proforma|Tax Invoice|Credit Note|Debit Note
+  amount        Int
+  gst           Int      @default(0)
+  total         Int
+  status        String   @default("Issued") // Draft|Issued|Cancelled
+  notes         String?
+  createdByName String?
+  createdAt     DateTime @default(now())
+
+  booking       Booking  @relation(fields: [bookingId], references: [id], onDelete: Cascade)
+
+  @@index([bookingId])
+  @@index([agencyId])
+}
+
+model SupplierPayout {
+  id            String   @id @default(cuid())
+  bookingId     String?
+  agencyId      String?
+  supplierName  String
+  amount        Int
+  currency      String   @default("INR")
+  paymentMode   String?  // NEFT|RTGS|UPI|Cheque|Cash|Wallet
+  utr           String?
+  paymentDate   String?
+  paymentTime   String?
+  status        String   @default("Pending") // Pending|Processing|Paid|Failed
+  notes         String?
+  createdByName String?
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  booking       Booking? @relation(fields: [bookingId], references: [id], onDelete: SetNull)
+
+  @@index([bookingId])
+  @@index([agencyId])
+}
+
+model BookingAddOn {
+  id            String   @id @default(cuid())
+  bookingId     String
+  addOnType     String   // Insurance|SIM Card|eSIM|Lounge Access|Cruise|Extra Tours|Private Transfer|Meal Upgrade|Airport Assistance|Visa|Other
+  title         String
+  amount        Int      @default(0)
+  costPrice     Int      @default(0)
+  createdAt     DateTime @default(now())
+
+  booking       Booking  @relation(fields: [bookingId], references: [id], onDelete: Cascade)
+
+  @@index([bookingId])
+}
+
+model BookingModification {
+  id            String   @id @default(cuid())
+  bookingId     String
+  modType       String   // Upgrade Hotel|Downgrade Hotel|Add Nights|Remove Nights|Modify Flights|Change Transfers|Add Attractions|Remove Attractions|Modify Passenger|Other
+  description   String?
+  previousValue Json?
+  updatedValue  Json?
+  priceDelta    Int      @default(0)
+  performedBy   String?
+  createdAt     DateTime @default(now())
+
+  booking       Booking  @relation(fields: [bookingId], references: [id], onDelete: Cascade)
+
+  @@index([bookingId])
+}
+
+model ChangeRequest {
+  id                   String   @id @default(cuid())
+  requestRef           String   @unique
+  bookingId            String
+  agencyId             String?
+  requestType          String
+  category             String   // Passenger|Hotel|Flight|Itinerary|Service|Financial|Cancellation|Miscellaneous
+  requestedBy          String
+  requestedByRole      String?
+  description          String?  @db.Text
+  priority             String   @default("Medium") // Low|Medium|High|Critical
+  status               String   @default("Submitted") // Submitted|Under Review|Cost Check|Approval Required|Additional Payment|Payment Received|Supplier Confirmation|Completed|Rejected
+  estimatedAdditionalCost Int   @default(0)
+  cancellationCharges  Int      @default(0)
+  assignedToId         String?
+  assignedToName       String?
+  resolutionNotes      String?  @db.Text
+  supportingDocs       Json     @default("[]")
+  completedAt          DateTime?
+  createdAt            DateTime @default(now())
+  updatedAt            DateTime @updatedAt
+
+  booking              Booking  @relation(fields: [bookingId], references: [id], onDelete: Cascade)
+  assignee             User?    @relation("ChangeRequestAssignee", fields: [assignedToId], references: [id])
+
+  @@index([bookingId])
+  @@index([agencyId])
+  @@index([status])
+}

@@ -7,6 +7,9 @@ const prisma = new PrismaClient();
 const DEFAULT_SEED_PASSWORD = "Passw0rd@123";
 const SUPER_ADMIN_EMAIL = "admin@travelpartner.pro";
 const SUPER_ADMIN_PASSWORD = "TravioAdmin@2024!";
+/** Dedicated developer login — full platform (super_admin) access for local/console work. */
+const DEV_SUPER_ADMIN_EMAIL = "dev@trevioglobal.com";
+const DEV_SUPER_ADMIN_PASSWORD = "Dev@Trevio2026!";
 
 async function main() {
   console.log("🌱 Seeding Travel Partner Pro database...");
@@ -14,6 +17,7 @@ async function main() {
 
   const hashedPassword = await bcrypt.hash(DEFAULT_SEED_PASSWORD, 10);
   const superAdminHashedPassword = await bcrypt.hash(SUPER_ADMIN_PASSWORD, 10);
+  const devSuperAdminHashedPassword = await bcrypt.hash(DEV_SUPER_ADMIN_PASSWORD, 10);
 
   // Create Super Admin User (REQUIRED FOR PRODUCTION)
   console.log("📍 Creating Super Admin account...");
@@ -41,6 +45,34 @@ async function main() {
     }
   } catch (error) {
     console.error(`❌ Failed to create Super Admin:`, error);
+  }
+
+  console.log("📍 Creating Developer Super Admin account...");
+  try {
+    await prisma.user.upsert({
+      where: { email: DEV_SUPER_ADMIN_EMAIL },
+      update: {
+        password: devSuperAdminHashedPassword,
+        role: "super_admin",
+        designation: "Platform Developer",
+        status: "Active",
+        name: "Trevio Developer",
+      },
+      create: {
+        id: "u-dev-1",
+        name: "Trevio Developer",
+        email: DEV_SUPER_ADMIN_EMAIL,
+        password: devSuperAdminHashedPassword,
+        phone: "+91 98000 00000",
+        role: "super_admin",
+        designation: "Platform Developer",
+        status: "Active",
+      },
+    });
+    console.log(`✅ Developer Super Admin: ${DEV_SUPER_ADMIN_EMAIL}`);
+    console.log(`   Password: ${DEV_SUPER_ADMIN_PASSWORD}`);
+  } catch (error) {
+    console.error(`❌ Failed to create Developer Super Admin:`, error);
   }
 
   console.log("");
@@ -537,6 +569,61 @@ async function main() {
     });
   }
 
+  // Sample coupons for Wanderlust (ag-1) — real DB records, usable on quotations
+  const couponSeeds = [
+    {
+      id: "cp-fly500",
+      code: "FLY500",
+      type: "Flat",
+      value: 500,
+      minOrderAmount: 5000,
+      usageLimit: 1000,
+      validTill: new Date("2027-12-31"),
+      description: "Flat ₹500 off flights & packages",
+    },
+    {
+      id: "cp-summer20",
+      code: "SUMMER20",
+      type: "Percent",
+      value: 20,
+      minOrderAmount: 10000,
+      usageLimit: 500,
+      maxDiscount: 5000,
+      validTill: new Date("2027-06-30"),
+      description: "20% off summer bookings (max ₹5,000)",
+    },
+  ] as const;
+
+  for (const c of couponSeeds) {
+    await prisma.coupon.upsert({
+      where: { agencyId_code: { agencyId: "ag-1", code: c.code } },
+      update: {
+        type: c.type,
+        value: c.value,
+        minOrderAmount: c.minOrderAmount,
+        usageLimit: c.usageLimit,
+        maxDiscount: "maxDiscount" in c ? c.maxDiscount : null,
+        validTill: c.validTill,
+        status: "Active",
+        description: c.description,
+      },
+      create: {
+        id: c.id,
+        agencyId: "ag-1",
+        code: c.code,
+        type: c.type,
+        value: c.value,
+        minOrderAmount: c.minOrderAmount,
+        usageLimit: c.usageLimit,
+        maxDiscount: "maxDiscount" in c ? c.maxDiscount : null,
+        validFrom: new Date(),
+        validTill: c.validTill,
+        status: "Active",
+        description: c.description,
+      },
+    });
+  }
+
   console.log("✅ Database seeding completed!");
   console.log("");
 
@@ -548,6 +635,7 @@ async function main() {
     hotels: await prisma.hotelProduct.count(),
     activities: await prisma.activityProduct.count(),
     transfers: await prisma.transferProduct.count(),
+    coupons: await prisma.coupon.count(),
   };
 
   console.log("📊 Database Counts:");
@@ -558,6 +646,7 @@ async function main() {
   console.log(`   Hotels: ${counts.hotels}`);
   console.log(`   Activities: ${counts.activities}`);
   console.log(`   Transfers: ${counts.transfers}`);
+  console.log(`   Coupons: ${counts.coupons}`);
   console.log("");
 
   console.log("🔐 LOGIN CREDENTIALS:");
@@ -566,12 +655,18 @@ async function main() {
   console.log(`  Email: ${SUPER_ADMIN_EMAIL}`);
   console.log(`  Password: ${SUPER_ADMIN_PASSWORD}`);
   console.log("");
+  console.log("DEVELOPER SUPER ADMIN:");
+  console.log(`  Email: ${DEV_SUPER_ADMIN_EMAIL}`);
+  console.log(`  Password: ${DEV_SUPER_ADMIN_PASSWORD}`);
+  console.log("");
   console.log("DEMO USERS (same password for all ROLE_USERS):");
   console.log(`  Password: ${DEFAULT_SEED_PASSWORD}`);
   console.log("");
   for (const [, u] of Object.entries(ROLE_USERS)) {
     console.log(`  • ${u.email} (${u.role})`);
   }
+  console.log("");
+  console.log("SAMPLE COUPONS (agency ag-1): FLY500, SUMMER20");
   console.log("━".repeat(60));
   console.log("");
   console.log("⚠️  IMPORTANT: Change all passwords after first login in production!");

@@ -31,7 +31,6 @@ import { Progress } from "@/components/ui/progress";
 import { Separator } from "@/components/ui/separator";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { useToast } from "@/hooks/use-toast";
-import { AGENCIES, BOOKINGS } from "@/lib/mock-data";
 import { api } from "@/lib/api";
 import { mapApiAgency } from "@/lib/api-mappers";
 import type { Agency } from "@/types";
@@ -83,15 +82,18 @@ export function AgenciesView() {
   const [addOpen, setAddOpen] = useState(false);
   const [detailAgency, setDetailAgency] = useState<Agency | null>(null);
   const [editAgency, setEditAgency] = useState<Agency | null>(null);
-  const [agencies, setAgencies] = useState<Agency[]>(AGENCIES);
+  const [agencies, setAgencies] = useState<Agency[]>([]);
 
   useEffect(() => {
     api.getAgencies()
       .then((res) => {
-        if (res.agencies?.length) setAgencies(res.agencies.map(mapApiAgency));
+        setAgencies((res.agencies ?? []).map(mapApiAgency));
       })
-      .catch(() => undefined);
-  }, []);
+      .catch(() => {
+        setAgencies([]);
+        toast({ title: "Could not load agencies", variant: "destructive" });
+      });
+  }, [toast]);
 
   // Add-agency dialog state
   const [form, setForm] = useState({
@@ -508,7 +510,7 @@ function EditAgencyDialog({ agency, onClose, onSaved }: { agency: Agency | null;
 }
 
 function AgencyDetail({ agency }: { agency: Agency }) {
-  const recentBookings = BOOKINGS.filter((b) => b.agency === agency.name || b.agency === "Wanderlust Travels").slice(0, 5);
+  const recentBookings: Array<{ id: string; bookingRef: string; customerName: string; service: string; amount: number; status: string }> = [];
   const maxAlloc = Math.max(agency.apiAllocation.flights, agency.apiAllocation.hotels, 100000);
 
   return (

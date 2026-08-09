@@ -152,6 +152,100 @@ export const api = {
       body: JSON.stringify(body),
     }),
 
+  proceedToBooking: (quotationId: string, body?: Record<string, unknown>) =>
+    apiFetch<{ booking: ApiBooking }>(`/api/quotations/${quotationId}/proceed-to-booking`, {
+      method: "POST",
+      body: JSON.stringify(body || {}),
+    }),
+
+  getBookingFull: (id: string) =>
+    apiFetch<{ booking: ApiBooking; tasks: unknown[]; audits: unknown[] }>(`/api/bookings/${id}/full`),
+
+  acceptBookingPolicies: (id: string) =>
+    apiFetch<{ booking: ApiBooking }>(`/api/bookings/${id}/accept-policies`, { method: "POST", body: "{}" }),
+
+  saveBookingPassengers: (id: string, passengers: unknown[]) =>
+    apiFetch<{ booking: ApiBooking }>(`/api/bookings/${id}/passengers`, {
+      method: "PUT",
+      body: JSON.stringify({ passengers }),
+    }),
+
+  verifyPassengerPan: (bookingId: string, passengerId: string, body: Record<string, unknown>) =>
+    apiFetch<{ passenger: unknown; verification: { ok: boolean; status: string; message: string } }>(
+      `/api/bookings/${bookingId}/passengers/${passengerId}/verify-pan`,
+      { method: "POST", body: JSON.stringify(body) },
+    ),
+
+  uploadBookingDocument: (id: string, body: Record<string, unknown>) =>
+    apiFetch<{ document: unknown }>(`/api/bookings/${id}/documents`, {
+      method: "POST",
+      body: JSON.stringify(body),
+    }),
+
+  createPaymentRequest: (bookingId: string, body: Record<string, unknown>) =>
+    apiFetch<{ paymentRequest: unknown }>(`/api/bookings/${bookingId}/payment-requests`, {
+      method: "POST",
+      body: JSON.stringify(body),
+    }),
+
+  payPaymentRequest: (id: string, body: Record<string, unknown>) =>
+    apiFetch<{ paymentRequest: unknown; booking: ApiBooking }>(`/api/payment-requests/${id}/pay`, {
+      method: "POST",
+      body: JSON.stringify(body),
+    }),
+
+  updateBookingService: (bookingId: string, serviceId: string, body: Record<string, unknown>) =>
+    apiFetch<{ service: unknown }>(`/api/bookings/${bookingId}/services/${serviceId}`, {
+      method: "PATCH",
+      body: JSON.stringify(body),
+    }),
+
+  createBookingInvoice: (bookingId: string, body: Record<string, unknown>) =>
+    apiFetch<{ invoice: unknown }>(`/api/bookings/${bookingId}/invoices`, {
+      method: "POST",
+      body: JSON.stringify(body),
+    }),
+
+  createBookingAddOn: (bookingId: string, body: Record<string, unknown>) =>
+    apiFetch<{ addOn: unknown; booking: ApiBooking }>(`/api/bookings/${bookingId}/add-ons`, {
+      method: "POST",
+      body: JSON.stringify(body),
+    }),
+
+  createChangeRequest: (bookingId: string, body: Record<string, unknown>) =>
+    apiFetch<{ changeRequest: unknown }>(`/api/bookings/${bookingId}/change-requests`, {
+      method: "POST",
+      body: JSON.stringify(body),
+    }),
+
+  updateChangeRequest: (id: string, body: Record<string, unknown>) =>
+    apiFetch<{ changeRequest: unknown }>(`/api/change-requests/${id}`, {
+      method: "PATCH",
+      body: JSON.stringify(body),
+    }),
+
+  createSupplierPayout: (body: Record<string, unknown>) =>
+    apiFetch<{ payout: unknown }>("/api/supplier-payouts", {
+      method: "POST",
+      body: JSON.stringify(body),
+    }),
+
+  getSupplierPayouts: () => apiFetch<{ payouts: unknown[] }>("/api/supplier-payouts"),
+
+  createBookingModification: (bookingId: string, body: Record<string, unknown>) =>
+    apiFetch<{ modification: unknown; booking: ApiBooking }>(`/api/bookings/${bookingId}/modifications`, {
+      method: "POST",
+      body: JSON.stringify(body),
+    }),
+
+  markBookingDocumentsReady: (id: string) =>
+    apiFetch<{ booking: ApiBooking }>(`/api/bookings/${id}/mark-documents-ready`, { method: "POST", body: "{}" }),
+
+  completeBooking: (id: string) =>
+    apiFetch<{ booking: ApiBooking }>(`/api/bookings/${id}/complete`, { method: "POST", body: "{}" }),
+
+  getBmsReports: () => apiFetch<Record<string, unknown>>("/api/bms/reports"),
+
   getCustomers: () => apiFetch<{ customers: ApiCustomer[]; total: number }>("/api/customers"),
 
   createCustomer: (body: Record<string, unknown>) =>
@@ -249,6 +343,87 @@ export const api = {
 
   getQuotations: () => apiFetch<{ quotations: ApiQuotation[]; total: number }>("/api/quotations"),
 
+  getQuotationsManage: (params?: Record<string, string>) => {
+    const q = params ? `?${new URLSearchParams(params)}` : "";
+    return apiFetch<{ quotations: ApiQuotation[]; total: number; page: number; pageSize: number }>(`/api/quotations/manage${q}`);
+  },
+
+  getQuotationAnalytics: () => apiFetch<Record<string, number | Record<string, number> | undefined>>("/api/quotations/analytics"),
+
+  getQuotationFull: (id: string) => apiFetch<{ quotation: ApiQuotation }>(`/api/quotations/${id}/full`),
+
+  createQuotationWizard: (body: Record<string, unknown>) =>
+    apiFetch<{ quotation: ApiQuotation }>("/api/quotations/wizard", { method: "POST", body: JSON.stringify(body) }),
+
+  saveQuotationWizard: (id: string, body: Record<string, unknown>) =>
+    apiFetch<{ quotation: ApiQuotation }>(`/api/quotations/${id}/wizard`, { method: "PUT", body: JSON.stringify(body) }),
+
+  setQuotationStatus: (id: string, status: string, body?: Record<string, unknown>) =>
+    apiFetch<{ quotation: ApiQuotation }>(`/api/quotations/${id}/status`, {
+      method: "POST",
+      body: JSON.stringify({ status, ...body }),
+    }),
+
+  submitQuotationApproval: (id: string) =>
+    apiFetch<{ quotation: ApiQuotation }>(`/api/quotations/${id}/submit-approval`, { method: "POST", body: "{}" }),
+
+  approveQuotation: (id: string, body?: Record<string, unknown>) =>
+    apiFetch<{ quotation: ApiQuotation }>(`/api/quotations/${id}/approve`, {
+      method: "POST",
+      body: JSON.stringify(body || { readyToSend: true }),
+    }),
+
+  rejectQuotationApproval: (id: string, body?: Record<string, unknown>) =>
+    apiFetch<{ quotation: ApiQuotation }>(`/api/quotations/${id}/reject-approval`, {
+      method: "POST",
+      body: JSON.stringify(body || {}),
+    }),
+
+  acceptQuotation: (id: string, body?: Record<string, unknown>) =>
+    apiFetch<{ quotation: ApiQuotation }>(`/api/quotations/${id}/accept`, {
+      method: "POST",
+      body: JSON.stringify(body || {}),
+    }),
+
+  rejectQuotation: (id: string, body?: Record<string, unknown>) =>
+    apiFetch<{ quotation: ApiQuotation }>(`/api/quotations/${id}/reject`, {
+      method: "POST",
+      body: JSON.stringify(body || {}),
+    }),
+
+  requestQuotationRevision: (id: string, body?: Record<string, unknown>) =>
+    apiFetch<{ quotation: ApiQuotation }>(`/api/quotations/${id}/request-revision`, {
+      method: "POST",
+      body: JSON.stringify(body || {}),
+    }),
+
+  duplicateQuotation: (id: string) =>
+    apiFetch<{ quotation: ApiQuotation }>(`/api/quotations/${id}/duplicate`, { method: "POST", body: "{}" }),
+
+  archiveQuotation: (id: string) =>
+    apiFetch<{ quotation: ApiQuotation }>(`/api/quotations/${id}/archive`, { method: "POST", body: "{}" }),
+
+  deleteQuotationDraft: (id: string) =>
+    apiFetch<{ success: boolean }>(`/api/quotations/${id}/draft`, { method: "DELETE" }),
+
+  extendQuotation: (id: string, validTill: string) =>
+    apiFetch<{ quotation: ApiQuotation }>(`/api/quotations/${id}/extend`, {
+      method: "POST",
+      body: JSON.stringify({ validTill }),
+    }),
+
+  shareQuotation: (id: string, body: Record<string, unknown>) =>
+    apiFetch<{ share: unknown; mailto?: string; whatsappUrl?: string; link: string; note: string }>(
+      `/api/quotations/${id}/share`,
+      { method: "POST", body: JSON.stringify(body) },
+    ),
+
+  createQuotationVersion: (id: string, body?: Record<string, unknown>) =>
+    apiFetch<{ version: unknown }>(`/api/quotations/${id}/versions`, {
+      method: "POST",
+      body: JSON.stringify(body || {}),
+    }),
+
   createQuotation: (body: Record<string, unknown>) =>
     apiFetch<{ quotation: ApiQuotation }>("/api/quotations", { method: "POST", body: JSON.stringify(body) }),
 
@@ -343,6 +518,24 @@ export const api = {
   getMarketingCampaigns: () => apiFetch<{ campaigns: any[] }>("/api/marketing/campaigns"),
   createMarketingCampaign: (body: any) => apiFetch<any>("/api/marketing/campaigns", { method: "POST", body: JSON.stringify(body) }),
 
+  getCoupons: (params?: { status?: string; q?: string }) => {
+    const q = new URLSearchParams();
+    if (params?.status) q.set("status", params.status);
+    if (params?.q) q.set("q", params.q);
+    const qs = q.toString();
+    return apiFetch<{ coupons: CouponApi[] }>(`/api/marketing/coupons${qs ? `?${qs}` : ""}`);
+  },
+  createCoupon: (body: CouponWriteBody) =>
+    apiFetch<{ coupon: CouponApi }>("/api/marketing/coupons", { method: "POST", body: JSON.stringify(body) }),
+  updateCoupon: (id: string, body: Partial<CouponWriteBody> & { status?: string }) =>
+    apiFetch<{ coupon: CouponApi }>(`/api/marketing/coupons/${id}`, { method: "PATCH", body: JSON.stringify(body) }),
+  deleteCoupon: (id: string) => apiFetch<{ ok: boolean }>(`/api/marketing/coupons/${id}`, { method: "DELETE" }),
+  validateCoupon: (body: { code: string; orderAmount: number; agencyId?: string }) =>
+    apiFetch<{ valid: boolean; discountAmount: number; coupon: CouponApi; error?: string }>(
+      "/api/marketing/coupons/validate",
+      { method: "POST", body: JSON.stringify(body) }
+    ),
+
   getCmsPages: () => apiFetch<{ pages: any[] }>("/api/cms/pages"),
   createCmsPage: (body: any) => apiFetch<any>("/api/cms/pages", { method: "POST", body: JSON.stringify(body) }),
 
@@ -428,6 +621,36 @@ export interface ApiBooking {
   agentName: string;
   agencyName: string;
   createdAt: string;
+  quotationId?: string | null;
+  quoteNo?: string | null;
+  destination?: string | null;
+  nights?: number | null;
+  totalRooms?: number | null;
+  adults?: number | null;
+  children?: number | null;
+  infants?: number | null;
+  packageValue?: number | null;
+  amountPaid?: number;
+  balanceAmount?: number;
+  costPrice?: number;
+  grossProfit?: number;
+  netProfit?: number;
+  salesExecutiveName?: string | null;
+  operationsExecutiveName?: string | null;
+  isInternational?: boolean;
+  policiesAcceptedAt?: string | null;
+  termsAndConditions?: string | null;
+  paymentTerms?: string | null;
+  cancellationPolicy?: string | null;
+  packageIncludes?: unknown;
+  packageExcludes?: unknown;
+  passengers?: unknown[];
+  paymentRequests?: unknown[];
+  services?: unknown[];
+  changeRequests?: unknown[];
+  addOns?: unknown[];
+  invoices?: unknown[];
+  documents?: unknown[];
 }
 
 export interface ApiCustomer {
@@ -528,6 +751,38 @@ export interface ApiTask {
   dueDate: string;
   relatedTo?: string | null;
   createdAt: string;
+}
+
+export interface CouponApi {
+  id: string;
+  agencyId: string;
+  code: string;
+  type: "Flat" | "Percent" | string;
+  value: number;
+  minOrderAmount: number;
+  usageLimit: number;
+  usedCount: number;
+  maxDiscount: number | null;
+  validFrom: string;
+  validTill: string;
+  status: "Active" | "Expired" | "Paused" | string;
+  description: string | null;
+  limit?: number;
+  used?: number;
+}
+
+export interface CouponWriteBody {
+  code: string;
+  type: "Flat" | "Percent";
+  value: number;
+  minOrderAmount?: number;
+  usageLimit?: number;
+  maxDiscount?: number | null;
+  validFrom?: string;
+  validTill: string;
+  status?: "Active" | "Paused" | "Expired";
+  description?: string | null;
+  agencyId?: string;
 }
 
 export interface SupportTicketApi {
@@ -691,6 +946,8 @@ export interface ApiQuotation {
   paymentTerms?: string | null;
   cancellationPolicy?: string | null;
   approvalStatus?: string | null;
+  couponCode?: string | null;
+  couponDiscount?: number | null;
   lineItems?: Array<{
     description: string;
     qty: number;

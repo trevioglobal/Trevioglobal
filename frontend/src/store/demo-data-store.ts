@@ -64,11 +64,13 @@ interface DemoDataState {
   commissionStats: any;
 
   addBooking: (input: NewBookingInput) => Booking;
+  upsertBooking: (booking: Booking) => void;
   updateBookingStatus: (id: string, status: Booking["status"]) => void;
   addCustomer: (customer: Omit<Customer, "id" | "totalBookings" | "totalSpent" | "loyaltyPoints" | "createdAt">) => Customer;
   addLead: (lead: Omit<Lead, "id" | "stage" | "createdAt">) => Lead;
   updateLeadStage: (id: string, stage: Lead["stage"]) => void;
   addQuotation: (q: NewQuotationInput) => Quotation;
+  upsertQuotation: (q: Quotation) => void;
   updateQuotationStatus: (id: string, status: Quotation["status"]) => void;
   addEmployee: (e: Omit<Employee, "id" | "joinDate" | "status" | "incentives" | "achieved" | "attendance"> & { branchId?: string; permissions?: Module[] | null }) => Promise<Employee & { tempPassword?: string }>;
   updateEmployee: (id: string, patch: Partial<Employee> & { branchId?: string | null; permissions?: Module[] | null }) => Promise<void>;
@@ -214,6 +216,16 @@ export const useDemoDataStore = create<DemoDataState>()(
         return booking;
       },
 
+      upsertBooking: (booking) => {
+        set((s) => {
+          const idx = s.bookings.findIndex((b) => b.id === booking.id || b.bookingRef === booking.bookingRef);
+          if (idx === -1) return { bookings: [booking, ...s.bookings] };
+          const next = [...s.bookings];
+          next[idx] = { ...next[idx], ...booking };
+          return { bookings: next };
+        });
+      },
+
       updateBookingStatus: (id, status) => {
         set((s) => ({
           bookings: s.bookings.map((b) =>
@@ -346,6 +358,8 @@ export const useDemoDataStore = create<DemoDataState>()(
             cancellationPolicy: input.cancellationPolicy,
             approvalStatus: input.approvalStatus,
             lineItems: input.lineItems,
+            couponCode: input.couponCode,
+            couponDiscount: input.couponDiscount,
           })
           .then((res) => {
             const server = mapApiQuotation(res.quotation);
@@ -357,11 +371,23 @@ export const useDemoDataStore = create<DemoDataState>()(
         return quotation;
       },
 
+      upsertQuotation: (quotation) => {
+        set((s) => {
+          const idx = s.quotations.findIndex((q) => q.id === quotation.id || q.quoteNo === quotation.quoteNo);
+          if (idx === -1) return { quotations: [quotation, ...s.quotations] };
+          const next = [...s.quotations];
+          next[idx] = { ...next[idx], ...quotation };
+          return { quotations: next };
+        });
+      },
+
       updateQuotationStatus: (id, status) => {
         set((s) => ({
           quotations: s.quotations.map((q) => (q.id === id ? { ...q, status } : q)),
         }));
-        api.updateQuotation(id, { status }).catch(() => reportSyncFailure("Quotation status"));
+        api
+          .setQuotationStatus(id, status)
+          .catch(() => api.updateQuotation(id, { status }).catch(() => reportSyncFailure("Quotation status")));
       },
 
       addEmployee: async (input) => {

@@ -2,6 +2,7 @@ import type {
   Booking, Customer, Employee, Flight, Hotel, Lead, Notification, Payment, Quotation, Role, Task, User, WalletTransaction, Agency, Branch,
   Module, Attendance, Leave,
 } from "@/types";
+// Quotation mapper uses extended ApiQuotation fields
 import type {
   ApiBooking, ApiCustomer, ApiEmployee, ApiFlight, ApiHotel, ApiLead, ApiNotification, ApiPayment, ApiQuotation, ApiTask, ApiUser, ApiWalletTxn,
   ApiAgency, ApiBranch, ApiCommissionResponse, ApiFinanceResponse, ApiFinanceInvoice, ApiAttendance, ApiLeave,
@@ -64,6 +65,36 @@ export function mapApiBooking(b: ApiBooking): Booking {
     agent: b.agentName,
     agency: b.agencyName,
     createdAt: b.createdAt.slice(0, 10),
+    quotationId: b.quotationId,
+    quoteNo: b.quoteNo,
+    destination: b.destination,
+    nights: b.nights,
+    totalRooms: b.totalRooms,
+    adults: b.adults,
+    children: b.children,
+    infants: b.infants,
+    packageValue: b.packageValue,
+    amountPaid: b.amountPaid,
+    balanceAmount: b.balanceAmount,
+    costPrice: b.costPrice,
+    grossProfit: b.grossProfit,
+    netProfit: b.netProfit,
+    salesExecutiveName: b.salesExecutiveName,
+    operationsExecutiveName: b.operationsExecutiveName,
+    isInternational: b.isInternational,
+    policiesAcceptedAt: b.policiesAcceptedAt,
+    termsAndConditions: b.termsAndConditions,
+    paymentTerms: b.paymentTerms,
+    cancellationPolicy: b.cancellationPolicy,
+    packageIncludes: b.packageIncludes,
+    packageExcludes: b.packageExcludes,
+    passengers: b.passengers as Booking["passengers"],
+    paymentRequests: b.paymentRequests as Booking["paymentRequests"],
+    services: b.services as Booking["services"],
+    changeRequests: b.changeRequests as Booking["changeRequests"],
+    addOns: b.addOns as Booking["addOns"],
+    invoices: b.invoices as Booking["invoices"],
+    documents: b.documents as Booking["documents"],
   };
 }
 
@@ -164,6 +195,8 @@ export function mapApiQuotation(q: ApiQuotation): Quotation {
     paymentTerms: q.paymentTerms ?? undefined,
     cancellationPolicy: q.cancellationPolicy ?? undefined,
     approvalStatus: (q.approvalStatus as Quotation["approvalStatus"]) ?? undefined,
+    couponCode: q.couponCode ?? undefined,
+    couponDiscount: q.couponDiscount ?? undefined,
     lineItems: Array.isArray(q.lineItems)
       ? q.lineItems.map((li) => ({
           description: li.description || li.title || "Item",
@@ -174,6 +207,28 @@ export function mapApiQuotation(q: ApiQuotation): Quotation {
           currency: li.currency,
         }))
       : undefined,
+    quoteDate: (q as { quoteDate?: string }).quoteDate,
+    travelStartDate: (q as { travelStartDate?: string }).travelStartDate,
+    travelEndDate: (q as { travelEndDate?: string }).travelEndDate,
+    agentName: (q as { agentName?: string }).agentName,
+    specialRequests: (q as { specialRequests?: string }).specialRequests,
+    internalNotes: (q as { internalNotes?: string }).internalNotes,
+    totalNetCost: (q as { totalNetCost?: number }).totalNetCost,
+    totalSelling: (q as { totalSelling?: number }).totalSelling,
+    grossProfit: (q as { grossProfit?: number }).grossProfit,
+    profitMargin: (q as { profitMargin?: number }).profitMargin,
+    discountType: (q as { discountType?: string | null }).discountType,
+    discountValue: (q as { discountValue?: number }).discountValue,
+    discountAmount: (q as { discountAmount?: number }).discountAmount,
+    taxRate: (q as { taxRate?: number }).taxRate,
+    perPersonCost: (q as { perPersonCost?: number }).perPersonCost,
+    currentVersion: (q as { currentVersion?: number }).currentVersion,
+    wizardStep: (q as { wizardStep?: number }).wizardStep,
+    enquiryRef: (q as { enquiryRef?: string }).enquiryRef,
+    selectedPackageId: (q as { selectedPackageId?: string | null }).selectedPackageId,
+    convertedBookingId: (q as { convertedBookingId?: string | null }).convertedBookingId,
+    salesExecutiveName: (q as { salesExecutiveName?: string }).salesExecutiveName,
+    packages: (q as { packages?: Quotation["packages"] }).packages,
   };
 }
 

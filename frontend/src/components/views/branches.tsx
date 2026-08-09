@@ -30,10 +30,9 @@ import {
 } from "@/components/ui/dropdown-menu";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { useToast } from "@/hooks/use-toast";
-import { AGENCIES, BRANCHES } from "@/lib/mock-data";
 import { api, type ApiEmployee } from "@/lib/api";
-import { mapApiBranch } from "@/lib/api-mappers";
-import type { Branch } from "@/types";
+import { mapApiAgency, mapApiBranch } from "@/lib/api-mappers";
+import type { Agency, Branch } from "@/types";
 import { formatINR, formatFullINR, StatusBadge, PageShell, PageHeader, SectionHeader, MetricCard, initials, avatarGradient } from "@/components/shared/ui-helpers";
 import { cn } from "@/lib/utils";
 
@@ -41,7 +40,8 @@ const BRANCH_COLORS = ["var(--brand-blue)", "var(--brand-teal)", "#f59e0b", "#06
 
 export function BranchesView() {
   const { toast } = useToast();
-  const [branches, setBranches] = useState<Branch[]>(BRANCHES);
+  const [branches, setBranches] = useState<Branch[]>([]);
+  const [agencies, setAgencies] = useState<Agency[]>([]);
   const [search, setSearch] = useState("");
   const [addOpen, setAddOpen] = useState(false);
   const [form, setForm] = useState({ name: "", agencyId: "ag-1", city: "", manager: "" });
@@ -51,10 +51,20 @@ export function BranchesView() {
   useEffect(() => {
     api.getBranches()
       .then((res) => {
-        if (res.branches?.length) setBranches(res.branches.map(mapApiBranch));
+        setBranches((res.branches ?? []).map(mapApiBranch));
       })
-      .catch(() => undefined);
-  }, []);
+      .catch(() => {
+        setBranches([]);
+        toast({ title: "Could not load branches", variant: "destructive" });
+      });
+    api.getAgencies()
+      .then((res) => {
+        const list = (res.agencies ?? []).map(mapApiAgency);
+        setAgencies(list);
+        if (list[0]?.id) setForm((f) => ({ ...f, agencyId: f.agencyId || list[0].id }));
+      })
+      .catch(() => setAgencies([]));
+  }, [toast]);
 
   const totalEmployees = branches.reduce((s, b) => s + b.employees, 0);
   const totalRevenue = branches.reduce((s, b) => s + b.revenue, 0);
@@ -81,7 +91,7 @@ export function BranchesView() {
     b.manager.toLowerCase().includes(search.toLowerCase())
   );
 
-  function agencyName(id: string) { return AGENCIES.find((a) => a.id === id)?.name || "—"; }
+  function agencyName(id: string) { return agencies.find((a) => a.id === id)?.name || "—"; }
 
   function handleAdd() {
     if (!form.name || !form.city || !form.manager) {
@@ -133,7 +143,7 @@ export function BranchesView() {
                     <Select value={form.agencyId} onValueChange={(v) => setForm({ ...form, agencyId: v })}>
                       <SelectTrigger className="w-full"><SelectValue /></SelectTrigger>
                       <SelectContent>
-                        {AGENCIES.map((a) => <SelectItem key={a.id} value={a.id}>{a.name}</SelectItem>)}
+                        {agencies.map((a) => <SelectItem key={a.id} value={a.id}>{a.name}</SelectItem>)}
                       </SelectContent>
                     </Select>
                   </div>

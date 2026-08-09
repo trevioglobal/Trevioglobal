@@ -10,7 +10,6 @@ import {
   CreditCard, Building2, Plane, ShoppingBag, Zap, Users, FileDown,
   CheckCircle2, Clock, AlertCircle, Calculator, Percent,
 } from "lucide-react";
-import { REVENUE_DATA, CUSTOMERS } from "@/lib/mock-data";
 import { api } from "@/lib/api";
 import { mapApiFinance, type MappedFinance } from "@/lib/api-mappers";
 import {
@@ -40,42 +39,10 @@ import {
 import { useToast } from "@/hooks/use-toast";
 import { cn } from "@/lib/utils";
 
-const INVOICES = [
-  { id: "inv-1", no: "INV-2025-001", customer: "TechCorp India Pvt Ltd", amount: 320000, gst: 57600, total: 377600, status: "Paid" as const, date: "2025-01-15" },
-  { id: "inv-2", no: "INV-2025-002", customer: "Karthik Venkat", amount: 28400, gst: 5112, total: 33512, status: "Paid" as const, date: "2025-01-12" },
-  { id: "inv-3", no: "INV-2025-003", customer: "Rohit Gupta", amount: 18900, gst: 3402, total: 22302, status: "Pending" as const, date: "2025-01-18" },
-  { id: "inv-4", no: "INV-2025-004", customer: "Kavya Reddy", amount: 78000, gst: 14040, total: 92040, status: "Paid" as const, date: "2025-01-19" },
-  { id: "inv-5", no: "INV-2025-005", customer: "Amit Patel", amount: 440000, gst: 79200, total: 519200, status: "Overdue" as const, date: "2024-12-22" },
-  { id: "inv-6", no: "INV-2025-006", customer: "Sanjay Kumar", amount: 68000, gst: 12240, total: 80240, status: "Pending" as const, date: "2025-01-18" },
-  { id: "inv-7", no: "INV-2025-007", customer: "Pooja Mehta", amount: 45000, gst: 8100, total: 53100, status: "Paid" as const, date: "2025-01-20" },
-  { id: "inv-8", no: "INV-2025-008", customer: "Imran Khan", amount: 234000, gst: 42120, total: 276120, status: "Overdue" as const, date: "2024-11-30" },
-];
-
-const EXPENSES = [
-  { id: "ex-1", category: "Office Rent", description: "Mumbai office monthly rent", amount: 85000, date: "2025-01-05", paidBy: "Vikram Iyer" },
-  { id: "ex-2", category: "Salaries", description: "Staff salaries - January 2025", amount: 412000, date: "2025-01-01", paidBy: "Vikram Iyer" },
-  { id: "ex-3", category: "API Costs", description: "IndiGo & Vistara flight API usage", amount: 38000, date: "2025-01-15", paidBy: "System" },
-  { id: "ex-4", category: "Marketing", description: "Google Ads & Meta campaigns", amount: 45000, date: "2025-01-12", paidBy: "Priya Nair" },
-  { id: "ex-5", category: "Software", description: "CRM + Accounting tools subscriptions", amount: 18500, date: "2025-01-08", paidBy: "Vikram Iyer" },
-  { id: "ex-6", category: "Travel", description: "Sales team field travel reimbursements", amount: 22500, date: "2025-01-17", paidBy: "Rahul Khanna" },
-  { id: "ex-7", category: "Utilities", description: "Internet, electricity & phone bills", amount: 12800, date: "2025-01-10", paidBy: "Vikram Iyer" },
-];
-
-const GST_FILINGS = [
-  { month: "January 2025", taxable: 2850000, cgst: 256500, sgst: 256500, igst: 0, status: "Pending" as const },
-  { month: "December 2024", taxable: 3850000, cgst: 0, sgst: 0, igst: 693000, status: "Filed" as const },
-  { month: "November 2024", taxable: 3280000, cgst: 0, sgst: 0, igst: 590400, status: "Filed" as const },
-  { month: "October 2024", taxable: 3450000, cgst: 0, sgst: 0, igst: 621000, status: "Filed" as const },
-  { month: "September 2024", taxable: 3120000, cgst: 0, sgst: 0, igst: 561600, status: "Filed" as const },
-];
-
-const TDS_DEDUCTIONS = [
-  { id: "tds-1", section: "194C", nature: "Contractor / Vendor Payments", amount: 1240000, rate: 1, deducted: 12400, status: "Deposited" as const, date: "2025-01-15" },
-  { id: "tds-2", section: "194J", nature: "Professional Fees", amount: 285000, rate: 10, deducted: 28500, status: "Deposited" as const, date: "2025-01-12" },
-  { id: "tds-3", section: "194I", nature: "Rent (Building)", amount: 85000, rate: 10, deducted: 8500, status: "Deposited" as const, date: "2025-01-05" },
-  { id: "tds-4", section: "192", nature: "Salary (Jan 2025)", amount: 412000, rate: 5, deducted: 20600, status: "Pending" as const, date: "2025-01-31" },
-  { id: "tds-5", section: "194C", nature: "Tour Operator Payments", amount: 580000, rate: 1, deducted: 5800, status: "Pending" as const, date: "2025-01-20" },
-];
+const INVOICES: Array<{ id: string; no: string; customer: string; amount: number; gst: number; total: number; status: "Paid" | "Pending" | "Overdue"; date: string }> = [];
+const EXPENSES: Array<{ id: string; category: string; description: string; amount: number; date: string; paidBy: string }> = [];
+const GST_FILINGS: Array<{ month: string; taxable: number; cgst: number; sgst: number; igst: number; status: "Pending" | "Filed" }> = [];
+const TDS_DEDUCTIONS: Array<{ id: string; section: string; nature: string; amount: number; rate: number; deducted: number; status: "Deposited" | "Pending"; date: string }> = [];
 
 const EXPENSE_CATEGORIES = [
   { name: "Salaries", value: 412000, color: "#0d9488" },
@@ -93,31 +60,25 @@ const CATEGORY_ICON: Record<string, React.ElementType> = {
 };
 
 function OverviewTab({ data }: { data: MappedFinance | null }) {
-  const totalRevenue = data ? data.summary.totalRevenue : REVENUE_DATA.reduce((s, d) => s + d.revenue, 0);
-  const gstCollected = data ? data.summary.totalGst : Math.round(totalRevenue * 0.18);
+  const totalRevenue = data?.summary.totalRevenue ?? 0;
+  const gstCollected = data?.summary.totalGst ?? 0;
   const tdsDeducted = TDS_DEDUCTIONS.reduce((s, t) => s + t.deducted, 0);
-  const totalExpenses = data ? data.summary.totalExpenses : EXPENSES.reduce((s, e) => s + e.amount, 0);
-  const netProfit = data ? data.summary.netProfit : totalRevenue - totalExpenses - tdsDeducted;
+  const totalExpenses = data?.summary.totalExpenses ?? 0;
+  const netProfit = data?.summary.netProfit ?? totalRevenue - totalExpenses - tdsDeducted;
 
-  const chartData = data
-    ? data.monthly.map((m) => ({
-        month: m.label,
-        revenue: m.revenue,
-        profit: m.profit,
-      }))
-    : REVENUE_DATA.map((d) => ({
-        month: d.month,
-        revenue: d.revenue,
-        profit: Math.round(d.revenue * 0.22),
-      }));
+  const chartData = (data?.monthly ?? []).map((m) => ({
+    month: m.label,
+    revenue: m.revenue,
+    profit: m.profit,
+  }));
 
   return (
     <div className="space-y-4">
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-6">
-        <MetricCard icon={IndianRupee} label="Total Revenue (12mo)" value={formatINR(totalRevenue)} color="bg-primary/10 text-primary dark:bg-primary/15 dark:text-brand-teal" change={18.4} trend="up" index={0} />
+        <MetricCard icon={IndianRupee} label="Total Revenue (12mo)" value={formatINR(totalRevenue)} color="bg-primary/10 text-primary dark:bg-primary/15 dark:text-brand-teal" index={0} />
         <MetricCard icon={Receipt} label="GST Collected" value={formatINR(gstCollected)} color="bg-amber-100 text-amber-600 dark:bg-amber-500/15 dark:text-amber-400" index={1} />
-        <MetricCard icon={FileText} label="TDS Deducted" value={formatINR(tdsDeducted)} color="bg-rose-100 text-rose-600 dark:bg-rose-500/15 dark:text-rose-400" index={2} />
-        <MetricCard icon={TrendingUp} label="Net Profit" value={formatINR(netProfit)} color="bg-emerald-100 text-emerald-600 dark:bg-emerald-500/15 dark:text-emerald-400" change={12.1} trend="up" index={3} />
+        <MetricCard icon={FileText} label="TDS Deducted" value={formatINR(tdsDeducted)} color="bg-rose-100 text-rose-600 dark:bg-rose-500/15 dark:text-rose-400" subtitle="Ledger not wired yet" index={2} />
+        <MetricCard icon={TrendingUp} label="Net Profit" value={formatINR(netProfit)} color="bg-emerald-100 text-emerald-600 dark:bg-emerald-500/15 dark:text-emerald-400" index={3} />
       </div>
 
       <Card>
@@ -342,7 +303,7 @@ function GenerateInvoiceDialog() {
             <Select value={customer} onValueChange={setCustomer}>
               <SelectTrigger><SelectValue placeholder="Select customer" /></SelectTrigger>
               <SelectContent>
-                {CUSTOMERS.map((c) => <SelectItem key={c.id} value={c.name}>{c.name}</SelectItem>)}
+                <SelectItem value="__none" disabled>No invoice customers yet — use Quotations</SelectItem>
               </SelectContent>
             </Select>
           </div>
@@ -627,12 +588,7 @@ export function FinanceView() {
     <PageShell>
       <PageHeader
         title="Finance"
-        subtitle="Track revenue, GST, TDS, invoices and expenses — your complete financial cockpit."
-        action={
-          <Badge variant="outline" className="border-amber-300 text-amber-800 dark:text-amber-300">
-            Partial demo data
-          </Badge>
-        }
+        subtitle="Revenue and GST totals from live bookings. Invoice/expense/TDS ledgers are empty until those modules are wired."
       />
       <Tabs defaultValue="overview">
         <TabsList className="bg-muted/60 flex-wrap h-auto">

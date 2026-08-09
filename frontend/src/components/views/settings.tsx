@@ -451,271 +451,29 @@ function UsersTab() {
 }
 
 function SystemTab() {
-  const { toast } = useToast();
-  const testConnection = (channel: string) => {
-    toast({
-      title: "Demo — not persisted",
-      description: `${channel} connection test is UI-only. Gateways are not wired yet.`,
-    });
-  };
   return (
-    <div className="space-y-4">
-      <DemoModuleBanner>
-        Localization, communication channels, and system info below are demo UI — changes are not saved.
-      </DemoModuleBanner>
-    <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
-      <Card>
-        <CardHeader className="pb-3">
-          <CardTitle className="text-base flex items-center gap-2"><Globe className="w-4 h-4 text-teal-600" /> Localization</CardTitle>
-          <CardDescription className="flex items-center gap-2">Regional & language settings <DemoDataBadge label="Demo" /></CardDescription>
-        </CardHeader>
-        <CardContent className="space-y-3">
-          <div className="space-y-1.5">
-            <Label>Timezone</Label>
-            <Select defaultValue="Asia/Kolkata (IST, UTC+5:30)">
-              <SelectTrigger className="w-full"><Clock className="w-3.5 h-3.5 mr-1.5" /><SelectValue /></SelectTrigger>
-              <SelectContent>
-                {TIMEZONES.map((t) => <SelectItem key={t} value={t}>{t}</SelectItem>)}
-              </SelectContent>
-            </Select>
-          </div>
-          <div className="space-y-1.5">
-            <Label>Currency</Label>
-            <Select defaultValue="INR">
-              <SelectTrigger className="w-full"><SelectValue /></SelectTrigger>
-              <SelectContent>
-                <SelectItem value="INR">₹ Indian Rupee (INR)</SelectItem>
-                <SelectItem value="USD">$ US Dollar (USD)</SelectItem>
-                <SelectItem value="AED">د.إ UAE Dirham (AED)</SelectItem>
-                <SelectItem value="EUR">€ Euro (EUR)</SelectItem>
-                <SelectItem value="SGD">S$ Singapore Dollar (SGD)</SelectItem>
-              </SelectContent>
-            </Select>
-          </div>
-          <div className="space-y-1.5">
-            <Label>Language</Label>
-            <Select defaultValue="English">
-              <SelectTrigger className="w-full"><SelectValue /></SelectTrigger>
-              <SelectContent>
-                {LANGUAGES.map((l) => <SelectItem key={l} value={l}>{l}</SelectItem>)}
-              </SelectContent>
-            </Select>
-          </div>
-          <div className="space-y-1.5">
-            <Label>Date Format</Label>
-            <Select defaultValue="DD/MM/YYYY">
-              <SelectTrigger className="w-full"><SelectValue /></SelectTrigger>
-              <SelectContent>
-                {DATE_FORMATS.map((d) => <SelectItem key={d} value={d}>{d}</SelectItem>)}
-              </SelectContent>
-            </Select>
-          </div>
-        </CardContent>
-      </Card>
-
-      <Card>
-        <CardHeader className="pb-3">
-          <CardTitle className="text-base flex items-center gap-2"><Server className="w-4 h-4 text-teal-600" /> Communication Channels</CardTitle>
-          <CardDescription className="flex items-center gap-2">Configure notification gateways <DemoDataBadge label="Demo" /></CardDescription>
-        </CardHeader>
-        <CardContent className="space-y-2">
-          {[
-            { icon: Mail, name: "Email Notifications", desc: "SMTP via SendGrid", enabled: true, color: "bg-teal-100 text-teal-600 dark:bg-teal-500/15 dark:text-teal-400" },
-            { icon: MessageSquare, name: "SMS Gateway", desc: "MSG91 · 12,450 credits", enabled: true, color: "bg-amber-100 text-amber-600 dark:bg-amber-500/15 dark:text-amber-400" },
-            { icon: Smartphone, name: "WhatsApp Business", desc: "Twilio API · Connected", enabled: true, color: "bg-emerald-100 text-emerald-600 dark:bg-emerald-500/15 dark:text-emerald-400" },
-            { icon: Phone, name: "Voice Notifications", desc: "Exotel · Disabled", enabled: false, color: "bg-rose-100 text-rose-600 dark:bg-rose-500/15 dark:text-rose-400" },
-          ].map((c) => {
-            const Icon = c.icon;
-            return (
-              <div key={c.name} className="flex items-center gap-3 p-3 rounded-lg border border-border">
-                <div className={cn("w-9 h-9 rounded-lg flex items-center justify-center shrink-0", c.color)}>
-                  <Icon className="w-4.5 h-4.5" />
-                </div>
-                <div className="flex-1 min-w-0">
-                  <p className="text-sm font-medium">{c.name}</p>
-                  <p className="text-[11px] text-muted-foreground">{c.desc}</p>
-                </div>
-                <Button size="sm" variant="outline" onClick={() => testConnection(c.name)} className="h-7 text-xs">
-                  <Wifi className="w-3 h-3 mr-1" /> Test
-                </Button>
-                <Switch defaultChecked={c.enabled} />
-              </div>
-            );
-          })}
-        </CardContent>
-      </Card>
-
-      <Card className="lg:col-span-2">
-        <CardHeader className="pb-3">
-          <CardTitle className="flex items-center gap-2">System Information <DemoDataBadge label="Demo" /></CardTitle>
-        </CardHeader>
-        <CardContent>
-          <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
-            {[
-              { label: "App Version", value: "v3.2.1" },
-              { label: "Last Backup", value: "2 hours ago" },
-              { label: "Database Size", value: "1.4 GB" },
-              { label: "Uptime", value: "99.98%" },
-            ].map((s) => (
-              <div key={s.label} className="rounded-lg border border-border p-3">
-                <p className="text-[11px] text-muted-foreground">{s.label}</p>
-                <p className="text-sm font-semibold mt-0.5">{s.value}</p>
-              </div>
-            ))}
-          </div>
-        </CardContent>
-      </Card>
-    </div>
-    </div>
+    <Card>
+      <CardContent className="p-6 space-y-2">
+        <p className="text-sm font-medium">System settings coming soon</p>
+        <p className="text-sm text-muted-foreground">
+          Localization, notification gateways, and system info are not persisted yet. Use Company and Users &amp; Roles
+          for live configuration during UAT.
+        </p>
+      </CardContent>
+    </Card>
   );
 }
 
+
 function SecurityTab() {
-  const { toast } = useToast();
   return (
-    <div className="space-y-4">
-      <DemoModuleBanner>
-        2FA, IP whitelist, and API rate limits are demo UI — toggles and saves are not persisted.
-      </DemoModuleBanner>
-    <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
-      <Card>
-        <CardHeader className="pb-3">
-          <CardTitle className="text-base flex items-center gap-2"><Lock className="w-4 h-4 text-teal-600" /> Two-Factor Authentication</CardTitle>
-          <CardDescription className="flex items-center gap-2">Extra layer of security for your account <DemoDataBadge label="Demo" /></CardDescription>
-        </CardHeader>
-        <CardContent className="space-y-3">
-          <div className="flex items-center justify-between p-3 rounded-lg border border-border">
-            <div className="flex items-center gap-3">
-              <div className="w-9 h-9 rounded-lg bg-emerald-100 text-emerald-600 dark:bg-emerald-500/15 dark:text-emerald-400 flex items-center justify-center">
-                <CheckCircle2 className="w-4.5 h-4.5" />
-              </div>
-              <div>
-                <p className="text-sm font-medium">2FA Enabled</p>
-                <p className="text-[11px] text-muted-foreground">Authenticator app · configured Jan 8</p>
-              </div>
-            </div>
-            <Switch defaultChecked />
-          </div>
-          <div className="flex items-center justify-between p-3 rounded-lg border border-border">
-            <div className="flex items-center gap-3">
-              <div className="w-9 h-9 rounded-lg bg-amber-100 text-amber-600 dark:bg-amber-500/15 dark:text-amber-400 flex items-center justify-center">
-                <Smartphone className="w-4.5 h-4.5" />
-              </div>
-              <div>
-                <p className="text-sm font-medium">SMS Backup</p>
-                <p className="text-[11px] text-muted-foreground">+91 xxxx x3333</p>
-              </div>
-            </div>
-            <Switch defaultChecked />
-          </div>
-          <Button variant="outline" className="w-full" onClick={() => toast({ title: "Demo — not persisted", description: "Backup codes are not generated yet." })}>
-            <KeyRound className="w-4 h-4 mr-1.5" /> Regenerate Backup Codes
-          </Button>
-        </CardContent>
-      </Card>
-
-      <Card>
-        <CardHeader className="pb-3">
-          <CardTitle className="text-base flex items-center gap-2"><Clock className="w-4 h-4 text-teal-600" /> Session & Timeout</CardTitle>
-          <CardDescription>Control active session duration</CardDescription>
-        </CardHeader>
-        <CardContent className="space-y-3">
-          <div className="space-y-1.5">
-            <Label>Session Timeout (minutes)</Label>
-            <Input type="number" defaultValue={30} />
-            <p className="text-[10px] text-muted-foreground">Users will be auto-logged out after inactivity</p>
-          </div>
-          <div className="space-y-1.5">
-            <Label>Max Concurrent Sessions</Label>
-            <Input type="number" defaultValue={3} />
-          </div>
-          <div className="space-y-2 pt-2">
-            <div className="flex items-center justify-between p-2.5 rounded-lg border border-border">
-              <div>
-                <p className="text-sm font-medium">Force re-login on password change</p>
-                <p className="text-[11px] text-muted-foreground">Logout all active sessions</p>
-              </div>
-              <Switch defaultChecked />
-            </div>
-            <div className="flex items-center justify-between p-2.5 rounded-lg border border-border">
-              <div>
-                <p className="text-sm font-medium">Restrict to single device</p>
-                <p className="text-[11px] text-muted-foreground">One session per user</p>
-              </div>
-              <Switch />
-            </div>
-          </div>
-        </CardContent>
-      </Card>
-
-      <Card>
-        <CardHeader className="pb-3">
-          <CardTitle className="text-base flex items-center gap-2"><Globe className="w-4 h-4 text-teal-600" /> IP Whitelist</CardTitle>
-          <CardDescription className="flex items-center gap-2">Restrict admin access to known IPs <DemoDataBadge label="Demo" /></CardDescription>
-        </CardHeader>
-        <CardContent className="space-y-2">
-          {["103.21.58.14 (Mumbai Office)", "49.205.122.88 (Branch - Delhi)", "106.51.74.22 (Branch - Bangalore)"].map((ip) => (
-            <div key={ip} className="flex items-center justify-between p-2.5 rounded-lg border border-border">
-              <div className="flex items-center gap-2">
-                <Check className="w-3.5 h-3.5 text-emerald-500" />
-                <span className="text-xs font-mono">{ip}</span>
-              </div>
-              <Button size="icon" variant="ghost" className="h-7 w-7 text-rose-500" onClick={() => toast({ title: "Demo — not persisted", description: "IP whitelist is UI-only." })}><X className="w-3.5 h-3.5" /></Button>
-            </div>
-          ))}
-          <div className="flex gap-2 pt-1">
-            <Input placeholder="Add new IP address" className="font-mono text-xs" />
-            <Button variant="outline" onClick={() => toast({ title: "Demo — not persisted", description: "IP whitelist is UI-only." })}><Plus className="w-3.5 h-3.5 mr-1" /> Add</Button>
-          </div>
-          <div className="flex items-center justify-between p-2.5 rounded-lg border border-dashed border-amber-300 bg-amber-50/50 dark:bg-amber-500/5 mt-2">
-            <div className="flex items-center gap-2">
-              <AlertTriangle className="w-3.5 h-3.5 text-amber-600" />
-              <span className="text-xs">Block all unknown IPs</span>
-            </div>
-            <Switch defaultChecked />
-          </div>
-        </CardContent>
-      </Card>
-
-      <Card>
-        <CardHeader className="pb-3">
-          <CardTitle className="text-base flex items-center gap-2"><Server className="w-4 h-4 text-teal-600" /> API Rate Limits</CardTitle>
-          <CardDescription className="flex items-center gap-2">Throttle external API consumption <DemoDataBadge label="Demo" /></CardDescription>
-        </CardHeader>
-        <CardContent className="space-y-3">
-          {[
-            { name: "Flight Search API", limit: "1000 / min", used: 62, color: "bg-teal-500" },
-            { name: "Hotel Search API", limit: "500 / min", used: 41, color: "bg-amber-500" },
-            { name: "Booking API", limit: "100 / min", used: 78, color: "bg-rose-500" },
-            { name: "Payment API", limit: "50 / min", used: 23, color: "bg-emerald-500" },
-          ].map((r) => (
-            <div key={r.name}>
-              <div className="flex items-center justify-between text-xs mb-1">
-                <span className="font-medium">{r.name}</span>
-                <span className="text-muted-foreground">{r.used}% of {r.limit}</span>
-              </div>
-              <div className="h-1.5 rounded-full bg-muted overflow-hidden">
-                <div className={cn("h-full rounded-full", r.color)} style={{ width: `${r.used}%` }} />
-              </div>
-            </div>
-          ))}
-          <Separator className="my-2" />
-          <div className="grid grid-cols-2 gap-2 text-xs">
-            <div className="space-y-1">
-              <Label className="text-[11px]">Default Rate (req/min)</Label>
-              <Input type="number" defaultValue={1000} />
-            </div>
-            <div className="space-y-1">
-              <Label className="text-[11px]">Burst Limit</Label>
-              <Input type="number" defaultValue={1500} />
-            </div>
-          </div>
-          <Button variant="outline" className="w-full" onClick={() => toast({ title: "Demo — not persisted", description: "API rate limits are UI-only." })}>
-            <Save className="w-4 h-4 mr-1.5" /> Save Rate Limits
-          </Button>
-        </CardContent>
-      </Card>
-    </div>
-    </div>
+    <Card>
+      <CardContent className="p-6 space-y-2">
+        <p className="text-sm font-medium">Security controls coming soon</p>
+        <p className="text-sm text-muted-foreground">
+          MFA, IP whitelist, and API rate limits are not persisted yet. Password changes use Forgot password / reset flow.
+        </p>
+      </CardContent>
+    </Card>
   );
 }

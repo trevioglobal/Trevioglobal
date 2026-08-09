@@ -40,12 +40,28 @@ export const ROLE_USERS: Record<string, User> = {
     phone: "+91 98700 66666", role: "product_executive", agencyId: "ag-1",
     designation: "Product Executive",
   },
+  operations: {
+    id: "u-op-1", name: "Meera Joshi", email: "ops@wanderlusttravels.in",
+    phone: "+91 98800 77777", role: "operations", agencyId: "ag-1", branchId: "br-1",
+    designation: "Operations Executive",
+  },
+  travel_agent: {
+    id: "u-ta-1", name: "Kabir Khan", email: "agent@wanderlusttravels.in",
+    phone: "+91 98900 88888", role: "travel_agent", agencyId: "ag-1", branchId: "br-1",
+    designation: "Travel Agent",
+  },
+  management: {
+    id: "u-mg-1", name: "Nisha Patel", email: "management@wanderlusttravels.in",
+    phone: "+91 99000 99999", role: "management", agencyId: "ag-1",
+    designation: "General Manager",
+  },
 };
 
 /** Shared demo password for all ROLE_USERS accounts after seed. */
 export const DEMO_LOGIN_PASSWORD = "Passw0rd@123";
 
 export const DEMO_LOGIN_ROWS: Array<{ role: string; email: string; password: string; note?: string }> = [
+  { role: "Developer (full platform)", email: "dev@trevioglobal.com", password: "Dev@Trevio2026!", note: "Your developer Super Admin — agencies, analytics, monitoring UI, marketing/coupons shells" },
   { role: "Super Admin", email: "superadmin@travelpartner.pro", password: DEMO_LOGIN_PASSWORD },
   { role: "Agency Admin", email: "admin@wanderlusttravels.in", password: DEMO_LOGIN_PASSWORD },
   { role: "Branch Manager", email: "manager.mumbai@wanderlusttravels.in", password: DEMO_LOGIN_PASSWORD },
@@ -53,6 +69,9 @@ export const DEMO_LOGIN_ROWS: Array<{ role: string; email: string; password: str
   { role: "Accountant", email: "accounts@wanderlusttravels.in", password: DEMO_LOGIN_PASSWORD },
   { role: "Sales Executive", email: "sales@wanderlusttravels.in", password: DEMO_LOGIN_PASSWORD },
   { role: "Product Executive", email: "products@wanderlusttravels.in", password: DEMO_LOGIN_PASSWORD },
+  { role: "Operations", email: "ops@wanderlusttravels.in", password: DEMO_LOGIN_PASSWORD },
+  { role: "Travel Agent", email: "agent@wanderlusttravels.in", password: DEMO_LOGIN_PASSWORD },
+  { role: "Management", email: "management@wanderlusttravels.in", password: DEMO_LOGIN_PASSWORD },
   { role: "Platform Super Admin (alt)", email: "admin@travelpartner.pro", password: "TravioAdmin@2024!", note: "Created separately by seed" },
 ];
 

@@ -20,54 +20,20 @@ import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 import { useToast } from "@/hooks/use-toast";
 import { api } from "@/lib/api";
 import {
-  REVENUE_DATA, BOOKING_TYPE_DATA, TOP_DESTINATIONS, ENQUIRY_SOURCE_DATA, EMPLOYEES,
-} from "@/lib/mock-data";
-import {
   formatINR, formatFullINR, PageShell, PageHeader, MetricCard, StatusBadge, initials, avatarGradient,
 } from "@/components/shared/ui-helpers";
 import { cn } from "@/lib/utils";
 
-const SALES_SUMMARY = [
-  { period: "Today", revenue: 285000, bookings: 28, commission: 14250, refund: 12000 },
-  { period: "Yesterday", revenue: 245000, bookings: 22, commission: 12250, refund: 0 },
-  { period: "This Week", revenue: 1850000, bookings: 198, commission: 92500, refund: 42000 },
-  { period: "Last Week", revenue: 1620000, bookings: 175, commission: 81000, refund: 15000 },
-  { period: "This Month", revenue: 2850000, bookings: 378, commission: 147000, refund: 42000 },
-  { period: "Last Month", revenue: 3850000, bookings: 512, commission: 198000, refund: 28000 },
-  { period: "This Year", revenue: 30250000, bookings: 4280, commission: 1515000, refund: 385000 },
-];
-
-const BOOKINGS_BY_SERVICE = [
-  { service: "Flights", bookings: 1450, revenue: 18450000 },
-  { service: "Hotels", bookings: 980, revenue: 8420000 },
-  { service: "Holidays", bookings: 420, revenue: 6240000 },
-];
-
-const BOOKINGS_TREND = [
-  { week: "W1", flight: 110, hotel: 78, holiday: 32 },
-  { week: "W2", flight: 132, hotel: 92, holiday: 38 },
-  { week: "W3", flight: 118, hotel: 85, holiday: 45 },
-  { week: "W4", flight: 145, hotel: 105, holiday: 42 },
-  { week: "W5", flight: 138, hotel: 98, holiday: 36 },
-  { week: "W6", flight: 162, hotel: 112, holiday: 48 },
-];
-
-const PAYMENT_METHOD_DATA = [
-  { name: "Razorpay", value: 1450, color: "var(--chart-1)" },
-  { name: "UPI", value: 820, color: "var(--chart-2)" },
-  { name: "Card", value: 480, color: "var(--chart-3)" },
-  { name: "Bank Transfer", value: 220, color: "var(--chart-4)" },
-  { name: "Wallet", value: 145, color: "var(--chart-5)" },
-];
-
-const REFUND_TREND = [
-  { month: "Aug", refunds: 8, amount: 32000 },
-  { month: "Sep", refunds: 12, amount: 58000 },
-  { month: "Oct", refunds: 6, amount: 24000 },
-  { month: "Nov", refunds: 14, amount: 72000 },
-  { month: "Dec", refunds: 9, amount: 38000 },
-  { month: "Jan", refunds: 11, amount: 54000 },
-];
+const SALES_SUMMARY: Array<{ period: string; revenue: number; bookings: number; commission: number; refund: number }> = [];
+const BOOKINGS_BY_SERVICE: Array<{ service: string; bookings: number; revenue: number }> = [];
+const BOOKINGS_TREND: Array<{ week: string; flight: number; hotel: number; holiday: number }> = [];
+const PAYMENT_METHOD_DATA: Array<{ name: string; value: number; color: string }> = [];
+const REFUND_TREND: Array<{ month: string; refunds: number; amount: number }> = [];
+const REVENUE_DATA: Array<{ month: string; revenue: number; bookings: number; commission: number }> = [];
+const BOOKING_TYPE_DATA: Array<{ name: string; value: number; color?: string }> = [];
+const TOP_DESTINATIONS: Array<{ destination: string; bookings: number; revenue: number; growth: number }> = [];
+const ENQUIRY_SOURCE_DATA: Array<{ source: string; count: number }> = [];
+const EMPLOYEES: Array<{ id: string; name: string; target: number; achieved: number; attendance: number; department?: string; status?: string }> = [];
 
 const SERVICE_ICONS: Record<string, React.ElementType> = {
   Flights: Plane, Hotels: Hotel, Holidays: Palmtree,
@@ -102,8 +68,15 @@ export function ReportsView() {
   } | null>(null);
   const [bookingsByService, setBookingsByService] = useState(BOOKINGS_BY_SERVICE);
   const [paymentMethodData, setPaymentMethodData] = useState(PAYMENT_METHOD_DATA);
+  const [bms, setBms] = useState<{
+    sales?: { quotationsCreated: number; quotationsConverted: number; conversionRate: number; bookingValue: number };
+    operations?: { pendingConfirmations: number; taskCompletion: { pending: number; completed: number; total: number }; openChangeRequests: number };
+    finance?: { collections: number; outstandingPayments: number; supplierPayables: number; profitability: { grossProfit: number; netProfit: number } };
+    management?: { activeBookings: number; completedTrips: number; cancelledBookings: number; destinationWiseSales: { destination: string; value: number }[] };
+  } | null>(null);
 
   useEffect(() => {
+    api.getBmsReports().then((res) => setBms(res as typeof bms)).catch(() => undefined);
     api.getReports()
       .then((res) => {
         setLiveSummary({
@@ -141,9 +114,9 @@ export function ReportsView() {
     return [SALES_SUMMARY[6]];
   }, [summaryView]);
 
-  const totalRevenue = liveSummary?.totalRevenue ?? REVENUE_DATA.reduce((s, r) => s + r.revenue, 0);
-  const totalBookings = liveSummary?.totalBookings ?? REVENUE_DATA.reduce((s, r) => s + r.bookings, 0);
-  const totalCommission = liveSummary?.totalCommission ?? REVENUE_DATA.reduce((s, r) => s + r.commission, 0);
+  const totalRevenue = liveSummary?.totalRevenue ?? 0;
+  const totalBookings = liveSummary?.totalBookings ?? 0;
+  const totalCommission = liveSummary?.totalCommission ?? 0;
 
   const handleExport = () => {
     toast({
@@ -160,7 +133,7 @@ export function ReportsView() {
         action={
           <>
             <Badge variant="outline" className="border-amber-300 text-amber-800 dark:text-amber-300">
-              Partial demo charts
+              Live KPIs · empty charts until more data
             </Badge>
             <Select value={dateRange} onValueChange={setDateRange}>
               <SelectTrigger className="w-[150px]">
@@ -192,13 +165,73 @@ export function ReportsView() {
         ))}
       </div>
 
-      <Tabs defaultValue="sales">
+      <Tabs defaultValue="bms">
         <TabsList className="w-full sm:w-auto overflow-x-auto">
+          <TabsTrigger value="bms">BMS</TabsTrigger>
           <TabsTrigger value="sales">Sales</TabsTrigger>
           <TabsTrigger value="bookings">Bookings</TabsTrigger>
           <TabsTrigger value="financial">Financial</TabsTrigger>
           <TabsTrigger value="employee">Employee</TabsTrigger>
         </TabsList>
+
+        <TabsContent value="bms" className="space-y-4 mt-4">
+          <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
+            <MetricCard icon={Target} label="Quote → Booking" value={`${bms?.sales?.conversionRate ?? 0}%`} color="bg-teal-100 text-teal-700 dark:bg-teal-500/15 dark:text-teal-400" index={0} />
+            <MetricCard icon={DollarSign} label="Booking Value" value={formatINR(bms?.sales?.bookingValue ?? 0)} color="bg-sky-100 text-sky-700 dark:bg-sky-500/15 dark:text-sky-400" index={1} />
+            <MetricCard icon={Activity} label="Pending Confirmations" value={String(bms?.operations?.pendingConfirmations ?? 0)} color="bg-amber-100 text-amber-700 dark:bg-amber-500/15 dark:text-amber-400" index={2} />
+            <MetricCard icon={TrendingUp} label="Gross Profit" value={formatINR(bms?.finance?.profitability?.grossProfit ?? 0)} color="bg-emerald-100 text-emerald-700 dark:bg-emerald-500/15 dark:text-emerald-400" index={3} />
+          </div>
+          <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
+            <Card>
+              <CardHeader className="pb-2"><CardTitle className="text-base">Sales</CardTitle></CardHeader>
+              <CardContent className="text-sm space-y-1">
+                <p>Quotations created: {bms?.sales?.quotationsCreated ?? 0}</p>
+                <p>Converted: {bms?.sales?.quotationsConverted ?? 0}</p>
+                <p>Outstanding collection: {formatFullINR(bms?.finance?.outstandingPayments ?? 0)}</p>
+              </CardContent>
+            </Card>
+            <Card>
+              <CardHeader className="pb-2"><CardTitle className="text-base">Operations</CardTitle></CardHeader>
+              <CardContent className="text-sm space-y-1">
+                <p>Tasks pending: {bms?.operations?.taskCompletion?.pending ?? 0}</p>
+                <p>Tasks completed: {bms?.operations?.taskCompletion?.completed ?? 0}</p>
+                <p>Open change requests: {bms?.operations?.openChangeRequests ?? 0}</p>
+              </CardContent>
+            </Card>
+            <Card>
+              <CardHeader className="pb-2"><CardTitle className="text-base">Management</CardTitle></CardHeader>
+              <CardContent className="text-sm space-y-1">
+                <p>Active bookings: {bms?.management?.activeBookings ?? 0}</p>
+                <p>Completed trips: {bms?.management?.completedTrips ?? 0}</p>
+                <p>Cancelled: {bms?.management?.cancelledBookings ?? 0}</p>
+                <p>Supplier payables: {formatFullINR(bms?.finance?.supplierPayables ?? 0)}</p>
+              </CardContent>
+            </Card>
+          </div>
+          {(bms?.management?.destinationWiseSales?.length ?? 0) > 0 && (
+            <Card>
+              <CardHeader className="pb-2"><CardTitle className="text-base">Destination-wise Sales</CardTitle></CardHeader>
+              <CardContent>
+                <Table>
+                  <TableHeader>
+                    <TableRow>
+                      <TableHead>Destination</TableHead>
+                      <TableHead className="text-right">Value</TableHead>
+                    </TableRow>
+                  </TableHeader>
+                  <TableBody>
+                    {bms!.management!.destinationWiseSales.map((d) => (
+                      <TableRow key={d.destination}>
+                        <TableCell>{d.destination}</TableCell>
+                        <TableCell className="text-right">{formatFullINR(d.value)}</TableCell>
+                      </TableRow>
+                    ))}
+                  </TableBody>
+                </Table>
+              </CardContent>
+            </Card>
+          )}
+        </TabsContent>
 
         {/* ============ SALES ============ */}
         <TabsContent value="sales" className="space-y-4 mt-4">

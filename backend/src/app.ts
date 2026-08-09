@@ -25,6 +25,8 @@ import { mountTripPlannerRoutes } from "./routes/trip-planner.js";
 import { mountQuoteTemplateRoutes } from "./routes/quote-templates.js";
 import { mountTravelProposalRoutes } from "./routes/travel-proposals.js";
 import { mountProposalPdfRoutes } from "./routes/proposal-pdf.js";
+import { mountBmsRoutes } from "./routes/bms.js";
+import { mountQuotationRoutes } from "./routes/quotations.js";
 import { analyticsMiddleware } from "./middleware/analytics.js";
 import { analyticsRouter } from "./routes/analytics.js";
 import {
@@ -38,7 +40,9 @@ import {
   agencyUpdateSchema, branchSchema, branchUpdateSchema, walletSchema,
   attendanceCheckSchema, leaveSchema, leaveStatusSchema, forgotPasswordSchema,
   resetPasswordSchema, agentRegistrationSchema,
+  couponCreateSchema, couponUpdateSchema, couponValidateSchema,
 } from "./lib/validation.js";
+import { effectiveCouponStatus, validateCouponForOrder } from "./lib/coupons.js";
 
 validateEnv();
 
@@ -555,6 +559,10 @@ app.post("/api/bookings", requireAuth, requireAnyPermission("flights", "hotels",
         agencyId: ownAgencyId(req, body.agencyId),
         agencyName: body.agencyName || "",
         branchId: ownBranchId(req),
+        packageValue: body.amount,
+        amountPaid: body.paymentStatus === "Paid" || !body.paymentStatus ? body.amount : 0,
+        balanceAmount: body.paymentStatus === "Paid" || !body.paymentStatus ? 0 : body.amount,
+        salesExecutiveName: body.agentName || "System",
       },
     });
     res.status(201).json({ booking });
@@ -696,55 +704,119 @@ app.get("/api/quotations", requireAuth, requirePermission("quotations"), async (
 app.post("/api/quotations", requireAuth, requirePermission("quotations"), validate(quotationSchema), async (req: AuthRequest, res) => {
   try {
     const body = req.body;
+    const agencyId = ownAgencyId(req);
     const count = await db.quotation.count();
     const quoteNo = body.quoteNo || `QT-2025-${String(count + 1).padStart(3, "0")}`;
-    const quotation = await db.quotation.create({
-      data: {
-        quoteNo,
-        customerName: body.customerName,
-        service: body.service,
-        items: body.items,
-        amount: body.amount,
-        gst: body.gst,
-        total: body.total,
-        status: body.status || "Draft",
-        validTill: body.validTill,
-        createdBy: body.createdBy || req.auth?.email || "System",
-        createdById: req.auth?.userId,
-        agencyId: ownAgencyId(req),
-        branchId: ownBranchId(req),
-        isInternational: body.isInternational ?? false,
-        contactPerson: body.contactPerson,
-        contactEmail: body.contactEmail || null,
-        contactPhone: body.contactPhone,
-        destination: body.destination,
-        country: body.country,
-        departureCity: body.departureCity,
-        travelDates: body.travelDates,
-        returnDate: body.returnDate,
-        nights: body.nights,
-        days: body.days,
-        adults: body.adults,
-        children: body.children,
-        infants: body.infants,
-        hotelStarPreference: body.hotelStarPreference,
-        roomTypePreference: body.roomTypePreference,
-        mealPlanPreference: body.mealPlanPreference,
-        location: body.location,
-        budget: body.budget,
-        currency: body.currency ?? "INR",
-        packageIncludes: body.packageIncludes ?? [],
-        packageExcludes: body.packageExcludes ?? [],
-        termsAndConditions: body.termsAndConditions,
-        paymentTerms: body.paymentTerms,
-        cancellationPolicy: body.cancellationPolicy,
-        salesExecutiveName: body.salesExecutiveName,
-        salesExecutivePhone: body.salesExecutivePhone,
-        salesExecutiveEmail: body.salesExecutiveEmail || null,
-        approvalStatus: body.approvalStatus ?? "Draft",
-        lineItems: body.lineItems ?? [],
-      },
+
+    let couponCode: string | null = null;
+    let couponDiscount = 0;
+    let couponIdForRedeem: string | null = null;
+    const requestedCode = typeof body.couponCode === "string" ? body.couponCode.trim().toUpperCase() : "";
+    if (requestedCode) {
+      if (!agencyId) {
+        res.status(400).json({ error: "Agency context required to apply a coupon" });
+        return;
+      }
+      const coupon = await db.coupon.findUnique({
+        where: { agencyId_code: { agencyId, code: requestedCode } },
+      });
+      const fromLines = Array.isArray(body.lineItems)
+        ? body.lineItems.reduce((s: number, i: { qty?: number; price?: number }) => s + Number(i.qty || 0) * Number(i.price || 0), 0)
+        : 0;
+      const orderAmount = fromLines > 0
+        ? fromLines
+        : Math.max(0, Number(body.amount || 0) + Number(body.couponDiscount || 0));
+      const check = validateCouponForOrder(coupon, orderAmount);
+      if (!check.ok) {
+        res.status(400).json({ error: check.message, code: check.error });
+        return;
+      }
+      couponCode = requestedCode;
+      couponDiscount = check.discountAmount;
+      couponIdForRedeem = coupon!.id;
+    }
+
+    const quotation = await db.$transaction(async (tx) => {
+      const created = await tx.quotation.create({
+        data: {
+          quoteNo,
+          customerName: body.customerName,
+          service: body.service,
+          items: body.items,
+          amount: body.amount,
+          gst: body.gst,
+          total: body.total,
+          status: body.status || "Draft",
+          validTill: body.validTill,
+          createdBy: body.createdBy || req.auth?.email || "System",
+          createdById: req.auth?.userId,
+          agencyId,
+          branchId: ownBranchId(req),
+          isInternational: body.isInternational ?? false,
+          contactPerson: body.contactPerson,
+          contactEmail: body.contactEmail || null,
+          contactPhone: body.contactPhone,
+          destination: body.destination,
+          country: body.country,
+          departureCity: body.departureCity,
+          travelDates: body.travelDates,
+          returnDate: body.returnDate,
+          nights: body.nights,
+          days: body.days,
+          adults: body.adults,
+          children: body.children,
+          infants: body.infants,
+          hotelStarPreference: body.hotelStarPreference,
+          roomTypePreference: body.roomTypePreference,
+          mealPlanPreference: body.mealPlanPreference,
+          location: body.location,
+          budget: body.budget,
+          currency: body.currency ?? "INR",
+          packageIncludes: body.packageIncludes ?? [],
+          packageExcludes: body.packageExcludes ?? [],
+          termsAndConditions: body.termsAndConditions,
+          paymentTerms: body.paymentTerms,
+          cancellationPolicy: body.cancellationPolicy,
+          salesExecutiveName: body.salesExecutiveName,
+          salesExecutivePhone: body.salesExecutivePhone,
+          salesExecutiveEmail: body.salesExecutiveEmail || null,
+          approvalStatus: body.approvalStatus ?? "Draft",
+          lineItems: body.lineItems ?? [],
+          couponCode,
+          couponDiscount,
+        },
+      });
+
+      if (couponIdForRedeem && agencyId && couponCode) {
+        const fromLines = Array.isArray(body.lineItems)
+          ? body.lineItems.reduce((s: number, i: { qty?: number; price?: number }) => s + Number(i.qty || 0) * Number(i.price || 0), 0)
+          : 0;
+        await tx.couponRedemption.create({
+          data: {
+            couponId: couponIdForRedeem,
+            agencyId,
+            userId: req.auth?.userId,
+            quotationId: created.id,
+            orderAmount: fromLines > 0 ? fromLines : Math.max(0, Number(body.amount || 0) + couponDiscount),
+            discountAmount: couponDiscount,
+            code: couponCode,
+          },
+        });
+        const updated = await tx.coupon.update({
+          where: { id: couponIdForRedeem },
+          data: { usedCount: { increment: 1 } },
+        });
+        if (updated.usageLimit > 0 && updated.usedCount >= updated.usageLimit) {
+          await tx.coupon.update({
+            where: { id: couponIdForRedeem },
+            data: { status: "Expired" },
+          });
+        }
+      }
+
+      return created;
     });
+
     const date = new Date().toISOString().slice(0, 10);
     await db.employeeActivitySnapshot.upsert({
       where: { userId_date: { userId: req.auth!.userId, date } },
@@ -1906,6 +1978,230 @@ app.post("/api/marketing/campaigns", requireAuth, requireRole("super_admin", "ag
   }
 });
 
+function serializeCoupon(coupon: {
+  id: string;
+  agencyId: string;
+  code: string;
+  type: string;
+  value: number;
+  minOrderAmount: number;
+  usageLimit: number;
+  usedCount: number;
+  maxDiscount: number | null;
+  validFrom: Date;
+  validTill: Date;
+  status: string;
+  description: string | null;
+  createdById: string | null;
+  createdAt: Date;
+  updatedAt: Date;
+}) {
+  const status = effectiveCouponStatus(coupon);
+  return {
+    ...coupon,
+    status,
+    validFrom: coupon.validFrom.toISOString().slice(0, 10),
+    validTill: coupon.validTill.toISOString().slice(0, 10),
+    limit: coupon.usageLimit,
+    used: coupon.usedCount,
+  };
+}
+
+async function resolveCouponAgencyId(req: AuthRequest, requested?: string): Promise<string | undefined> {
+  const fromAuth = ownAgencyId(req, requested);
+  if (fromAuth) return fromAuth;
+  if (req.auth?.role === "super_admin") {
+    const first = await db.agency.findFirst({ where: { status: "Active" }, orderBy: { createdAt: "asc" } });
+    return first?.id;
+  }
+  return undefined;
+}
+
+app.get("/api/marketing/coupons", requireAuth, requirePermission("marketing"), async (req: AuthRequest, res) => {
+  try {
+    const status = typeof req.query.status === "string" ? req.query.status : undefined;
+    const q = typeof req.query.q === "string" ? req.query.q.trim().toUpperCase() : "";
+    const coupons = await db.coupon.findMany({
+      where: {
+        ...agencyScope(req),
+        ...(status && status !== "All" ? { status } : {}),
+        ...(q ? { code: { contains: q, mode: "insensitive" as const } } : {}),
+      },
+      orderBy: { createdAt: "desc" },
+    });
+    // Auto-mark expired in response (and lazily persist expired status)
+    const now = new Date();
+    const payload = [];
+    for (const c of coupons) {
+      const effective = effectiveCouponStatus(c, now);
+      if (effective === "Expired" && c.status === "Active") {
+        await db.coupon.update({ where: { id: c.id }, data: { status: "Expired" } }).catch(() => undefined);
+      }
+      payload.push(serializeCoupon({ ...c, status: effective }));
+    }
+    res.json({ coupons: payload });
+  } catch (e) {
+    logger.error(e);
+    res.status(500).json({ error: "Server error" });
+  }
+});
+
+app.post("/api/marketing/coupons", requireAuth, requireRole("super_admin", "agency_admin"), validate(couponCreateSchema), async (req: AuthRequest, res) => {
+  try {
+    const body = req.body;
+    const agencyId = await resolveCouponAgencyId(req, body.agencyId);
+    if (!agencyId) {
+      res.status(400).json({ error: "Agency context required" });
+      return;
+    }
+    if (body.type === "Percent" && body.value > 100) {
+      res.status(400).json({ error: "Percent coupons cannot exceed 100%" });
+      return;
+    }
+    const code = String(body.code).trim().toUpperCase();
+    const validTill = new Date(body.validTill);
+    if (Number.isNaN(validTill.getTime())) {
+      res.status(400).json({ error: "validTill must be a valid date" });
+      return;
+    }
+    const validFrom = body.validFrom ? new Date(body.validFrom) : new Date();
+    if (Number.isNaN(validFrom.getTime())) {
+      res.status(400).json({ error: "validFrom must be a valid date" });
+      return;
+    }
+    if (validTill < validFrom) {
+      res.status(400).json({ error: "validTill must be on or after validFrom" });
+      return;
+    }
+    const existing = await db.coupon.findUnique({ where: { agencyId_code: { agencyId, code } } });
+    if (existing) {
+      res.status(409).json({ error: "A coupon with this code already exists for the agency" });
+      return;
+    }
+    const coupon = await db.coupon.create({
+      data: {
+        agencyId,
+        code,
+        type: body.type,
+        value: body.value,
+        minOrderAmount: body.minOrderAmount ?? 0,
+        usageLimit: body.usageLimit ?? 0,
+        maxDiscount: body.maxDiscount ?? null,
+        validFrom,
+        validTill,
+        status: body.status ?? "Active",
+        description: body.description ?? null,
+        createdById: req.auth?.userId,
+      },
+    });
+    res.status(201).json({ coupon: serializeCoupon(coupon) });
+  } catch (e) {
+    logger.error(e);
+    res.status(500).json({ error: "Server error" });
+  }
+});
+
+app.patch("/api/marketing/coupons/:id", requireAuth, requireRole("super_admin", "agency_admin"), validate(couponUpdateSchema), async (req: AuthRequest, res) => {
+  try {
+    const existing = await db.coupon.findFirst({
+      where: { id: req.params.id, ...agencyScope(req) },
+    });
+    if (!existing) {
+      res.status(404).json({ error: "Coupon not found" });
+      return;
+    }
+    const body = req.body;
+    if (body.type === "Percent" && body.value != null && body.value > 100) {
+      res.status(400).json({ error: "Percent coupons cannot exceed 100%" });
+      return;
+    }
+    const data: Record<string, unknown> = {};
+    if (body.code != null) data.code = String(body.code).trim().toUpperCase();
+    if (body.type != null) data.type = body.type;
+    if (body.value != null) data.value = body.value;
+    if (body.minOrderAmount != null) data.minOrderAmount = body.minOrderAmount;
+    if (body.usageLimit != null) data.usageLimit = body.usageLimit;
+    if (body.maxDiscount !== undefined) data.maxDiscount = body.maxDiscount;
+    if (body.status != null) data.status = body.status;
+    if (body.description !== undefined) data.description = body.description;
+    if (body.validFrom) {
+      const d = new Date(body.validFrom);
+      if (Number.isNaN(d.getTime())) {
+        res.status(400).json({ error: "validFrom must be a valid date" });
+        return;
+      }
+      data.validFrom = d;
+    }
+    if (body.validTill) {
+      const d = new Date(body.validTill);
+      if (Number.isNaN(d.getTime())) {
+        res.status(400).json({ error: "validTill must be a valid date" });
+        return;
+      }
+      data.validTill = d;
+    }
+    if (data.code && data.code !== existing.code) {
+      const clash = await db.coupon.findUnique({
+        where: { agencyId_code: { agencyId: existing.agencyId, code: data.code as string } },
+      });
+      if (clash) {
+        res.status(409).json({ error: "A coupon with this code already exists for the agency" });
+        return;
+      }
+    }
+    const coupon = await db.coupon.update({ where: { id: existing.id }, data });
+    res.json({ coupon: serializeCoupon(coupon) });
+  } catch (e) {
+    logger.error(e);
+    res.status(500).json({ error: "Server error" });
+  }
+});
+
+app.delete("/api/marketing/coupons/:id", requireAuth, requireRole("super_admin", "agency_admin"), async (req: AuthRequest, res) => {
+  try {
+    const existing = await db.coupon.findFirst({
+      where: { id: req.params.id, ...agencyScope(req) },
+    });
+    if (!existing) {
+      res.status(404).json({ error: "Coupon not found" });
+      return;
+    }
+    await db.coupon.delete({ where: { id: existing.id } });
+    res.json({ ok: true });
+  } catch (e) {
+    logger.error(e);
+    res.status(500).json({ error: "Server error" });
+  }
+});
+
+app.post("/api/marketing/coupons/validate", requireAuth, requireAnyPermission("marketing", "quotations"), validate(couponValidateSchema), async (req: AuthRequest, res) => {
+  try {
+    const code = String(req.body.code).trim().toUpperCase();
+    const orderAmount = Number(req.body.orderAmount);
+    const agencyId = await resolveCouponAgencyId(req, req.body.agencyId);
+    if (!agencyId) {
+      res.status(400).json({ error: "Agency context required" });
+      return;
+    }
+    const coupon = await db.coupon.findUnique({
+      where: { agencyId_code: { agencyId, code } },
+    });
+    const check = validateCouponForOrder(coupon, orderAmount);
+    if (!check.ok) {
+      res.status(400).json({ valid: false, error: check.message, code: check.error });
+      return;
+    }
+    res.json({
+      valid: true,
+      discountAmount: check.discountAmount,
+      coupon: serializeCoupon(coupon!),
+    });
+  } catch (e) {
+    logger.error(e);
+    res.status(500).json({ error: "Server error" });
+  }
+});
+
 app.get("/api/cms/pages", requireAuth, requirePermission("cms"), async (req: AuthRequest, res) => {
   try {
     const pages = await db.contentPage.findMany({
@@ -2334,6 +2630,8 @@ mountTripPlannerRoutes(app, agencyScope);
 mountQuoteTemplateRoutes(app, agencyScope);
 mountTravelProposalRoutes(app, agencyScope);
 mountProposalPdfRoutes(app, agencyScope);
+mountQuotationRoutes(app, agencyScope, ownAgencyId, ownBranchId, branchScope);
+mountBmsRoutes(app, agencyScope, ownAgencyId, ownBranchId, branchScope);
 
 // Analytics routes
 app.use("/api/analytics", analyticsRouter);
