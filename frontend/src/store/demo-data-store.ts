@@ -574,37 +574,81 @@ export const useDemoDataStore = create<DemoDataState>()(
 
       hydrateFromApi: async (agencyId) => {
         try {
-    const [bookingsRes, customersRes, notificationsRes, leadsRes, quotationsRes, paymentsRes, employeesRes, tasksRes, dashboardRes, financeRes, commissionRes] =
-      await Promise.all([
-        api.getBookings(),
-        api.getCustomers(),
-        api.getNotifications(),
-        api.getLeads(),
-        api.getQuotations(),
-        api.getPayments(),
-        api.getEmployees(agencyId),
-        api.getTasks(),
-        api.getDashboard(),
-        api.getFinance(),
-        api.getCommission(),
-      ]);
+          const results = await Promise.allSettled([
+            api.getBookings(),
+            api.getCustomers(),
+            api.getNotifications(),
+            api.getLeads(),
+            api.getQuotations(),
+            api.getPayments(),
+            api.getEmployees(agencyId),
+            api.getTasks(),
+            api.getDashboard(),
+            api.getFinance(),
+            api.getCommission(),
+          ]);
 
-    // Always replace API-backed collections on successful hydrate — including empty
-          // arrays — so stale localStorage demo rows cannot mask a real empty DB.
-          const patch: Partial<DemoDataState> = {
-            bookings: (bookingsRes.bookings ?? []).map(mapApiBooking),
-            customers: (customersRes.customers ?? []).map(mapApiCustomer),
-            notifications: (notificationsRes.notifications ?? []).map(mapApiNotification),
-            leads: (leadsRes.leads ?? []).map(mapApiLead),
-            quotations: (quotationsRes.quotations ?? []).map(mapApiQuotation),
-            payments: (paymentsRes.payments ?? []).map(mapApiPayment),
-            employees: (employeesRes.employees ?? []).map(mapApiEmployee),
-            tasks: (tasksRes.tasks ?? []).map(mapApiTask),
-          };
+          const [
+            bookingsSettled,
+            customersSettled,
+            notificationsSettled,
+            leadsSettled,
+            quotationsSettled,
+            paymentsSettled,
+            employeesSettled,
+            tasksSettled,
+            dashboardSettled,
+            financeSettled,
+            commissionSettled,
+          ] = results;
 
-          if (dashboardRes?.stats) patch.dashboardStats = dashboardRes.stats;
-          if (financeRes?.summary) patch.financeStats = mapApiFinance(financeRes);
-          if (commissionRes?.summary) patch.commissionStats = mapApiCommission(commissionRes);
+          const anyFulfilled = results.some((r) => r.status === "fulfilled");
+
+          if (!anyFulfilled) {
+            toast({
+              title: "Could not refresh live data",
+              description: "Showing last saved data. Check your connection and try again.",
+              variant: "destructive",
+            });
+            return;
+          }
+
+          const patch: Partial<DemoDataState> = {};
+
+          if (bookingsSettled.status === "fulfilled") {
+            patch.bookings = (bookingsSettled.value.bookings ?? []).map(mapApiBooking);
+          }
+          if (customersSettled.status === "fulfilled") {
+            patch.customers = (customersSettled.value.customers ?? []).map(mapApiCustomer);
+          }
+          if (notificationsSettled.status === "fulfilled") {
+            patch.notifications = (notificationsSettled.value.notifications ?? []).map(mapApiNotification);
+          }
+          if (leadsSettled.status === "fulfilled") {
+            patch.leads = (leadsSettled.value.leads ?? []).map(mapApiLead);
+          }
+          if (quotationsSettled.status === "fulfilled") {
+            patch.quotations = (quotationsSettled.value.quotations ?? []).map(mapApiQuotation);
+          }
+          if (paymentsSettled.status === "fulfilled") {
+            patch.payments = (paymentsSettled.value.payments ?? []).map(mapApiPayment);
+          }
+          if (employeesSettled.status === "fulfilled") {
+            patch.employees = (employeesSettled.value.employees ?? []).map(mapApiEmployee);
+          }
+          if (tasksSettled.status === "fulfilled") {
+            patch.tasks = (tasksSettled.value.tasks ?? []).map(mapApiTask);
+          }
+
+          if (dashboardSettled.status === "fulfilled" && dashboardSettled.value?.stats) {
+            patch.dashboardStats = dashboardSettled.value.stats;
+          }
+          if (financeSettled.status === "fulfilled" && financeSettled.value?.summary) {
+            patch.financeStats = mapApiFinance(financeSettled.value);
+          }
+          if (commissionSettled.status === "fulfilled" && commissionSettled.value?.summary) {
+            patch.commissionStats = mapApiCommission(commissionSettled.value);
+          }
 
           if (agencyId) {
             try {

@@ -43,6 +43,7 @@ import {
   couponCreateSchema, couponUpdateSchema, couponValidateSchema,
 } from "./lib/validation.js";
 import { effectiveCouponStatus, validateCouponForOrder } from "./lib/coupons.js";
+import { getAgencyApiKeys, maskSecret, type DynamicApiKeys } from "./lib/api-key-config.js";
 
 validateEnv();
 
@@ -206,6 +207,17 @@ app.use((req, res, next) => {
     if (res.statusCode >= 500) errorCount += 1;
   });
   next();
+});
+
+app.get("/", (_req, res) => {
+  res.json({
+    status: "ok",
+    service: "travelpro-backend",
+    name: "Trevio Global API",
+    version: "0.3.0",
+    health: "/api/health",
+    endpoints: "/api",
+  });
 });
 
 app.get("/api/health", async (_req, res) => {
@@ -2103,8 +2115,9 @@ app.post("/api/marketing/coupons", requireAuth, requireRole("super_admin", "agen
 
 app.patch("/api/marketing/coupons/:id", requireAuth, requireRole("super_admin", "agency_admin"), validate(couponUpdateSchema), async (req: AuthRequest, res) => {
   try {
+    const id = routeParamId(req);
     const existing = await db.coupon.findFirst({
-      where: { id: req.params.id, ...agencyScope(req) },
+      where: { id, ...agencyScope(req) },
     });
     if (!existing) {
       res.status(404).json({ error: "Coupon not found" });
@@ -2159,8 +2172,9 @@ app.patch("/api/marketing/coupons/:id", requireAuth, requireRole("super_admin", 
 
 app.delete("/api/marketing/coupons/:id", requireAuth, requireRole("super_admin", "agency_admin"), async (req: AuthRequest, res) => {
   try {
+    const id = routeParamId(req);
     const existing = await db.coupon.findFirst({
-      where: { id: req.params.id, ...agencyScope(req) },
+      where: { id, ...agencyScope(req) },
     });
     if (!existing) {
       res.status(404).json({ error: "Coupon not found" });
@@ -2434,6 +2448,97 @@ app.put("/api/settings", requireAuth, requireRole("super_admin", "agency_admin")
       create: { ...data, agencyId },
     });
     res.json(settings);
+  } catch (e) {
+    logger.error(e);
+    res.status(500).json({ error: "Server error" });
+  }
+});
+
+app.get("/api/settings/api-keys", requireAuth, requireRole("super_admin", "agency_admin"), async (req: AuthRequest, res) => {
+  try {
+    const agencyId = resolveSettingsAgencyId(req, res);
+    if (!agencyId) return;
+    const settings = await db.settings.findUnique({ where: { agencyId }, select: { apiKeys: true } });
+    const stored = (settings?.apiKeys as DynamicApiKeys | null) ?? {};
+
+    res.json({
+      razorpayKeyId: stored.razorpayKeyId || process.env.RAZORPAY_KEY_ID || "",
+      razorpayKeySecretMasked: maskSecret(stored.razorpayKeySecret || process.env.RAZORPAY_KEY_SECRET),
+      hasRazorpaySecret: Boolean(stored.razorpayKeySecret || process.env.RAZORPAY_KEY_SECRET),
+      razorpayMode: stored.razorpayMode || "Test",
+      flightProvider: stored.flightProvider || "mock",
+      flightApiKey: stored.flightApiKey || "",
+      flightApiSecretMasked: maskSecret(stored.flightApiSecret),
+      hasFlightSecret: Boolean(stored.flightApiSecret),
+      hotelProvider: stored.hotelProvider || "mock",
+      hotelApiKey: stored.hotelApiKey || "",
+      hotelApiSecretMasked: maskSecret(stored.hotelApiSecret),
+      hasHotelSecret: Boolean(stored.hotelApiSecret),
+      sendgridApiKeyMasked: maskSecret(stored.sendgridApiKey || process.env.SENDGRID_API_KEY),
+      hasSendgridKey: Boolean(stored.sendgridApiKey || process.env.SENDGRID_API_KEY),
+      sendgridFromEmail: stored.sendgridFromEmail || process.env.SENDGRID_FROM_EMAIL || "",
+      s3Bucket: stored.s3Bucket || process.env.AWS_S3_BUCKET || "",
+      s3Region: stored.s3Region || process.env.AWS_REGION || "ap-south-1",
+      s3AccessKey: stored.s3AccessKey || process.env.AWS_ACCESS_KEY_ID || "",
+      s3SecretKeyMasked: maskSecret(stored.s3SecretKey || process.env.AWS_SECRET_ACCESS_KEY),
+      hasS3Secret: Boolean(stored.s3SecretKey || process.env.AWS_SECRET_ACCESS_KEY),
+      smsProvider: stored.smsProvider || "none",
+      twilioAccountSid: stored.twilioAccountSid || "",
+      twilioAuthTokenMasked: maskSecret(stored.twilioAuthToken),
+      hasTwilioToken: Boolean(stored.twilioAuthToken),
+    });
+  } catch (e) {
+    logger.error(e);
+    res.status(500).json({ error: "Server error" });
+  }
+});
+
+app.put("/api/settings/api-keys", requireAuth, requireRole("super_admin", "agency_admin"), async (req: AuthRequest, res) => {
+  try {
+    const agencyId = resolveSettingsAgencyId(req, res);
+    if (!agencyId) return;
+    const body = req.body ?? {};
+
+    const existingSettings = await db.settings.findUnique({ where: { agencyId }, select: { apiKeys: true } });
+    const currentKeys = (existingSettings?.apiKeys as Record<string, string> | null) ?? {};
+
+    const updatedKeys: Record<string, string> = { ...currentKeys };
+    const fieldsToUpdate = [
+      "razorpayKeyId", "razorpayMode", "flightProvider", "flightApiKey",
+      "hotelProvider", "hotelApiKey", "sendgridFromEmail", "s3Bucket",
+      "s3Region", "s3AccessKey", "smsProvider", "twilioAccountSid",
+    ];
+
+    for (const f of fieldsToUpdate) {
+      if (body[f] !== undefined) updatedKeys[f] = String(body[f]).trim();
+    }
+
+    if (body.razorpayKeySecret && !body.razorpayKeySecret.includes("••••")) {
+      updatedKeys.razorpayKeySecret = String(body.razorpayKeySecret).trim();
+    }
+    if (body.flightApiSecret && !body.flightApiSecret.includes("••••")) {
+      updatedKeys.flightApiSecret = String(body.flightApiSecret).trim();
+    }
+    if (body.hotelApiSecret && !body.hotelApiSecret.includes("••••")) {
+      updatedKeys.hotelApiSecret = String(body.hotelApiSecret).trim();
+    }
+    if (body.sendgridApiKey && !body.sendgridApiKey.includes("••••")) {
+      updatedKeys.sendgridApiKey = String(body.sendgridApiKey).trim();
+    }
+    if (body.s3SecretKey && !body.s3SecretKey.includes("••••")) {
+      updatedKeys.s3SecretKey = String(body.s3SecretKey).trim();
+    }
+    if (body.twilioAuthToken && !body.twilioAuthToken.includes("••••")) {
+      updatedKeys.twilioAuthToken = String(body.twilioAuthToken).trim();
+    }
+
+    await db.settings.upsert({
+      where: { agencyId },
+      update: { apiKeys: updatedKeys },
+      create: { agencyId, apiKeys: updatedKeys },
+    });
+
+    res.json({ ok: true, message: "API Keys & Integrations saved successfully." });
   } catch (e) {
     logger.error(e);
     res.status(500).json({ error: "Server error" });

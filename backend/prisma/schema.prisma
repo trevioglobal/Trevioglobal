@@ -2,6 +2,7 @@
 
 generator client {
   provider = "prisma-client-js"
+  output   = "../node_modules/@prisma/client"
 }
 
 datasource db {
@@ -766,6 +767,7 @@ model Settings {
   timezone    String   @default("Asia/Kolkata")
   notifications Boolean @default(true)
   rolePermissions Json?
+  apiKeys     Json?
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt
 }

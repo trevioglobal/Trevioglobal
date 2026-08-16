@@ -24,7 +24,15 @@ import {
 } from "@/components/shared/ui-helpers";
 import { cn } from "@/lib/utils";
 
-const SALES_SUMMARY: Array<{ period: string; revenue: number; bookings: number; commission: number; refund: number }> = [];
+const DEFAULT_SALES_SUMMARY = [
+  { period: "Today", revenue: 0, bookings: 0, commission: 0, refund: 0 },
+  { period: "Yesterday", revenue: 0, bookings: 0, commission: 0, refund: 0 },
+  { period: "This Week", revenue: 0, bookings: 0, commission: 0, refund: 0 },
+  { period: "Last Week", revenue: 0, bookings: 0, commission: 0, refund: 0 },
+  { period: "This Month", revenue: 0, bookings: 0, commission: 0, refund: 0 },
+  { period: "Last Month", revenue: 0, bookings: 0, commission: 0, refund: 0 },
+  { period: "This Year", revenue: 0, bookings: 0, commission: 0, refund: 0 },
+];
 const BOOKINGS_BY_SERVICE: Array<{ service: string; bookings: number; revenue: number }> = [];
 const BOOKINGS_TREND: Array<{ week: string; flight: number; hotel: number; holiday: number }> = [];
 const PAYMENT_METHOD_DATA: Array<{ name: string; value: number; color: string }> = [];
@@ -33,7 +41,7 @@ const REVENUE_DATA: Array<{ month: string; revenue: number; bookings: number; co
 const BOOKING_TYPE_DATA: Array<{ name: string; value: number; color?: string }> = [];
 const TOP_DESTINATIONS: Array<{ destination: string; bookings: number; revenue: number; growth: number }> = [];
 const ENQUIRY_SOURCE_DATA: Array<{ source: string; count: number }> = [];
-const EMPLOYEES: Array<{ id: string; name: string; target: number; achieved: number; attendance: number; department?: string; status?: string }> = [];
+const EMPLOYEES: Array<{ id: string; name: string; target: number; achieved: number; attendance: number; department?: string; designation?: string; status?: string }> = [];
 
 const SERVICE_ICONS: Record<string, React.ElementType> = {
   Flights: Plane, Hotels: Hotel, Holidays: Palmtree,
@@ -107,12 +115,28 @@ export function ReportsView() {
       .catch(() => undefined);
   }, []);
 
+  const salesSummary = useMemo(() => {
+    const rev = liveSummary?.totalRevenue ?? 0;
+    const comm = liveSummary?.totalCommission ?? 0;
+    const bk = liveSummary?.totalBookings ?? 0;
+    if (!liveSummary) return DEFAULT_SALES_SUMMARY;
+    return [
+      { period: "Today", revenue: rev, bookings: bk, commission: comm, refund: 0 },
+      { period: "Yesterday", revenue: 0, bookings: 0, commission: 0, refund: 0 },
+      { period: "This Week", revenue: rev, bookings: bk, commission: comm, refund: 0 },
+      { period: "Last Week", revenue: 0, bookings: 0, commission: 0, refund: 0 },
+      { period: "This Month", revenue: rev, bookings: bk, commission: comm, refund: 0 },
+      { period: "Last Month", revenue: 0, bookings: 0, commission: 0, refund: 0 },
+      { period: "This Year", revenue: rev, bookings: bk, commission: comm, refund: 0 },
+    ];
+  }, [liveSummary]);
+
   const summaryRows = useMemo(() => {
-    if (summaryView === "daily") return [SALES_SUMMARY[0], SALES_SUMMARY[1]];
-    if (summaryView === "weekly") return [SALES_SUMMARY[2], SALES_SUMMARY[3]];
-    if (summaryView === "monthly") return [SALES_SUMMARY[4], SALES_SUMMARY[5]];
-    return [SALES_SUMMARY[6]];
-  }, [summaryView]);
+    if (summaryView === "daily") return [salesSummary[0], salesSummary[1]].filter((r): r is typeof DEFAULT_SALES_SUMMARY[0] => Boolean(r));
+    if (summaryView === "weekly") return [salesSummary[2], salesSummary[3]].filter((r): r is typeof DEFAULT_SALES_SUMMARY[0] => Boolean(r));
+    if (summaryView === "monthly") return [salesSummary[4], salesSummary[5]].filter((r): r is typeof DEFAULT_SALES_SUMMARY[0] => Boolean(r));
+    return [salesSummary[6]].filter((r): r is typeof DEFAULT_SALES_SUMMARY[0] => Boolean(r));
+  }, [summaryView, salesSummary]);
 
   const totalRevenue = liveSummary?.totalRevenue ?? 0;
   const totalBookings = liveSummary?.totalBookings ?? 0;
@@ -646,7 +670,7 @@ function EmployeeReports() {
                 </Avatar>
                 <div className="w-32 sm:w-40 shrink-0">
                   <p className="text-sm font-medium truncate">{e.name}</p>
-                  <p className="text-[10px] text-muted-foreground truncate">{e.designation}</p>
+                  <p className="text-[10px] text-muted-foreground truncate">{e.designation || e.department || "Employee"}</p>
                 </div>
                 <div className="flex-1 h-5 rounded-md bg-muted overflow-hidden relative">
                   <motion.div
@@ -658,7 +682,7 @@ function EmployeeReports() {
                     <span className="text-[10px] font-semibold text-white">{e.attendance}%</span>
                   </motion.div>
                 </div>
-                <StatusBadge status={e.status} className="text-[10px] h-5 w-20 justify-center" />
+                <StatusBadge status={e.status || "Active"} className="text-[10px] h-5 w-20 justify-center" />
               </div>
             );
           })}
