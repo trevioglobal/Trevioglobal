@@ -150,6 +150,9 @@ export const ROLE_LABELS: Record<Role, string> = {
   accountant: "Finance",
   sales_executive: "Sales Executive",
   product_executive: "Product Executive",
+  operations: "Operations",
+  travel_agent: "Travel Agent",
+  management: "Management",
 };
 
 export const ROLE_DESCRIPTIONS: Record<Role, string> = {
@@ -160,4 +163,7 @@ export const ROLE_DESCRIPTIONS: Record<Role, string> = {
   accountant: "Finance staff — payments, GST & settlements",
   sales_executive: "Sales team — customers, quotations & bookings",
   product_executive: "Product team — manage hotels, activities & transfers",
+  operations: "Operations team — confirm services, vouchers & suppliers",
+  travel_agent: "B2B agent — passenger details, payments & change requests",
+  management: "Leadership — dashboards, reports & approvals",
 };

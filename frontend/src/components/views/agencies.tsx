@@ -510,7 +510,7 @@ function EditAgencyDialog({ agency, onClose, onSaved }: { agency: Agency | null;
 }
 
 function AgencyDetail({ agency }: { agency: Agency }) {
-  const recentBookings: Array<{ id: string; bookingRef: string; customerName: string; service: string; amount: number; status: string }> = [];
+  const recentBookings: Array<{ id: string; bookingRef: string; customerName: string; service: string; route?: string; amount: number; status: string }> = [];
   const maxAlloc = Math.max(agency.apiAllocation.flights, agency.apiAllocation.hotels, 100000);
 
   return (
@@ -570,7 +570,7 @@ function AgencyDetail({ agency }: { agency: Agency }) {
             <div key={b.id} className="flex items-center justify-between p-2.5 text-xs">
               <div>
                 <p className="font-medium">{b.bookingRef} · {b.customerName}</p>
-                <p className="text-muted-foreground">{b.service} · {b.route}</p>
+                <p className="text-muted-foreground">{b.service}{b.route ? ` · ${b.route}` : ""}</p>
               </div>
               <div className="text-right">
                 <p className="font-semibold">{formatINR(b.amount)}</p>

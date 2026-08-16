@@ -13,7 +13,7 @@ services:
     rootDir: backend
     # --include=dev: root npm workspaces omit @types/typescript when NODE_ENV=production
     buildCommand: npm install --include=dev && npx prisma generate && npm run build
-    startCommand: npx prisma migrate deploy && npm run start
+    startCommand: (npx prisma migrate deploy || npx prisma db push --skip-generate) && npm run start
     healthCheckPath: /api/health
     envVars:
       - key: NODE_ENV
