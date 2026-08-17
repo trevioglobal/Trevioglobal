@@ -74,7 +74,7 @@ export function PaymentModal({
       return;
     }
     if (result.demo) {
-      toast({ title: "Demo payment", description: "Razorpay isn't configured yet — this booking was simulated, no real charge was made." });
+      toast({ title: "Checkout not configured", description: "Razorpay live keys are not set — this booking was recorded without a charge." });
     }
     setPaidVia("Razorpay");
     onSuccess("Razorpay");

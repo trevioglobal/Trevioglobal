@@ -39,9 +39,9 @@ export const NAV_SECTIONS: NavSection[] = [
   {
     title: "Bookings",
     items: [
-      { key: "flights", label: "Flights", icon: Plane, module: "flights", mockInventoryOnly: true, badge: "Demo" },
-      { key: "hotels", label: "Hotels", icon: Hotel, module: "hotels", mockInventoryOnly: true, badge: "Demo" },
-      { key: "holiday", label: "Holiday Packages", icon: Palmtree, module: "holiday", stubOnly: true, badge: "Demo" },
+      { key: "flights", label: "Flights", icon: Plane, module: "flights" },
+      { key: "hotels", label: "Hotels", icon: Hotel, module: "hotels" },
+      { key: "holiday", label: "Holiday Packages", icon: Palmtree, module: "holiday", stubOnly: true },
       { key: "bookings", label: "Booking Management", icon: Ticket, module: "bookings" },
     ],
   },
@@ -103,11 +103,11 @@ export const NAV_SECTIONS: NavSection[] = [
     items: [
       { key: "agencies", label: "Agency Management", icon: Building2, module: "agencies" },
       { key: "branches", label: "Branches", icon: GitBranch, module: "branches" },
-      { key: "api-marketplace", label: "API Marketplace", icon: Store, module: "api-marketplace", stubOnly: true, badge: "Demo" },
-      { key: "api-management", label: "API Management", icon: KeyRound, module: "api-management", stubOnly: true, badge: "Demo" },
+      { key: "api-marketplace", label: "API Marketplace", icon: Store, module: "api-marketplace", stubOnly: true },
+      { key: "api-management", label: "API Management", icon: KeyRound, module: "api-management", stubOnly: true },
       { key: "monitoring", label: "Monitoring", icon: Activity, module: "monitoring", roles: ["super_admin"] },
       { key: "marketing", label: "Coupons", icon: Megaphone, module: "marketing" },
-      { key: "cms", label: "CMS", icon: LayoutGrid, module: "cms", stubOnly: true, badge: "Demo" },
+      { key: "cms", label: "CMS", icon: LayoutGrid, module: "cms", stubOnly: true },
       { key: "audit-logs", label: "Audit Logs", icon: History, module: "audit-logs" },
       { key: "settings", label: "Settings", icon: Settings, module: "settings" },
     ],

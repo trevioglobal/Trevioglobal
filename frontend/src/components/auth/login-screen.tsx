@@ -19,7 +19,7 @@ import { Label } from "@/components/ui/label";
 import { useToast } from "@/hooks/use-toast";
 import { cn } from "@/lib/utils";
 import { AgentRegistrationForm } from "@/components/auth/agent-registration-form";
-import { isDemoLoginEnabled } from "@/lib/runtime-mode";
+import { isDemoLoginEnabled, isDemoMode } from "@/lib/runtime-mode";
 
 type Mode = "login" | "forgot" | "reset" | "register";
 
@@ -45,6 +45,8 @@ export function LoginScreen() {
   const hydrateFromApi = useDemoDataStore((s) => s.hydrateFromApi);
   const { toast } = useToast();
   const showDemoLogin = isDemoLoginEnabled();
+  const allowPublicRegister =
+    process.env.NEXT_PUBLIC_ALLOW_PUBLIC_REGISTER === "true" || isDemoMode();
   const [selectedRole, setSelectedRole] = useState<Role>("agency_admin");
   const [mode, setMode] = useState<Mode>("login");
   const [showPassword, setShowPassword] = useState(false);
@@ -152,7 +154,7 @@ export function LoginScreen() {
     }
   };
 
-  if (mode === "register") {
+  if (mode === "register" && allowPublicRegister) {
     return <AgentRegistrationForm onLogin={() => setMode("login")} />;
   }
 
@@ -386,12 +388,14 @@ export function LoginScreen() {
                     </div>
                   )}
 
+                  {allowPublicRegister && (
                   <p className="text-center text-sm text-muted-foreground">
                     New travel agent?{" "}
                     <button type="button" onClick={() => setMode("register")} className="text-primary font-semibold hover:underline">
                       Register with Trevio Global
                     </button>
                   </p>
+                  )}
                 </div>
               )}
 
@@ -465,7 +469,9 @@ export function LoginScreen() {
           </AnimatePresence>
 
           <p className="text-xs text-center text-muted-foreground mt-8">
-            Demo platform · Select any role to explore · No real credentials needed
+            {showDemoLogin
+              ? "Demo platform · Select any role to explore · No real credentials needed"
+              : "Secure sign-in · Authorized agency staff only"}
           </p>
         </div>
       </div>

@@ -24,14 +24,21 @@ export function validateEnv() {
     console.warn("[env] JWT_SECRET is shorter than recommended (32+ chars). Consider using a stronger secret.");
   }
 
-  // Enforce CORS_ORIGIN in production
-  if (isProd && (!process.env.CORS_ORIGIN || process.env.CORS_ORIGIN === "http://localhost:3000")) {
-    throw new Error("CORS_ORIGIN must be set to your production domain in production environment.");
+  // Enforce CORS_ORIGIN in production — any localhost entry is a misconfig
+  if (isProd) {
+    const cors = (process.env.CORS_ORIGIN || "")
+      .split(",")
+      .map((o) => o.trim())
+      .filter(Boolean);
+    const hasLocalhost = cors.some((o) => /^(https?:\/\/)?(localhost|127\.0\.0\.1)(:\d+)?$/i.test(o));
+    if (cors.length === 0 || hasLocalhost) {
+      throw new Error("CORS_ORIGIN must be your production HTTPS origin(s) only — do not include localhost.");
+    }
   }
 
-  // Warn about missing email service in production
-  if (isProd && !process.env.SENDGRID_API_KEY) {
-    console.warn("[env] SENDGRID_API_KEY not set. Email notifications will not be sent in production.");
+  const hasSmtp = Boolean(process.env.SMTP_HOST && process.env.SMTP_USER && process.env.SMTP_PASSWORD);
+  if (isProd && !hasSmtp && !process.env.SENDGRID_API_KEY) {
+    throw new Error("SMTP_* or SENDGRID_API_KEY must be set in production so password-reset emails can be delivered.");
   }
 
   // Verify NODE_ENV is set correctly

@@ -73,11 +73,11 @@ export function CitySearchField({
         <button
           type="button"
           className={cn(
-            "w-full h-full text-left rounded-lg border border-border bg-background p-3 hover:border-primary/40 transition-colors",
+            "w-full h-full text-left rounded-xl border border-border bg-background p-3 min-h-[76px] hover:border-primary/40 transition-colors touch-manipulation",
             triggerClassName
           )}
         >
-          <Label className="text-xs text-muted-foreground flex items-center gap-1.5 pointer-events-none mb-1">
+          <Label className="text-[11px] uppercase tracking-wide text-muted-foreground flex items-center gap-1.5 pointer-events-none mb-1">
             <Icon className="w-3.5 h-3.5" /> {label}
           </Label>
           <p className={cn(

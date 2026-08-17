@@ -22,6 +22,12 @@ import {
   writeAudit,
 } from "../lib/bms.js";
 
+import {
+  assertRazorpayPayment,
+  razorpayKeysForAgency,
+} from "../lib/razorpay.js";
+import { isOfflinePaymentMethod } from "../lib/payments.js";
+
 type ScopeFn = (req: AuthRequest) => Record<string, unknown>;
 type OwnAgencyFn = (req: AuthRequest, fallback?: string) => string | undefined;
 type OwnBranchFn = (req: AuthRequest) => string | undefined;
@@ -648,6 +654,31 @@ export function mountBmsRoutes(
           res.status(400).json({ error: "Invalid payment amount" });
           return;
         }
+        const method = String(req.body?.method || "Bank Transfer");
+        let gateway = String(req.body?.gateway || "Manual");
+        if (!isOfflinePaymentMethod(method)) {
+          const keys = await razorpayKeysForAgency(pr.agencyId);
+          const { orderId, paymentId, signature } = req.body ?? {};
+          if (!keys || !orderId || !paymentId || !signature) {
+            res.status(400).json({
+              error: "Online payments require a verified Razorpay payment. Use Cash, Bank Transfer, or Cheque for manual collection.",
+            });
+            return;
+          }
+          const check = await assertRazorpayPayment({
+            orderId: String(orderId),
+            paymentId: String(paymentId),
+            signature: String(signature),
+            amountRupees: payAmount,
+            keyId: keys.keyId,
+            keySecret: keys.keySecret,
+          });
+          if (!check.ok) {
+            res.status(400).json({ error: check.error });
+            return;
+          }
+          gateway = "Razorpay";
+        }
         const newPaid = Math.min(pr.amount, pr.amountPaid + payAmount);
         const status = newPaid >= pr.amount ? "Paid" : "Partially Paid";
         const updated = await db.paymentRequest.update({
@@ -664,10 +695,10 @@ export function mountBmsRoutes(
             branchId: pr.booking.branchId,
             collectedById: req.auth?.userId,
             amount: payAmount,
-            method: req.body?.method || "Razorpay",
+            method,
             status: "Success",
             type: "Payment",
-            gateway: req.body?.gateway || "BMS",
+            gateway,
           },
         });
         const booking = await refreshBookingTotals(pr.bookingId);

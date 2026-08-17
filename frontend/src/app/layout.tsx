@@ -1,4 +1,4 @@
-import type { Metadata } from "next";
+import type { Metadata, Viewport } from "next";
 import { Geist, Geist_Mono } from "next/font/google";
 import "./globals.css";
 import { Toaster } from "@/components/ui/toaster";
@@ -20,7 +20,21 @@ export const metadata: Metadata = {
   authors: [{ name: "Trevio Global" }],
   icons: {
     icon: "/trevio-logo.png",
+    apple: "/trevio-logo.png",
   },
+  appleWebApp: {
+    capable: true,
+    title: "Trevio",
+    statusBarStyle: "default",
+  },
+};
+
+export const viewport: Viewport = {
+  width: "device-width",
+  initialScale: 1,
+  maximumScale: 1,
+  viewportFit: "cover",
+  themeColor: "#2A7BBD",
 };
 
 export default function RootLayout({
@@ -31,7 +45,7 @@ export default function RootLayout({
   return (
     <html lang="en" suppressHydrationWarning>
       <body
-        className={`${geistSans.variable} ${geistMono.variable} antialiased bg-background text-foreground`}
+        className={`${geistSans.variable} ${geistMono.variable} antialiased bg-background text-foreground min-h-dvh`}
       >
         {children}
         <Toaster />

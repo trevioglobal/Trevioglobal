@@ -196,6 +196,12 @@
     font-feature-settings: "rlig" 1, "calt" 1;
     font-size: var(--text-body);
     line-height: var(--leading-normal);
+    -webkit-tap-highlight-color: transparent;
+    padding-left: env(safe-area-inset-left);
+    padding-right: env(safe-area-inset-right);
+  }
+  html {
+    -webkit-text-size-adjust: 100%;
   }
   :focus-visible {
     outline: 2px solid var(--ring);
@@ -249,7 +255,12 @@
   .page-shell {
     display: flex;
     flex-direction: column;
-    gap: var(--space-section);
+    gap: 1rem;
+  }
+  @media (min-width: 1024px) {
+    .page-shell {
+      gap: var(--space-section);
+    }
   }
   .layout-grid {
     display: grid;

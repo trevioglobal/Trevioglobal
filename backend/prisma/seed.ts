@@ -12,6 +12,12 @@ const DEV_SUPER_ADMIN_EMAIL = "dev@trevioglobal.com";
 const DEV_SUPER_ADMIN_PASSWORD = "Dev@Trevio2026!";
 
 async function main() {
+  if (process.env.NODE_ENV === "production" && process.env.ALLOW_PROD_SEED !== "true") {
+    throw new Error(
+      "Refusing to seed a production database with known demo passwords. Set ALLOW_PROD_SEED=true only for a controlled bootstrap, then rotate every password immediately.",
+    );
+  }
+
   console.log("🌱 Seeding Travel Partner Pro database...");
   console.log("");
 

@@ -58,9 +58,10 @@ export function Topbar() {
 
   return (
     <TooltipProvider delayDuration={300}>
-      <header className="sticky top-0 z-30 h-14 bg-background/85 backdrop-blur-md border-b border-border">
-        <div className="flex items-center h-full px-4 md:px-6 xl:px-8 gap-3 max-w-[1600px] w-full mx-auto">
+      <header className="sticky top-0 z-30 pt-[env(safe-area-inset-top)] bg-background/90 backdrop-blur-md border-b border-border">
+        <div className="flex items-center h-14 px-3 sm:px-4 md:px-6 xl:px-8 gap-2 sm:gap-3 max-w-[1600px] w-full mx-auto">
           <button
+            type="button"
             onClick={toggleSidebar}
             className="lg:hidden shrink-0 text-muted-foreground hover:text-foreground p-1.5 rounded-md transition-enterprise"
             aria-label="Open menu"
@@ -118,7 +119,7 @@ export function Topbar() {
                 <Button
                   variant="ghost"
                   size="icon"
-                  className="h-9 w-9 text-muted-foreground"
+                  className="hidden sm:inline-flex h-9 w-9 text-muted-foreground"
                   onClick={() => setView("support")}
                   aria-label="Messages"
                 >
@@ -147,7 +148,7 @@ export function Topbar() {
                 </TooltipTrigger>
                 <TooltipContent>Notifications</TooltipContent>
               </Tooltip>
-              <PopoverContent className="w-[360px] p-0" align="end" sideOffset={8}>
+              <PopoverContent className="w-[min(360px,calc(100vw-1.5rem))] p-0" align="end" sideOffset={8}>
                 <div className="p-4 border-b border-border flex items-center justify-between">
                   <div>
                     <p className="text-card-title">Notifications</p>

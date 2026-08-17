@@ -6,7 +6,7 @@ export function Footer() {
   const setView = useAppStore((s) => s.setView);
 
   return (
-    <footer className="mt-auto border-t border-border bg-muted/20 px-4 md:px-6 xl:px-8 py-4">
+    <footer className="mt-auto hidden lg:block border-t border-border bg-muted/20 px-4 md:px-6 xl:px-8 py-4">
       <div className="max-w-[1600px] mx-auto flex flex-col sm:flex-row items-center justify-between gap-3 text-caption text-muted-foreground">
         <div className="flex items-center gap-2">
           <img src="/trevio-logo.png" alt="Trevio Global" className="h-5 w-auto" />

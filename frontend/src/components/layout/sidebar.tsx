@@ -28,7 +28,7 @@ export function Sidebar() {
 
       <aside
         className={cn(
-          "fixed lg:sticky top-0 left-0 z-50 h-screen shrink-0 bg-sidebar border-r border-sidebar-border flex flex-col transition-[width,transform] duration-200 ease-[var(--ease-standard)]",
+          "fixed lg:sticky top-0 left-0 z-50 h-dvh shrink-0 bg-sidebar border-r border-sidebar-border flex flex-col transition-[width,transform] duration-200 ease-[var(--ease-standard)]",
           collapsed ? "lg:w-[var(--sidebar-width-collapsed)]" : "lg:w-[var(--sidebar-width)]",
           "w-[var(--sidebar-width)]",
           sidebarOpen ? "translate-x-0" : "-translate-x-full lg:translate-x-0"
@@ -69,7 +69,10 @@ export function Sidebar() {
                     const btn = (
                       <button
                         type="button"
-                        onClick={() => setView(item.key)}
+                        onClick={() => {
+                          setView(item.key);
+                          setSidebarOpen(false);
+                        }}
                         aria-current={active ? "page" : undefined}
                         className={cn(
                           "w-full flex items-center gap-3 rounded-lg text-sm transition-enterprise relative group",
@@ -128,14 +131,14 @@ export function Sidebar() {
           <Button
             variant="ghost"
             size="sm"
-            className={cn("w-full h-9 text-muted-foreground", collapsed && "px-0")}
+            className={cn("w-full h-9 text-muted-foreground hidden lg:flex", collapsed && "px-0")}
             onClick={toggleSidebarCollapsed}
             aria-label={collapsed ? "Expand sidebar" : "Collapse sidebar"}
           >
             {collapsed ? <ChevronsRight className="w-4 h-4" /> : (
               <>
                 <ChevronsLeft className="w-4 h-4 mr-2" />
-                <span className="text-caption">Collapse</span>
+                <span className="text-caption hidden sm:inline">Collapse</span>
               </>
             )}
           </Button>

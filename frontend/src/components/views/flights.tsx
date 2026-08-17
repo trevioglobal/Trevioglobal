@@ -4,7 +4,7 @@ import { useState, useMemo } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import {
   Plane, Search, ArrowLeftRight, Calendar, Users, ChevronRight,
-  Clock, Star, Sparkles, Filter, Loader2,
+  Clock, Star, Filter, Loader2,
   CreditCard, Smartphone, Building2, Wallet, ShieldCheck,
   Plus, Minus, ArrowRight, PlaneTakeoff, PlaneLanding, Tag,
   CheckCircle2, RefreshCw, Crown, MapPin,
@@ -32,13 +32,12 @@ import { Separator } from "@/components/ui/separator";
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
 import { useToast } from "@/hooks/use-toast";
 import { cn } from "@/lib/utils";
-import { formatFullINR, PageHeader, PageShell } from "@/components/shared/ui-helpers";
+import { formatFullINR, formatPrettyDate, PageShell } from "@/components/shared/ui-helpers";
 import { generateFlights } from "@/lib/mock-data";
 import { api } from "@/lib/api";
 import { mapApiFlight } from "@/lib/api-mappers";
 import { useDemoDataStore } from "@/store/demo-data-store";
 import { payWithRazorpay } from "@/lib/razorpay";
-import { mockInventoryBannerText } from "@/lib/runtime-mode";
 import { ShareTicket } from "@/components/shared/share-ticket";
 import type { Flight } from "@/types";
 
@@ -474,14 +473,14 @@ export function FlightsView() {
       paidMethod = "Wallet";
     } else {
       setPaying(true);
-      const result = await payWithRazorpay({ amount: totalFare, name: "TravelPro", description, prefillEmail: contactEmail, prefillContact: contactPhone });
+      const result = await payWithRazorpay({ amount: totalFare, name: "Trevio Global", description, prefillEmail: contactEmail, prefillContact: contactPhone });
       if (!result.success) {
         setPaying(false);
         toast({ title: "Payment cancelled or failed", description: result.error || "No amount was charged.", variant: "destructive" });
         return;
       }
       if (result.demo) {
-        toast({ title: "Demo payment", description: "Razorpay isn't configured yet — this booking was simulated, no real charge was made." });
+        toast({ title: "Checkout not configured", description: "Razorpay live keys are not set — this booking was recorded without a charge." });
       }
     }
 
@@ -525,20 +524,6 @@ export function FlightsView() {
   /* ============================ Render ============================ */
   return (
     <PageShell>
-      <PageHeader
-        title="Flight Booking"
-        subtitle="Search and book domestic & international flights at the best fares"
-        action={
-          <Badge className="bg-amber-100 text-amber-800 dark:bg-amber-500/15 dark:text-amber-400 border-0">
-            Demo inventory
-          </Badge>
-        }
-      />
-      <div className="rounded-lg border border-amber-200 bg-amber-50 dark:bg-amber-500/10 dark:border-amber-500/20 px-3 py-2 text-xs text-amber-900 dark:text-amber-200 mb-4">
-        {mockInventoryBannerText()}
-      </div>
-
-      {/* SEARCH PANEL — always visible at top in search/results */}
       <SearchPanel
         tripType={tripType} setTripType={setTripType}
         from={from} setFrom={setFrom}
@@ -556,15 +541,16 @@ export function FlightsView() {
 
       {/* Quick route chips on search screen */}
       {step === "search" && (
-        <div className="flex flex-wrap items-center gap-2">
-          <span className="text-sm text-muted-foreground flex items-center gap-1.5">
-            <Sparkles className="w-4 h-4 text-amber-500" /> Popular routes:
+        <div className="flex items-center gap-2 overflow-x-auto pb-1 -mx-1 px-1 sm:mx-0 sm:flex-wrap sm:overflow-visible">
+          <span className="text-xs font-semibold uppercase tracking-[0.14em] text-muted-foreground shrink-0">
+            Popular
           </span>
           {QUICK_ROUTES.map((r) => (
             <button
               key={r.label}
+              type="button"
               onClick={() => pickQuickRoute(r)}
-              className="px-3 py-1.5 rounded-full text-xs font-medium border border-border bg-card hover:border-primary/40 hover:bg-primary/5 transition-all"
+              className="px-3.5 py-2 rounded-full text-xs font-medium border border-border/80 bg-card shadow-xs hover:border-primary/50 hover:text-primary hover:bg-primary/5 transition-all whitespace-nowrap min-h-[40px] touch-manipulation"
             >
               {r.label}
             </button>
@@ -580,7 +566,7 @@ export function FlightsView() {
             animate={{ opacity: 1, y: 0 }}
             exit={{ opacity: 0, y: -8 }}
           >
-            <EmptyState />
+            <EmptyState onPick={pickQuickRoute} />
           </motion.div>
         )}
 
@@ -592,7 +578,7 @@ export function FlightsView() {
             exit={{ opacity: 0, y: -8 }}
           >
             {/* Search summary bar */}
-            <Card className="mb-4 border-primary/20 bg-gradient-to-r from-primary/5 via-card to-amber-500/5">
+            <Card className="mb-4 rounded-2xl border-border/80 bg-card shadow-sm">
               <CardContent className="p-4 flex flex-wrap items-center justify-between gap-3">
                 <div className="flex items-center gap-3 flex-wrap">
                   <div className="flex items-center gap-2 font-semibold">
@@ -603,9 +589,9 @@ export function FlightsView() {
                   <Separator orientation="vertical" className="h-6" />
                   <div className="flex items-center gap-1.5 text-sm text-muted-foreground">
                     <Calendar className="w-4 h-4" />
-                    {departDate}
+                    {formatPrettyDate(departDate)}
                     {tripType === "round" && returnDate && (
-                      <> → {returnDate}</>
+                      <> → {formatPrettyDate(returnDate)}</>
                     )}
                   </div>
                   <Separator orientation="vertical" className="h-6" />
@@ -649,7 +635,7 @@ export function FlightsView() {
                   variant="outline"
                   size="sm"
                   onClick={() => setShowFiltersMobile(true)}
-                  className="gap-1.5"
+                  className="gap-1.5 min-h-[44px] touch-manipulation"
                 >
                   <Filter className="w-4 h-4" /> Filters
                 </Button>
@@ -1140,7 +1126,7 @@ export function FlightsView() {
                 )}
               </Button>
               <p className="text-[11px] text-muted-foreground text-center flex items-center justify-center gap-1">
-                <ShieldCheck className="w-3 h-3" /> This is a demo payment. No real charge will be made.
+                <ShieldCheck className="w-3 h-3" /> Encrypted checkout · PCI-compliant payment
               </p>
             </>
           )}
@@ -1173,10 +1159,25 @@ function SearchPanel(props: {
   const isRound = props.tripType === "round";
 
   return (
-    <Card className="border border-border bg-card shadow-none">
-      <CardContent className="p-4 sm:p-5 space-y-4">
+    <section className="relative overflow-hidden rounded-[1.5rem] border border-border/70 bg-gradient-to-br from-primary/12 via-card to-brand-teal/10 shadow-sm">
+      <div className="pointer-events-none absolute -right-20 -top-16 size-64 rounded-full bg-primary/20 blur-3xl" />
+      <div className="pointer-events-none absolute -left-14 bottom-0 size-48 rounded-full bg-brand-teal/20 blur-3xl" />
+      <div className="relative p-4 sm:p-6 space-y-4">
+        <div className="flex items-start justify-between gap-3">
+          <div className="min-w-0">
+            <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-primary">Flights</p>
+            <h1 className="mt-1 text-2xl sm:text-[1.7rem] font-bold tracking-tight">Search & book flights</h1>
+            <p className="hidden sm:block mt-1 text-sm text-muted-foreground">
+              Domestic and international fares, compared in seconds.
+            </p>
+          </div>
+          <div className="hidden md:flex items-center gap-1.5 rounded-full bg-background/80 border border-border px-3 py-1.5 text-[11px] font-medium text-muted-foreground shrink-0">
+            <ShieldCheck className="w-3.5 h-3.5 text-primary" /> Instant ticketing
+          </div>
+        </div>
+
         <div
-          className="inline-flex p-1 rounded-lg bg-muted"
+          className="flex w-full max-w-lg p-1 rounded-full bg-background/75 border border-border/70 backdrop-blur-sm"
           role="tablist"
           aria-label="Trip type"
         >
@@ -1192,9 +1193,9 @@ function SearchPanel(props: {
               aria-selected={props.tripType === t.id}
               onClick={() => props.setTripType(t.id as "oneway" | "round" | "multi")}
               className={cn(
-                "px-3.5 py-1.5 rounded-md text-sm font-medium transition-colors",
+                "flex-1 px-2 sm:px-3 py-2 rounded-full text-xs sm:text-sm font-medium transition-colors min-h-[40px] touch-manipulation",
                 props.tripType === t.id
-                  ? "bg-background text-foreground shadow-xs"
+                  ? "bg-primary text-primary-foreground shadow-sm"
                   : "text-muted-foreground hover:text-foreground"
               )}
             >
@@ -1203,143 +1204,177 @@ function SearchPanel(props: {
           ))}
         </div>
 
-        <div className="grid grid-cols-1 lg:grid-cols-[1fr_auto_1fr] gap-3 items-stretch">
-          <AirportField
-            icon={PlaneTakeoff}
-            label="From"
-            value={props.from}
-            onSelect={props.setFrom}
-            excludeCode={props.to}
-          />
-
-          <div className="flex items-center justify-center lg:px-0">
-            <button
-              type="button"
-              onClick={props.swapCities}
-              className="size-9 rounded-full border border-border bg-background text-muted-foreground hover:text-primary hover:border-primary/40 transition-colors flex items-center justify-center"
-              title="Swap cities"
-              aria-label="Swap origin and destination"
-            >
-              <ArrowLeftRight className="w-4 h-4" />
-            </button>
-          </div>
-
-          <AirportField
-            icon={PlaneLanding}
-            label="To"
-            value={props.to}
-            onSelect={props.setTo}
-            excludeCode={props.from}
-          />
-        </div>
-
-        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-[1fr_1fr_1.2fr_auto] gap-3">
-          <div className="rounded-lg border border-border bg-background p-3">
-            <Label className="text-xs text-muted-foreground flex items-center gap-1.5 mb-1">
-              <Calendar className="w-3.5 h-3.5" /> Departure
-            </Label>
-            <Input
-              type="date"
-              value={props.departDate}
-              min={today}
-              onChange={(e) => props.setDepartDate(e.target.value)}
-              className="border-0 p-0 h-auto text-sm font-medium shadow-none focus-visible:ring-0"
+        <div className="rounded-2xl bg-background/95 border border-border/80 shadow-[0_12px_40px_-18px_rgba(15,23,42,0.28)] overflow-hidden">
+          <div className="relative grid grid-cols-2 lg:grid-cols-[minmax(0,1.15fr)_auto_minmax(0,1.15fr)_0.9fr_0.9fr_1.05fr_auto] lg:items-stretch gap-2 lg:gap-0 p-2 lg:p-0">
+            <div className="col-span-2 lg:col-auto min-w-0">
+            <AirportField
+              icon={PlaneTakeoff}
+              label="From"
+              value={props.from}
+              onSelect={props.setFrom}
+              excludeCode={props.to}
+              embedded
             />
-          </div>
+            </div>
 
-          <div
-            className={cn(
-              "rounded-lg border border-border bg-background p-3 transition-opacity",
-              !isRound && "opacity-50"
-            )}
-          >
-            <Label className="text-xs text-muted-foreground flex items-center gap-1.5 mb-1">
-              <Calendar className="w-3.5 h-3.5" /> Return
-            </Label>
-            <Input
-              type="date"
-              value={props.returnDate}
-              min={props.departDate || today}
-              disabled={!isRound}
-              onChange={(e) => props.setReturnDate(e.target.value)}
-              className="border-0 p-0 h-auto text-sm font-medium shadow-none focus-visible:ring-0 disabled:cursor-not-allowed"
-            />
-            {!isRound && (
-              <p className="text-[11px] text-muted-foreground mt-1">Select round trip to enable</p>
-            )}
-          </div>
-
-          <Popover>
-            <PopoverTrigger asChild>
+            <div className="lg:hidden absolute left-1/2 top-[5.15rem] z-10 -translate-x-1/2 -translate-y-1/2">
               <button
                 type="button"
-                className="rounded-lg border border-border bg-background p-3 text-left hover:border-primary/40 transition-colors w-full"
+                onClick={props.swapCities}
+                className="size-10 rounded-full border border-border bg-background text-muted-foreground hover:text-primary shadow-md flex items-center justify-center"
+                aria-label="Swap origin and destination"
               >
-                <Label className="text-xs text-muted-foreground flex items-center gap-1.5 pointer-events-none mb-1">
-                  <Users className="w-3.5 h-3.5" /> Travelers & class
-                </Label>
-                <p className="text-sm font-medium">{paxLabel}</p>
-                <p className="text-xs text-muted-foreground">{props.cabin}</p>
+                <ArrowLeftRight className="w-4 h-4 rotate-90" />
               </button>
-            </PopoverTrigger>
-            <PopoverContent className="w-80" align="start">
-              <PaxStepper
-                label="Adults" sub="12+ years"
-                value={props.adults} onChange={props.setAdults} min={1} max={9}
-              />
-              <Separator className="my-2" />
-              <PaxStepper
-                label="Children" sub="2–12 years"
-                value={props.childrenCount} onChange={props.setChildrenCount} min={0} max={9}
-              />
-              <Separator className="my-2" />
-              <PaxStepper
-                label="Infants" sub="Under 2 years"
-                value={props.infants} onChange={props.setInfants} min={0} max={4}
-              />
-              <Separator className="my-2" />
-              <div>
-                <p className="text-sm font-medium mb-2">Cabin class</p>
-                <RadioGroup
-                  value={props.cabin}
-                  onValueChange={props.setCabin}
-                  className="grid grid-cols-2 gap-1.5"
-                >
-                  {CABIN_CLASSES.map((c) => (
-                    <label key={c} className="flex items-center gap-2 cursor-pointer rounded-md border p-1.5 has-[:checked]:border-primary has-[:checked]:bg-primary/5">
-                      <RadioGroupItem value={c} id={`c-${c}`} />
-                      <span className="text-sm">{c}</span>
-                    </label>
-                  ))}
-                </RadioGroup>
-              </div>
-            </PopoverContent>
-          </Popover>
+            </div>
+            <div className="hidden lg:flex items-center justify-center border-x border-border">
+              <button
+                type="button"
+                onClick={props.swapCities}
+                className="size-10 rounded-full border border-border bg-background text-muted-foreground hover:text-primary hover:border-primary/50 shadow-sm flex items-center justify-center"
+                aria-label="Swap origin and destination"
+              >
+                <ArrowLeftRight className="w-4 h-4" />
+              </button>
+            </div>
 
-          <Button
-            onClick={props.onSearch}
-            disabled={props.loading}
-            className="h-12 lg:h-auto lg:min-h-[72px] px-6 font-medium gap-2"
-          >
-            {props.loading ? (
-              <Loader2 className="w-4 h-4 animate-spin" />
-            ) : (
-              <Search className="w-4 h-4" />
-            )}
-            {props.loading ? "Searching…" : "Search flights"}
-          </Button>
+            <div className="col-span-2 lg:col-auto min-w-0">
+            <AirportField
+              icon={PlaneLanding}
+              label="To"
+              value={props.to}
+              onSelect={props.setTo}
+              excludeCode={props.from}
+              embedded
+            />
+            </div>
+
+            <DateField
+              label="Departure"
+              value={props.departDate}
+              min={today}
+              onChange={props.setDepartDate}
+            />
+
+            <DateField
+              label="Return"
+              value={props.returnDate}
+              min={props.departDate || today}
+              onChange={props.setReturnDate}
+              disabled={!isRound}
+              hint={!isRound ? "Round trip" : undefined}
+            />
+
+            <div className="col-span-2 lg:col-auto">
+            <Popover>
+              <PopoverTrigger asChild>
+                <button
+                  type="button"
+                  className="w-full text-left px-3.5 py-3 min-h-[78px] rounded-xl lg:rounded-none border border-border lg:border-0 hover:bg-muted/40 transition-colors touch-manipulation"
+                >
+                  <span className="text-[11px] uppercase tracking-wide text-muted-foreground flex items-center gap-1.5 pointer-events-none mb-1">
+                    <Users className="w-3.5 h-3.5" /> Travelers
+                  </span>
+                  <p className="text-sm font-semibold leading-tight">{paxLabel}</p>
+                  <p className="text-xs text-muted-foreground mt-0.5">{props.cabin}</p>
+                </button>
+              </PopoverTrigger>
+              <PopoverContent className="w-[min(20rem,calc(100vw-2rem))]" align="start">
+                <PaxStepper
+                  label="Adults" sub="12+ years"
+                  value={props.adults} onChange={props.setAdults} min={1} max={9}
+                />
+                <Separator className="my-2" />
+                <PaxStepper
+                  label="Children" sub="2–12 years"
+                  value={props.childrenCount} onChange={props.setChildrenCount} min={0} max={9}
+                />
+                <Separator className="my-2" />
+                <PaxStepper
+                  label="Infants" sub="Under 2 years"
+                  value={props.infants} onChange={props.setInfants} min={0} max={4}
+                />
+                <Separator className="my-2" />
+                <div>
+                  <p className="text-sm font-medium mb-2">Cabin class</p>
+                  <RadioGroup
+                    value={props.cabin}
+                    onValueChange={props.setCabin}
+                    className="grid grid-cols-2 gap-1.5"
+                  >
+                    {CABIN_CLASSES.map((c) => (
+                      <label key={c} className="flex items-center gap-2 cursor-pointer rounded-md border p-1.5 has-[:checked]:border-primary has-[:checked]:bg-primary/5">
+                        <RadioGroupItem value={c} id={`c-${c}`} />
+                        <span className="text-sm">{c}</span>
+                      </label>
+                    ))}
+                  </RadioGroup>
+                </div>
+              </PopoverContent>
+            </Popover>
+            </div>
+
+            <Button
+              onClick={props.onSearch}
+              disabled={props.loading}
+              className="col-span-2 lg:col-auto h-12 lg:h-auto lg:min-h-[78px] rounded-xl lg:rounded-none lg:rounded-r-2xl px-6 font-semibold gap-2 text-[15px] touch-manipulation"
+            >
+              {props.loading ? (
+                <Loader2 className="w-4 h-4 animate-spin" />
+              ) : (
+                <Search className="w-4 h-4" />
+              )}
+              {props.loading ? "Searching…" : "Search"}
+            </Button>
+          </div>
         </div>
-      </CardContent>
-    </Card>
+      </div>
+    </section>
   );
 }
 
-function AirportField({ icon: Icon, label, value, onSelect, excludeCode }: {
+function DateField({
+  label, value, min, onChange, disabled, hint,
+}: {
+  label: string;
+  value: string;
+  min: string;
+  onChange: (v: string) => void;
+  disabled?: boolean;
+  hint?: string;
+}) {
+  return (
+    <label
+      className={cn(
+        "relative flex flex-col justify-center px-3.5 py-3 min-h-[78px] rounded-xl lg:rounded-none border border-border lg:border-0 lg:border-l cursor-pointer hover:bg-muted/40 transition-opacity",
+        disabled && "opacity-50 pointer-events-none"
+      )}
+    >
+      <span className="text-[11px] uppercase tracking-wide text-muted-foreground flex items-center gap-1.5 mb-1">
+        <Calendar className="w-3.5 h-3.5" /> {label}
+      </span>
+      <span className="text-sm font-semibold">{formatPrettyDate(value)}</span>
+      {hint && <span className="text-[11px] text-muted-foreground mt-0.5">{hint}</span>}
+      <input
+        type="date"
+        value={value}
+        min={min}
+        disabled={disabled}
+        onChange={(e) => onChange(e.target.value)}
+        className="absolute inset-0 opacity-0 cursor-pointer disabled:cursor-not-allowed"
+        aria-label={label}
+      />
+    </label>
+  );
+}
+
+function AirportField({ icon: Icon, label, value, onSelect, excludeCode, embedded }: {
   icon: React.ElementType;
   label: string;
   value: string;
   onSelect: (code: string) => void;
   excludeCode?: string;
+  embedded?: boolean;
 }) {
   const [open, setOpen] = useState(false);
   const [query, setQuery] = useState("");
@@ -1367,11 +1402,16 @@ function AirportField({ icon: Icon, label, value, onSelect, excludeCode }: {
       <PopoverTrigger asChild>
         <button
           type="button"
-          className="w-full h-full text-left rounded-lg border border-border bg-background p-3 hover:border-primary/40 transition-colors"
+          className={cn(
+            "w-full h-full text-left p-3.5 min-h-[78px] touch-manipulation transition-colors",
+            embedded
+              ? "rounded-xl lg:rounded-none border border-border lg:border-0 hover:bg-muted/40"
+              : "rounded-xl border border-border bg-background hover:border-primary/40"
+          )}
         >
-          <Label className="text-xs text-muted-foreground flex items-center gap-1.5 pointer-events-none mb-1">
+          <span className="text-[11px] uppercase tracking-wide text-muted-foreground flex items-center gap-1.5 pointer-events-none mb-1">
             <Icon className="w-3.5 h-3.5" /> {label}
-          </Label>
+          </span>
           <p className="text-sm font-semibold leading-tight">
             {selected?.city ?? value}
             <span className="ml-1.5 text-xs font-medium text-muted-foreground">{value}</span>
@@ -1478,35 +1518,57 @@ function PaxStepper({ label, sub, value, onChange, min, max }: {
   );
 }
 
-function EmptyState() {
+function EmptyState({ onPick }: { onPick: (route: { from: string; to: string }) => void }) {
+  const tiles = [
+    { from: "BOM", to: "DEL", title: "Mumbai → Delhi", fare: "from ₹4,200", tone: "from-sky-500 to-blue-700" },
+    { from: "DEL", to: "GOI", title: "Delhi → Goa", fare: "from ₹5,100", tone: "from-teal-500 to-emerald-700" },
+    { from: "DEL", to: "SIN", title: "Delhi → Singapore", fare: "from ₹14,800", tone: "from-indigo-500 to-violet-700" },
+    { from: "HYD", to: "DXB", title: "Hyderabad → Dubai", fare: "from ₹16,200", tone: "from-amber-500 to-orange-700" },
+  ];
   return (
-    <Card className="overflow-hidden border-dashed border-border">
-      <CardContent className="py-12 px-6 text-center">
-        <div className="mx-auto w-16 h-16 rounded-2xl bg-gradient-to-br from-brand-blue to-brand-teal flex items-center justify-center mb-4 shadow-sm">
-          <Plane className="w-8 h-8 text-white" />
+    <div className="space-y-4">
+      <div className="flex items-end justify-between gap-3">
+        <div>
+          <h2 className="text-base font-semibold tracking-tight">Where would you like to fly?</h2>
+          <p className="text-sm text-muted-foreground">Tap a route to search, or enter cities above.</p>
         </div>
-        <h3 className="text-xl font-semibold tracking-tight">Where would you like to fly?</h3>
-        <p className="text-sm text-muted-foreground mt-1.5 max-w-md mx-auto leading-relaxed">
-          Search across 500+ airlines for the best fares. Get instant ticketing,
-          easy cancellations, and 24/7 customer support.
-        </p>
-        <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 mt-6 max-w-2xl mx-auto">
-          {[
-            { icon: Tag, title: "Lowest Price", desc: "Best fares guaranteed" },
-            { icon: ShieldCheck, title: "Secure Booking", desc: "100% safe payments" },
-            { icon: CheckCircle2, title: "Instant Ticketing", desc: "Confirmed in seconds" },
-          ].map((f) => (
-            <div key={f.title} className="rounded-xl border border-border bg-card p-4 text-left">
-              <div className="w-9 h-9 rounded-lg bg-primary/10 text-primary flex items-center justify-center mb-2">
-                <f.icon className="w-4 h-4" />
-              </div>
+      </div>
+      <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
+        {tiles.map((t) => (
+          <button
+            key={t.title}
+            type="button"
+            onClick={() => onPick({ from: t.from, to: t.to })}
+            className={cn(
+              "relative overflow-hidden rounded-2xl bg-gradient-to-br p-4 text-left text-white min-h-[124px] shadow-sm hover:shadow-md hover:scale-[1.01] transition-all touch-manipulation",
+              t.tone
+            )}
+          >
+            <div className="absolute inset-0 opacity-25 hero-pattern" />
+            <Plane className="relative w-5 h-5 mb-6 opacity-90" />
+            <p className="relative text-sm font-semibold leading-snug">{t.title}</p>
+            <p className="relative text-xs text-white/80 mt-1">{t.fare}</p>
+          </button>
+        ))}
+      </div>
+      <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+        {[
+          { icon: Tag, title: "Best fares", desc: "Compare airlines instantly" },
+          { icon: ShieldCheck, title: "Secure booking", desc: "Encrypted checkout" },
+          { icon: CheckCircle2, title: "Instant tickets", desc: "Confirmed in seconds" },
+        ].map((f) => (
+          <div key={f.title} className="rounded-2xl border border-border bg-card p-4 flex items-start gap-3">
+            <div className="w-9 h-9 rounded-lg bg-primary/10 text-primary flex items-center justify-center shrink-0">
+              <f.icon className="w-4 h-4" />
+            </div>
+            <div>
               <p className="text-sm font-semibold">{f.title}</p>
               <p className="text-xs text-muted-foreground mt-0.5">{f.desc}</p>
             </div>
-          ))}
-        </div>
-      </CardContent>
-    </Card>
+          </div>
+        ))}
+      </div>
+    </div>
   );
 }
 
@@ -1654,11 +1716,10 @@ function FilterPanel(props: {
 function FlightCard({ flight, onSelect }: { flight: Flight; onSelect: () => void }) {
   const lowSeats = flight.seatsLeft < 8;
   return (
-    <Card className="overflow-hidden hover:shadow-sm hover:border-primary/40 transition-all group">
-      <CardContent className="p-4">
-        <div className="grid grid-cols-1 lg:grid-cols-[1fr_auto] gap-4">
-          {/* Left: flight info */}
-          <div className="flex flex-col sm:flex-row sm:items-center gap-4">
+    <Card className="overflow-hidden hover:shadow-md hover:border-primary/30 transition-all group rounded-2xl border-border/80">
+      <CardContent className="p-0">
+        <div className="grid grid-cols-1 lg:grid-cols-[1fr_auto]">
+          <div className="p-4 flex flex-col sm:flex-row sm:items-center gap-4">
             <div className="flex items-center gap-3 min-w-[160px]">
               <div className={cn(
                 "size-11 rounded-full bg-gradient-to-br text-white text-xs font-bold flex items-center justify-center shadow-sm",
@@ -1708,7 +1769,7 @@ function FlightCard({ flight, onSelect }: { flight: Flight; onSelect: () => void
           </div>
 
           {/* Right: price + select */}
-          <div className="flex sm:flex-col items-center sm:items-end justify-between gap-2 sm:gap-1 lg:min-w-[150px] sm:border-l sm:pl-4">
+          <div className="flex sm:flex-col items-center sm:items-end justify-between gap-2 sm:gap-1 lg:min-w-[168px] p-4 max-lg:border-t lg:border-l bg-muted/30">
             <div className="text-left sm:text-right">
               <p className="text-[11px] text-muted-foreground">starting from</p>
               <p className="text-2xl font-bold tracking-tight text-primary">
@@ -1735,8 +1796,8 @@ function FlightCard({ flight, onSelect }: { flight: Flight; onSelect: () => void
                 )}
               </div>
             </div>
-            <Button onClick={onSelect} className="bg-primary hover:bg-primary/90 w-full sm:w-auto">
-              Select <ChevronRight className="w-4 h-4" />
+            <Button onClick={onSelect} className="bg-primary hover:bg-primary/90 w-full sm:w-auto min-h-[44px] rounded-xl touch-manipulation">
+              Book <ChevronRight className="w-4 h-4" />
             </Button>
           </div>
         </div>

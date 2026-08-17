@@ -65,11 +65,6 @@ function mapAuditLog(l: ApiAuditLog): LogEntry {
   };
 }
 
-const FALLBACK_LOGS: LogEntry[] = [
-  { id: "log-1", timestamp: "2025-01-21 10:42:18", date: "2025-01-21", user: "Priya Sharma", action: "Logged in", module: "Authentication", type: "login", ip: "103.21.58.14", details: "Successful login via email + 2FA (Authenticator app)", status: "success" },
-  { id: "log-2", timestamp: "2025-01-21 10:38:55", date: "2025-01-21", user: "Sneha Reddy", action: "Created booking BK-8853", module: "Bookings", type: "booking", ip: "106.51.74.22", details: "Flight booking MUM→DXB for ₹54,200, customer: Amit Patel", status: "success" },
-];
-
 const TYPE_META: Record<LogType, { label: string; icon: React.ElementType; color: string; dot: string }> = {
   login: { label: "Login History", icon: LogIn, color: "bg-teal-100 text-teal-600 dark:bg-teal-500/15 dark:text-teal-400", dot: "bg-teal-500" },
   booking: { label: "Booking Changes", icon: Plane, color: "bg-amber-100 text-amber-600 dark:bg-amber-500/15 dark:text-amber-400", dot: "bg-amber-500" },
@@ -89,7 +84,7 @@ const FILTERS = ["all", "login", "booking", "payment", "api", "employee", "syste
 
 export function AuditLogsView() {
   const { toast } = useToast();
-  const [logs, setLogs] = useState<LogEntry[]>(FALLBACK_LOGS);
+  const [logs, setLogs] = useState<LogEntry[]>([]);
   const [filter, setFilter] = useState<string>("all");
   const [search, setSearch] = useState("");
   const [dateRange, setDateRange] = useState("all");
@@ -97,16 +92,20 @@ export function AuditLogsView() {
   useEffect(() => {
     api.getAuditLogs()
       .then((res) => {
-        if (res.logs?.length) setLogs(res.logs.map(mapAuditLog));
+        setLogs((res.logs ?? []).map(mapAuditLog));
       })
-      .catch(() => undefined);
+      .catch(() => setLogs([]));
   }, []);
 
   const filtered = useMemo(() => {
     return logs.filter((l) => {
       if (filter !== "all" && l.type !== filter) return false;
-      if (dateRange === "today" && l.date !== "2025-01-21") return false;
-      if (dateRange === "yesterday" && l.date !== "2025-01-20") return false;
+      if (dateRange === "today" && l.date !== new Date().toISOString().slice(0, 10)) return false;
+      if (dateRange === "yesterday") {
+        const y = new Date();
+        y.setDate(y.getDate() - 1);
+        if (l.date !== y.toISOString().slice(0, 10)) return false;
+      }
       if (search && !`${l.user} ${l.action} ${l.module} ${l.details} ${l.ip}`.toLowerCase().includes(search.toLowerCase())) return false;
       return true;
     });

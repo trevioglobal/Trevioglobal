@@ -1,6 +1,7 @@
 "use client";
 
 import { cn } from "@/lib/utils";
+import { sanitizeHtml } from "@/lib/sanitize-html";
 import { sectionLabel } from "@/lib/quote-template-sections";
 import type { QuotePreviewMockData, QuoteSectionType, QuoteTemplateRecord } from "@/types";
 
@@ -167,7 +168,7 @@ function RenderSection({
         </div>
       );
     case "CUSTOM_HTML":
-      return <div className="text-xs prose prose-sm max-w-none" dangerouslySetInnerHTML={{ __html: data.customHtml }} />;
+      return <div className="text-xs prose prose-sm max-w-none" dangerouslySetInnerHTML={{ __html: sanitizeHtml(data.customHtml) }} />;
     default:
       return null;
   }

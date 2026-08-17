@@ -33,7 +33,7 @@ export const forgotPasswordSchema = z.object({
 export const resetPasswordSchema = z.object({
   email: z.string().email(),
   token: z.string().min(16),
-  newPassword: z.string().min(8).max(128),
+  newPassword: passwordSchema,
 });
 
 export const bookingSchema = z.object({
@@ -194,6 +194,10 @@ export const paymentSchema = z.object({
   method: z.string().min(1),
   type: z.string().optional(),
   gateway: z.string().optional(),
+  status: z.enum(["Success", "Pending", "Failed", "Refunded"]).optional(),
+  orderId: z.string().optional(),
+  paymentId: z.string().optional(),
+  signature: z.string().optional(),
 });
 
 export const employeeSchema = z.object({

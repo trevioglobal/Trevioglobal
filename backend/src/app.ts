@@ -44,6 +44,13 @@ import {
 } from "./lib/validation.js";
 import { effectiveCouponStatus, validateCouponForOrder } from "./lib/coupons.js";
 import { getAgencyApiKeys, maskSecret, type DynamicApiKeys } from "./lib/api-key-config.js";
+import {
+  assertRazorpayPayment,
+  handleRazorpayWebhook,
+  razorpayAuthHeader,
+  razorpayKeysForAgency,
+} from "./lib/razorpay.js";
+import { bookkeepingPaymentStatus, isOfflinePaymentMethod } from "./lib/payments.js";
 
 validateEnv();
 
@@ -107,17 +114,6 @@ function resolveSettingsAgencyId(req: AuthRequest, res: express.Response): strin
   return id;
 }
 
-function verifyRazorpaySignature(orderId: string, paymentId: string, signature: string, keySecret: string): boolean {
-  const expected = crypto.createHmac("sha256", keySecret).update(`${orderId}|${paymentId}`).digest("hex");
-  try {
-    return (
-      expected.length === signature.length &&
-      crypto.timingSafeEqual(Buffer.from(expected), Buffer.from(signature))
-    );
-  } catch {
-    return false;
-  }
-}
 
 // Opt-in pagination: ?page=2&pageSize=50. Omitting both preserves each route's
 // existing default page size and behaves exactly as before (page 1, that size).
@@ -136,6 +132,14 @@ function generateTempPassword(): string {
 
 const app = express();
 const PORT = process.env.PORT || 4000;
+
+if (isProdLike()) {
+  app.set("trust proxy", 1);
+}
+
+function isProdLike() {
+  return process.env.NODE_ENV === "production";
+}
 
 const allowedOrigins = (process.env.CORS_ORIGIN || "http://localhost:3000")
   .split(",")
@@ -172,6 +176,11 @@ app.use(cors({
   allowedHeaders: ["Content-Type", "Authorization"],
   maxAge: 3600,
 }));
+
+app.post("/api/payments/razorpay/webhook", express.raw({ type: "application/json" }), (req, res) => {
+  void handleRazorpayWebhook(req, res);
+});
+
 // Limit request size to prevent DoS attacks
 app.use(express.json({ limit: "10mb" }));
 app.use(express.urlencoded({ limit: "10mb", extended: true }));
@@ -195,6 +204,7 @@ const apiLimiter = rateLimit({
   limit: isProd ? 300 : 2000,
   standardHeaders: true,
   legacyHeaders: false,
+  skip: (req) => req.originalUrl.includes("/payments/razorpay/webhook") || req.originalUrl === "/api/health",
 });
 app.use("/api", apiLimiter);
 
@@ -389,7 +399,7 @@ app.post("/api/auth/forgot-password", authLimiter, validate(forgotPasswordSchema
       emailed,
       message: emailed
         ? "If an account exists, a reset code has been emailed. It expires in 1 hour."
-        : "If an account exists, a reset was started. Configure SENDGRID_API_KEY to email the code.",
+        : "If an account exists, a reset was started. Configure SMTP or SENDGRID_API_KEY to email the code.",
     });
   } catch (e) {
     logger.error(e);
@@ -441,6 +451,12 @@ app.post("/api/auth/reset-password", authLimiter, validate(resetPasswordSchema),
 });
 
 app.post("/api/auth/register", authLimiter, validate(agentRegistrationSchema), async (req, res) => {
+  const allowRegister = process.env.ALLOW_PUBLIC_REGISTRATION === "true"
+    || (process.env.ALLOW_PUBLIC_REGISTRATION !== "false" && process.env.NODE_ENV !== "production");
+  if (!allowRegister) {
+    res.status(403).json({ error: "Public registration is disabled. Ask an administrator to create your account." });
+    return;
+  }
   try {
     const body = req.body;
     const email = String(body.email).trim().toLowerCase();
@@ -861,6 +877,28 @@ app.post("/api/payments", requireAuth, requirePermission("payments"), validate(p
   try {
     const body = req.body;
     const txnId = `pay_${Date.now().toString(36).toUpperCase()}`;
+    let status = bookkeepingPaymentStatus(body.method, body.status);
+    if (!isOfflinePaymentMethod(body.method) && body.orderId && body.paymentId && body.signature) {
+      const keys = await razorpayKeysForAgency(ownAgencyId(req));
+      if (keys) {
+        const check = await assertRazorpayPayment({
+          orderId: String(body.orderId),
+          paymentId: String(body.paymentId),
+          signature: String(body.signature),
+          amountRupees: Number(body.amount),
+          keyId: keys.keyId,
+          keySecret: keys.keySecret,
+        });
+        if (!check.ok) {
+          res.status(400).json({ error: check.error });
+          return;
+        }
+        status = "Success";
+      }
+    }
+    if (status === "Success" && !isOfflinePaymentMethod(body.method) && !(body.orderId && body.paymentId && body.signature)) {
+      status = "Pending";
+    }
     const payment = await db.payment.create({
       data: {
         txnId,
@@ -868,9 +906,9 @@ app.post("/api/payments", requireAuth, requirePermission("payments"), validate(p
         bookingRef: body.bookingRef || "—",
         amount: body.amount,
         method: body.method,
-        status: body.status || "Success",
+        status,
         type: body.type || "Payment",
-        gateway: body.gateway || "Razorpay",
+        gateway: body.gateway || (isOfflinePaymentMethod(body.method) ? "Manual" : "Razorpay"),
         agencyId: ownAgencyId(req),
         branchId: ownBranchId(req),
         collectedById: req.auth?.userId,
@@ -888,9 +926,8 @@ app.post("/api/payments", requireAuth, requirePermission("payments"), validate(p
 // demoAllowed is false in production unless ALLOW_DEMO_PAYMENTS=true.
 app.post("/api/payments/razorpay/order", requireAuth, requireAnyPermission("payments", "wallet"), async (req, res) => {
   try {
-    const keyId = process.env.RAZORPAY_KEY_ID;
-    const keySecret = process.env.RAZORPAY_KEY_SECRET;
-    if (!keyId || !keySecret) {
+    const keys = await razorpayKeysForAgency((req as AuthRequest).auth?.agencyId);
+    if (!keys) {
       return res.json({ configured: false, demoAllowed: allowDemoPayments() });
     }
 
@@ -899,14 +936,18 @@ app.post("/api/payments/razorpay/order", requireAuth, requireAnyPermission("paym
       return res.status(400).json({ error: "Invalid amount" });
     }
 
-    const auth = Buffer.from(`${keyId}:${keySecret}`).toString("base64");
     const rzpRes = await fetch("https://api.razorpay.com/v1/orders", {
       method: "POST",
-      headers: { "Content-Type": "application/json", Authorization: `Basic ${auth}` },
+      headers: { "Content-Type": "application/json", Authorization: razorpayAuthHeader(keys.keyId, keys.keySecret) },
       body: JSON.stringify({
         amount: Math.round(amount * 100),
         currency: "INR",
         receipt: `rcpt_${Date.now()}`,
+        notes: {
+          agencyId: (req as AuthRequest).auth?.agencyId || "",
+          userId: (req as AuthRequest).auth?.userId || "",
+          purpose: String(req.body?.purpose || "wallet"),
+        },
       }),
     });
 
@@ -917,7 +958,7 @@ app.post("/api/payments/razorpay/order", requireAuth, requireAnyPermission("paym
     }
 
     const order = await rzpRes.json() as { id: string; amount: number; currency: string };
-    res.json({ configured: true, orderId: order.id, amount: order.amount, currency: order.currency, keyId });
+    res.json({ configured: true, orderId: order.id, amount: order.amount, currency: order.currency, keyId: keys.keyId });
   } catch (e) {
     logger.error(e);
     res.status(500).json({ error: "Server error" });
@@ -926,12 +967,20 @@ app.post("/api/payments/razorpay/order", requireAuth, requireAnyPermission("paym
 
 app.post("/api/payments/razorpay/verify", requireAuth, requireAnyPermission("payments", "wallet"), async (req, res) => {
   try {
-    const keySecret = process.env.RAZORPAY_KEY_SECRET;
-    const { orderId, paymentId, signature } = req.body ?? {};
-    if (!keySecret || !orderId || !paymentId || !signature) {
+    const keys = await razorpayKeysForAgency((req as AuthRequest).auth?.agencyId);
+    const { orderId, paymentId, signature, amount } = req.body ?? {};
+    if (!keys || !orderId || !paymentId || !signature) {
       return res.status(400).json({ verified: false });
     }
-    res.json({ verified: verifyRazorpaySignature(String(orderId), String(paymentId), String(signature), keySecret) });
+    const check = await assertRazorpayPayment({
+      orderId: String(orderId),
+      paymentId: String(paymentId),
+      signature: String(signature),
+      amountRupees: Number.isFinite(Number(amount)) ? Number(amount) : undefined,
+      keyId: keys.keyId,
+      keySecret: keys.keySecret,
+    });
+    return res.json({ verified: check.ok, error: check.ok ? undefined : check.error });
   } catch (e) {
     logger.error(e);
     res.status(500).json({ error: "Server error" });
@@ -1358,15 +1407,22 @@ app.post("/api/wallet", requireAuth, requirePermission("wallet"), validate(walle
 
     let paymentRef: string | undefined;
     if (type === "Credit") {
-      const keySecret = process.env.RAZORPAY_KEY_SECRET;
-      const hasRazorpay = Boolean(process.env.RAZORPAY_KEY_ID && keySecret);
-      if (hasRazorpay) {
+      const keys = await razorpayKeysForAgency(id);
+      if (keys) {
         if (!orderId || !paymentId || !signature) {
           res.status(400).json({ error: "Verified Razorpay payment required for wallet credit" });
           return;
         }
-        if (!verifyRazorpaySignature(String(orderId), String(paymentId), String(signature), keySecret!)) {
-          res.status(400).json({ error: "Invalid payment signature" });
+        const check = await assertRazorpayPayment({
+          orderId: String(orderId),
+          paymentId: String(paymentId),
+          signature: String(signature),
+          amountRupees: Number(amount),
+          keyId: keys.keyId,
+          keySecret: keys.keySecret,
+        });
+        if (!check.ok) {
+          res.status(400).json({ error: check.error });
           return;
         }
         const reused = await db.walletTransaction.findUnique({ where: { paymentRef: String(paymentId) } });
@@ -1734,8 +1790,8 @@ app.get("/api/commission", requireAuth, requirePermission("commission"), async (
 
     const totalCommission = confirmedBookings.reduce((s, b) => s + b.commission, 0);
     const totalRevenue = confirmedBookings.reduce((s, b) => s + b.amount, 0);
-    const pendingCommission = Math.round(totalCommission * 0.12); // 12% held
-    const paidCommission = totalCommission - pendingCommission;
+    const pendingCommission = 0;
+    const paidCommission = totalCommission;
 
     res.json({
       summary: { totalCommission, paidCommission, pendingCommission, totalRevenue, totalBookings: confirmedBookings.length },
@@ -1770,25 +1826,18 @@ app.get("/api/finance", requireAuth, requirePermission("finance"), async (req: A
 
     const totalRevenue = confirmedBookings.reduce((s, b) => s + b.amount, 0);
     const totalCommission = confirmedBookings.reduce((s, b) => s + b.commission, 0);
-    const gstRate = 0.18;
-    const totalGst = Math.round(totalRevenue * gstRate);
-    const netRevenue = totalRevenue - totalGst;
-    const totalExpenses = Math.round(netRevenue * 0.32); // estimated 32% operating
-    const netProfit = netRevenue - totalExpenses;
+    const totalGst = 0;
+    const netRevenue = totalRevenue;
+    const totalExpenses = 0;
+    const netProfit = netRevenue;
 
-    // Monthly P&L (last 6 months)
+    // Monthly P&L (last 6 months) — revenue only until a GST/expense ledger exists
     const monthlyMap: Record<string, { month: string; revenue: number; gst: number; expenses: number; profit: number }> = {};
     for (const b of confirmedBookings) {
       const m = b.createdAt.toISOString().slice(0, 7);
       if (!monthlyMap[m]) monthlyMap[m] = { month: m, revenue: 0, gst: 0, expenses: 0, profit: 0 };
-      const rev = b.amount;
-      const gst = Math.round(rev * gstRate);
-      const net = rev - gst;
-      const exp = Math.round(net * 0.32);
-      monthlyMap[m].revenue += rev;
-      monthlyMap[m].gst += gst;
-      monthlyMap[m].expenses += exp;
-      monthlyMap[m].profit += net - exp;
+      monthlyMap[m].revenue += b.amount;
+      monthlyMap[m].profit += b.amount;
     }
     const monthly = Object.values(monthlyMap).sort((a, b) => a.month.localeCompare(b.month)).slice(-6);
 
@@ -1809,8 +1858,8 @@ app.get("/api/finance", requireAuth, requirePermission("finance"), async (req: A
         agency: b.agencyName,
         service: b.service,
         amount: b.amount,
-        gst: Math.round(b.amount * gstRate),
-        total: b.amount + Math.round(b.amount * gstRate),
+        gst: 0,
+        total: b.amount,
         date: b.createdAt.toISOString().slice(0, 10),
       }));
 
@@ -2264,7 +2313,7 @@ app.get("/api/management/keys", requireAuth, requirePermission("api-management")
       where: agencyScope(req),
       orderBy: { createdAt: "desc" },
     });
-    res.json({ keys });
+    res.json({ keys: keys.map((k) => ({ ...k, key: maskSecret(k.key) })) });
   } catch (e) {
     logger.error(e);
     res.status(500).json({ error: "Server error" });
@@ -2422,7 +2471,7 @@ app.patch("/api/support/tickets/:id", requireAuth, requirePermission("support"),
   }
 });
 
-app.get("/api/settings", requireAuth, async (req: AuthRequest, res) => {
+app.get("/api/settings", requireAuth, requireRole("super_admin", "agency_admin"), async (req: AuthRequest, res) => {
   try {
     const agencyId = resolveSettingsAgencyId(req, res);
     if (!agencyId) return;
@@ -2430,7 +2479,8 @@ app.get("/api/settings", requireAuth, async (req: AuthRequest, res) => {
     if (!settings) {
       settings = await db.settings.create({ data: { agencyId } });
     }
-    res.json(settings);
+    const { apiKeys: _apiKeys, ...safe } = settings;
+    res.json(safe);
   } catch (e) {
     logger.error(e);
     res.status(500).json({ error: "Server error" });
@@ -2441,13 +2491,19 @@ app.put("/api/settings", requireAuth, requireRole("super_admin", "agency_admin")
   try {
     const agencyId = resolveSettingsAgencyId(req, res);
     if (!agencyId) return;
-    const { agencyId: _ignored, id: _id, createdAt: _c, updatedAt: _u, ...data } = req.body ?? {};
+    const body = req.body ?? {};
+    const data: Record<string, unknown> = {};
+    if (typeof body.theme === "string") data.theme = body.theme;
+    if (typeof body.currency === "string") data.currency = body.currency;
+    if (typeof body.timezone === "string") data.timezone = body.timezone;
+    if (typeof body.notifications === "boolean") data.notifications = body.notifications;
     const settings = await db.settings.upsert({
       where: { agencyId },
       update: data,
       create: { ...data, agencyId },
     });
-    res.json(settings);
+    const { apiKeys: _apiKeys, ...safe } = settings;
+    res.json(safe);
   } catch (e) {
     logger.error(e);
     res.status(500).json({ error: "Server error" });

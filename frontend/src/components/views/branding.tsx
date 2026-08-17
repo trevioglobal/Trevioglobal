@@ -16,6 +16,7 @@ import {
   Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
 } from "@/components/ui/select";
 import { apiFetch } from "@/lib/api";
+import { sanitizeHtml } from "@/lib/sanitize-html";
 import type { AgencyBrandingRecord } from "@/types";
 
 const FONT_OPTIONS = ["Inter", "Georgia", "Times New Roman", "Arial", "Helvetica"];
@@ -156,7 +157,7 @@ export function BrandingView() {
           <div className="relative flex-1 bg-white/95 rounded-lg p-6 border border-border flex flex-col">
             {branding.logo && <img src={branding.logo} alt="Logo preview" className="h-10 object-contain mb-4" />}
             {branding.headerHtml && (
-              <div className="text-xs mb-4 prose prose-sm max-w-none" dangerouslySetInnerHTML={{ __html: branding.headerHtml }} />
+              <div className="text-xs mb-4 prose prose-sm max-w-none" dangerouslySetInnerHTML={{ __html: sanitizeHtml(branding.headerHtml) }} />
             )}
             <div className="h-2 rounded mb-4" style={{ background: `linear-gradient(90deg, ${branding.primaryColor}, ${branding.secondaryColor})` }} aria-hidden />
             <p className="text-sm font-semibold" style={{ color: branding.primaryColor }}>Sample Quotation Section</p>

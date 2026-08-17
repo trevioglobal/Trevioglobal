@@ -57,10 +57,16 @@ export const ROLE_USERS: Record<string, User> = {
   },
 };
 
-/** Shared demo password for all ROLE_USERS accounts after seed. */
-export const DEMO_LOGIN_PASSWORD = "Passw0rd@123";
+/** Shared demo password for all ROLE_USERS accounts after seed. Omitted from production live builds. */
+const includeDemoSecrets =
+  process.env.NODE_ENV !== "production" ||
+  process.env.NEXT_PUBLIC_SHOW_DEMO_LOGIN === "true" ||
+  process.env.NEXT_PUBLIC_APP_MODE === "demo";
 
-export const DEMO_LOGIN_ROWS: Array<{ role: string; email: string; password: string; note?: string }> = [
+export const DEMO_LOGIN_PASSWORD = includeDemoSecrets ? "Passw0rd@123" : "";
+
+export const DEMO_LOGIN_ROWS: Array<{ role: string; email: string; password: string; note?: string }> = includeDemoSecrets
+  ? [
   { role: "Developer (full platform)", email: "dev@trevioglobal.com", password: "Dev@Trevio2026!", note: "Your developer Super Admin — agencies, analytics, monitoring UI, marketing/coupons shells" },
   { role: "Super Admin", email: "superadmin@travelpartner.pro", password: DEMO_LOGIN_PASSWORD },
   { role: "Agency Admin", email: "admin@wanderlusttravels.in", password: DEMO_LOGIN_PASSWORD },
@@ -73,7 +79,8 @@ export const DEMO_LOGIN_ROWS: Array<{ role: string; email: string; password: str
   { role: "Travel Agent", email: "agent@wanderlusttravels.in", password: DEMO_LOGIN_PASSWORD },
   { role: "Management", email: "management@wanderlusttravels.in", password: DEMO_LOGIN_PASSWORD },
   { role: "Platform Super Admin (alt)", email: "admin@travelpartner.pro", password: "TravioAdmin@2024!", note: "Created separately by seed" },
-];
+]
+  : [];
 
 export const AGENCIES: Agency[] = [
   { id: "ag-1", name: "Wanderlust Travels", owner: "Priya Sharma", email: "admin@wanderlusttravels.in", phone: "+91 98200 12345", plan: "Enterprise", status: "Active", walletBalance: 845000, commissionEarned: 1240000, totalBookings: 3420, monthlyRevenue: 2850000, apiAllocation: { flights: 50000, hotels: 30000 }, createdAt: "2023-02-14", branches: 4, employees: 38 },

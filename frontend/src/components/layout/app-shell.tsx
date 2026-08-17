@@ -6,6 +6,7 @@ import { useAppStore, useAuthStore } from "@/store/app-store";
 import { Sidebar } from "@/components/layout/sidebar";
 import { Topbar } from "@/components/layout/topbar";
 import { Footer } from "@/components/layout/footer";
+import { MobileTabBar } from "@/components/layout/mobile-tab-bar";
 import { GlobalSearch } from "@/components/layout/global-search";
 import { useApiSync } from "@/hooks/use-api-sync";
 import { PageLoadingSkeleton } from "@/components/shared/enterprise";
@@ -125,12 +126,13 @@ export function AppShell() {
         <Topbar />
         <main
           id="main-content"
-          className="flex-1 w-full mx-auto max-w-[1600px] px-4 py-6 sm:px-6 md:px-6 lg:px-8 lg:py-8 animate-fade-in"
+          className="flex-1 w-full mx-auto max-w-[1600px] px-4 py-4 sm:px-6 sm:py-6 md:px-6 lg:px-8 lg:py-8 pb-24 lg:pb-8 animate-fade-in"
           tabIndex={-1}
         >
           <ViewComponent />
         </main>
         <Footer />
+        <MobileTabBar />
       </div>
     </div>
   );

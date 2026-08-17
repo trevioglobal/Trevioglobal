@@ -17,6 +17,14 @@ export function formatFullINR(amount: number): string {
   return `₹${amount.toLocaleString("en-IN")}`;
 }
 
+export function formatPrettyDate(iso: string, empty = "Select date"): string {
+  if (!iso) return empty;
+  const d = new Date(`${iso}T12:00:00`);
+  if (Number.isNaN(d.getTime())) return empty;
+  return d.toLocaleDateString("en-IN", { weekday: "short", day: "numeric", month: "short" });
+}
+
+
 const STATUS_STYLES: Record<string, string> = {
   Confirmed: "bg-emerald-100 text-emerald-700 dark:bg-emerald-500/15 dark:text-emerald-400",
   Ticketed: "bg-emerald-100 text-emerald-700 dark:bg-emerald-500/15 dark:text-emerald-400",
@@ -148,9 +156,9 @@ export function PageHeader({
             {eyebrow}
           </p>
         )}
-        <h1 className="text-page-title text-foreground">{title}</h1>
+        <h1 className="text-2xl sm:text-[length:var(--text-page-title)] font-semibold tracking-tight text-foreground">{title}</h1>
         {subtitle && (
-          <p className="text-body text-muted-foreground leading-relaxed max-w-2xl">{subtitle}</p>
+          <p className="hidden sm:block text-body text-muted-foreground leading-relaxed max-w-2xl">{subtitle}</p>
         )}
       </div>
       {action && <div className="flex flex-wrap items-center gap-2 shrink-0">{action}</div>}
