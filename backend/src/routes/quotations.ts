@@ -14,10 +14,14 @@ import {
   nightsBetween,
   normalizeStatus,
   notifyQuote,
+  expireDueQuotations,
+  restorePackagesFromSnapshot,
   sanitizeQuotationForRole,
   snapshotVersion,
   writeQuoteAudit,
 } from "../lib/quotations.js";
+import { sendHtmlEmail } from "../lib/email.js";
+import { escapeHtml } from "../lib/html.js";
 
 type ScopeFn = (req: AuthRequest) => Record<string, unknown>;
 type OwnAgencyFn = (req: AuthRequest, fallback?: string) => string | undefined;
@@ -33,6 +37,35 @@ function parsePagination(req: AuthRequest) {
   const page = Math.max(1, parseInt(String(req.query.page || "1"), 10) || 1);
   const pageSize = Math.min(100, Math.max(1, parseInt(String(req.query.pageSize || "20"), 10) || 20));
   return { page, pageSize, skip: (page - 1) * pageSize, take: pageSize };
+}
+
+function packageWriteData(
+  pkg: Record<string, unknown>,
+  costing: ReturnType<typeof calcPackageCosting>,
+) {
+  return {
+    name: String(pkg.name || "Package"),
+    sortOrder: Number(pkg.sortOrder || 0),
+    isSelected: Boolean(pkg.isSelected),
+    description: pkg.description != null ? String(pkg.description) : undefined,
+    hotels: pkg.hotels || [],
+    flights: pkg.flights || [],
+    transfers: pkg.transfers || [],
+    activities: pkg.activities || [],
+    meals: pkg.meals || [],
+    itinerary: pkg.itinerary || [],
+    visa: pkg.visa ?? undefined,
+    insurance: pkg.insurance ?? undefined,
+    addOns: pkg.addOns || [],
+    inclusions: pkg.inclusions || [],
+    exclusions: pkg.exclusions || [],
+    totalNetCost: costing.totalNetCost,
+    totalSelling: costing.totalSelling,
+    grossProfit: costing.grossProfit,
+    gst: costing.gst,
+    total: costing.total,
+    perPersonCost: costing.perPersonCost,
+  };
 }
 
 async function loadQuote(req: AuthRequest, agencyScope: ScopeFn, branchScope: BranchScopeFn) {
@@ -110,6 +143,7 @@ export function mountQuotationRoutes(
   // ── List with filters / sort / pagination ────────────────────────────────
   app.get("/api/quotations/manage", requireAuth, requirePermission("quotations"), async (req: AuthRequest, res: Response) => {
     try {
+      await expireDueQuotations({ ...agencyScope(req) });
       const { skip, take, page, pageSize } = parsePagination(req);
       const where: Record<string, unknown> = {
         deletedAt: null,
@@ -128,6 +162,22 @@ export function mountQuotationRoutes(
         where.salesExecutiveName = { contains: String(req.query.salesExecutive), mode: "insensitive" };
       }
       if (req.query.agent) where.agentName = { contains: String(req.query.agent), mode: "insensitive" };
+      if (req.query.travelFrom) {
+        where.travelStartDate = { gte: String(req.query.travelFrom) };
+      }
+      if (req.query.travelTo) {
+        where.travelEndDate = { lte: String(req.query.travelTo) };
+      }
+      if (req.query.createdFrom || req.query.createdTo) {
+        const createdAt: Record<string, Date> = {};
+        if (req.query.createdFrom) createdAt.gte = new Date(String(req.query.createdFrom));
+        if (req.query.createdTo) {
+          const end = new Date(String(req.query.createdTo));
+          end.setHours(23, 59, 59, 999);
+          createdAt.lte = end;
+        }
+        where.createdAt = createdAt;
+      }
       if (req.query.q) {
         const q = String(req.query.q);
         where.OR = [
@@ -272,6 +322,7 @@ export function mountQuotationRoutes(
           contactPhone: body.contactPhone,
           destination: body.destination,
           country: body.country,
+          coverImage: body.coverImage || null,
           departureCity: body.departureCity,
           travelDates: body.travelStartDate || body.travelDates,
           travelStartDate: body.travelStartDate,
@@ -305,23 +356,39 @@ export function mountQuotationRoutes(
         },
       });
 
-      const defaultPkg = await db.quotationPackage.create({
-        data: {
-          quotationId: quote.id,
-          name: body.packageName || "Standard",
-          sortOrder: 0,
-          isSelected: true,
-          inclusions: body.packageIncludes || ["Accommodation", "Breakfast"],
-          exclusions: body.packageExcludes || ["Flights", "Personal expenses"],
-        },
-      });
+      if (Array.isArray(body.packages) && body.packages.length) {
+        for (const pkg of body.packages) {
+          const costing = calcPackageCosting({
+            ...pkg,
+            taxRate: Number(body.taxRate ?? 18),
+            discountType: body.discountType,
+            discountValue: Number(body.discountValue || 0),
+            adults: Number(body.adults ?? 2),
+            children: Number(body.children ?? 0),
+          });
+          await db.quotationPackage.create({
+            data: { quotationId: quote.id, ...packageWriteData(pkg, costing) },
+          });
+        }
+      } else {
+        await db.quotationPackage.create({
+          data: {
+            quotationId: quote.id,
+            name: body.packageName || "Standard",
+            sortOrder: 0,
+            isSelected: true,
+            inclusions: body.packageIncludes || ["Accommodation", "Breakfast"],
+            exclusions: body.packageExcludes || ["Flights", "Personal expenses"],
+          },
+        });
+      }
 
       await writeQuoteAudit({
         req,
         agencyId: quote.agencyId,
         quotationId: quote.id,
         action: "Quote Created",
-        updatedValue: { quoteNo, packageId: defaultPkg.id },
+        updatedValue: { quoteNo },
       });
       await notifyQuote({
         agencyId: quote.agencyId,
@@ -330,7 +397,7 @@ export function mountQuotationRoutes(
       });
 
       const full = await db.quotation.findUnique({ where: { id: quote.id }, include: QUOTE_INCLUDE });
-      res.status(201).json({ quotation: full });
+      res.status(201).json({ quotation: sanitizeQuotationForRole(full as unknown as Record<string, unknown>, req.auth?.role) });
     } catch (e) {
       logger.error(e);
       res.status(500).json({ error: "Server error" });
@@ -368,7 +435,7 @@ export function mountQuotationRoutes(
       const data: Record<string, unknown> = {};
       const scalarKeys = [
         "customerName", "service", "contactPerson", "contactEmail", "contactPhone",
-        "destination", "country", "departureCity", "travelDates", "travelStartDate", "travelEndDate",
+        "destination", "country", "coverImage", "departureCity", "travelDates", "travelStartDate", "travelEndDate",
         "returnDate", "adults", "children", "infants", "currency", "baseCurrency",
         "agentName", "agentId", "salesExecutiveName", "salesExecutivePhone", "salesExecutiveEmail",
         "specialRequests", "internalNotes", "enquiryRef", "validTill", "quoteDate",
@@ -397,6 +464,13 @@ export function mountQuotationRoutes(
       await db.quotation.update({ where: { id: existing.id }, data });
 
       if (Array.isArray(body.packages)) {
+        const keepIds = body.packages.map((p: { id?: string }) => p.id).filter((id: string | undefined): id is string => Boolean(id));
+        await db.quotationPackage.deleteMany({
+          where: {
+            quotationId: existing.id,
+            ...(keepIds.length ? { id: { notIn: keepIds } } : {}),
+          },
+        });
         for (const pkg of body.packages) {
           const costing = calcPackageCosting({
             ...pkg,
@@ -406,29 +480,7 @@ export function mountQuotationRoutes(
             adults: Number(body.adults ?? existing.adults ?? 2),
             children: Number(body.children ?? existing.children ?? 0),
           });
-          const pkgData = {
-            name: pkg.name || "Package",
-            sortOrder: Number(pkg.sortOrder || 0),
-            isSelected: Boolean(pkg.isSelected),
-            description: pkg.description,
-            hotels: pkg.hotels || [],
-            flights: pkg.flights || [],
-            transfers: pkg.transfers || [],
-            activities: pkg.activities || [],
-            meals: pkg.meals || [],
-            itinerary: pkg.itinerary || [],
-            visa: pkg.visa ?? undefined,
-            insurance: pkg.insurance ?? undefined,
-            addOns: pkg.addOns || [],
-            inclusions: pkg.inclusions || [],
-            exclusions: pkg.exclusions || [],
-            totalNetCost: costing.totalNetCost,
-            totalSelling: costing.totalSelling,
-            grossProfit: costing.grossProfit,
-            gst: costing.gst,
-            total: costing.total,
-            perPersonCost: costing.perPersonCost,
-          };
+          const pkgData = packageWriteData(pkg, costing);
           if (pkg.id) {
             await db.quotationPackage.updateMany({
               where: { id: pkg.id, quotationId: existing.id },
@@ -483,7 +535,7 @@ export function mountQuotationRoutes(
         updatedValue: { total: updated.total, status: updated.status, wizardStep: updated.wizardStep },
       });
 
-      res.json({ quotation: updated });
+      res.json({ quotation: sanitizeQuotationForRole(updated as unknown as Record<string, unknown>, req.auth?.role) });
     } catch (e) {
       logger.error(e);
       res.status(500).json({ error: "Server error" });
@@ -784,6 +836,7 @@ export function mountQuotationRoutes(
           contactPhone: existing.contactPhone,
           destination: existing.destination,
           country: existing.country,
+          coverImage: existing.coverImage,
           departureCity: existing.departureCity,
           travelDates: existing.travelDates,
           travelStartDate: existing.travelStartDate,
@@ -948,21 +1001,8 @@ export function mountQuotationRoutes(
 
   app.post("/api/quotations/expire-due", requireAuth, requireRole("super_admin", "agency_admin"), async (req: AuthRequest, res: Response) => {
     try {
-      const today = new Date().toISOString().slice(0, 10);
-      const due = await db.quotation.findMany({
-        where: {
-          ...agencyScope(req),
-          deletedAt: null,
-          status: { in: ["Sent to Agent", "Sent", "Customer Reviewing"] },
-          validTill: { lt: today },
-        },
-        take: 500,
-      });
-      for (const q of due) {
-        await db.quotation.update({ where: { id: q.id }, data: { status: "Expired" } });
-        await notifyQuote({ agencyId: q.agencyId, title: "Quote expired", message: `${q.quoteNo} expired` });
-      }
-      res.json({ expired: due.length });
+      const expired = await expireDueQuotations({ ...agencyScope(req) });
+      res.json({ expired });
     } catch (e) {
       logger.error(e);
       res.status(500).json({ error: "Server error" });
@@ -1033,6 +1073,7 @@ export function mountQuotationRoutes(
       }
       await snapshotVersion(existing.id, req.auth?.email || "System", req.auth?.userId, `Restore before v${version.versionNumber}`);
       const snap = version.snapshot as Record<string, unknown>;
+      await restorePackagesFromSnapshot(existing.id, snap);
       const quotation = await db.quotation.update({
         where: { id: existing.id },
         data: {
@@ -1067,16 +1108,35 @@ export function mountQuotationRoutes(
         return;
       }
       const channel = String(req.body?.channel || "Link");
+      const recipient = String(req.body?.recipient || existing.contactEmail || "");
       const share = await db.quotationShare.create({
         data: {
           quotationId: existing.id,
           channel,
-          recipient: req.body?.recipient,
+          recipient: recipient || req.body?.recipient,
           senderName: req.auth?.email,
           message: req.body?.message,
           status: "Attempted",
         },
       });
+      const link = `${req.body?.appOrigin || ""}/?view=quotations&quoteId=${existing.id}`;
+      let emailed = false;
+      if (channel === "Email" && recipient) {
+        const html = `
+          <p>Dear ${escapeHtml(existing.customerName)},</p>
+          <p>Please find your travel quotation <strong>${escapeHtml(existing.quoteNo)}</strong>
+          for ${escapeHtml(existing.destination || "your trip")}
+          (${escapeHtml(existing.travelStartDate || existing.travelDates || "")}).</p>
+          ${req.body?.message ? `<p>${escapeHtml(String(req.body.message))}</p>` : ""}
+          <p>View: <a href="${escapeHtml(link)}">${escapeHtml(link || existing.quoteNo)}</a></p>
+          <p>Regards,<br/>Trevio Global</p>
+        `;
+        emailed = await sendHtmlEmail(recipient, `Quotation ${existing.quoteNo} — ${existing.destination || "Travel"}`, html);
+        await db.quotationShare.update({
+          where: { id: share.id },
+          data: { status: emailed ? "Sent" : "Failed" },
+        });
+      }
       if (["Draft", "In Progress", "Pending Approval"].includes(existing.status) && !isAgentLike(req.auth?.role)) {
         await db.quotation.update({
           where: { id: existing.id },
@@ -1090,15 +1150,17 @@ export function mountQuotationRoutes(
         agencyId: existing.agencyId,
         quotationId: existing.id,
         action: channel === "Email" ? "Email Sent" : channel === "WhatsApp" ? "WhatsApp Shared" : "Quote Shared",
-        details: req.body?.recipient,
+        details: recipient,
       });
-      const link = `${req.body?.appOrigin || ""}/?view=quotations&quoteId=${existing.id}`;
       res.status(201).json({
-        share,
+        share: { ...share, status: emailed ? "Sent" : share.status },
         link,
-        mailto: channel === "Email" ? buildMailto(existing, link) : undefined,
-        whatsappUrl: channel === "WhatsApp" ? buildWhatsApp(existing, link, req.body?.recipient) : undefined,
-        note: "Delivery uses client mailto / wa.me unless SendGrid/WhatsApp Business is configured",
+        emailed,
+        mailto: channel === "Email" && !emailed ? buildMailto(existing, link) : undefined,
+        whatsappUrl: channel === "WhatsApp" ? buildWhatsApp(existing, link, req.body?.recipient || existing.contactPhone || undefined) : undefined,
+        note: emailed
+          ? "Email sent via SMTP/SendGrid"
+          : "Delivery uses client mailto / wa.me unless SMTP/SendGrid is configured",
       });
     } catch (e) {
       logger.error(e);

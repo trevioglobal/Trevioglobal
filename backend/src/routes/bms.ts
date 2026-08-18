@@ -21,6 +21,7 @@ import {
   verifyPanStub,
   writeAudit,
 } from "../lib/bms.js";
+import { isAgentLike } from "../lib/quotations.js";
 
 import {
   assertRazorpayPayment,
@@ -41,6 +42,165 @@ function paramId(req: AuthRequest): string {
 function paramPid(req: AuthRequest): string {
   const id = req.params.pid;
   return Array.isArray(id) ? id[0] : String(id ?? "");
+}
+
+function jsonArr(v: unknown): Record<string, unknown>[] {
+  return Array.isArray(v) ? (v as Record<string, unknown>[]) : [];
+}
+
+function lineNote(line: Record<string, unknown>, extra: Array<string | number | undefined | null>) {
+  return [...extra, line.remarks ? String(line.remarks) : ""].map((x) => (x == null ? "" : String(x))).filter(Boolean).join(" · ") || undefined;
+}
+
+async function copySelectedPackageToBooking(
+  bookingId: string,
+  selected: {
+    hotels: unknown;
+    flights: unknown;
+    transfers: unknown;
+    activities: unknown;
+    meals: unknown;
+    itinerary: unknown;
+    visa: unknown;
+    insurance: unknown;
+    addOns: unknown;
+  },
+) {
+  async function svc(serviceType: string, title: string, line: Record<string, unknown>, notes?: string) {
+    await db.bookingService.create({
+      data: {
+        bookingId,
+        serviceType,
+        title: (title || serviceType).slice(0, 240),
+        status: "Pending",
+        costPrice: Math.round(Number(line.costPrice || 0)),
+        sellingPrice: Math.round(Number(line.sellingPrice || line.fare || 0)),
+        supplierName: line.supplier ? String(line.supplier) : undefined,
+        confirmationNo: String(line.confirmationNumber || line.pnr || line.policyNumber || "") || undefined,
+        voucherUrl: line.voucherUrl ? String(line.voucherUrl) : undefined,
+        ticketUrl: line.ticketUrl ? String(line.ticketUrl) : undefined,
+        notes,
+      },
+    });
+  }
+
+  for (const h of jsonArr(selected.hotels)) {
+    await svc(
+      "Hotel",
+      String(h.hotelName || h.name || "Hotel"),
+      h,
+      lineNote(h, [
+        h.starCategory ? `${h.starCategory}*` : "",
+        h.roomType ? String(h.roomType) : "",
+        h.mealPlan ? String(h.mealPlan) : "",
+        h.checkIn && h.checkOut ? `${h.checkIn} → ${h.checkOut}` : "",
+        h.rooms ? `${h.rooms} rooms` : "",
+      ]),
+    );
+  }
+  for (const f of jsonArr(selected.flights)) {
+    await svc(
+      "Flight",
+      `${f.airline || "Flight"} ${f.flightNumber || ""}`.trim(),
+      f,
+      lineNote(f, [
+        f.from && f.to ? `${f.from} → ${f.to}` : "",
+        f.date ? String(f.date) : "",
+        f.cabinClass ? String(f.cabinClass) : "",
+      ]),
+    );
+  }
+  for (const t of jsonArr(selected.transfers)) {
+    await svc(
+      "Transfer",
+      String(t.transferType || t.name || "Transfer"),
+      t,
+      lineNote(t, [
+        t.vehicleType ? String(t.vehicleType) : "",
+        t.pickup ? String(t.pickup) : "",
+        t.drop ? String(t.drop) : "",
+        t.date ? String(t.date) : "",
+      ]),
+    );
+  }
+  for (const a of jsonArr(selected.activities)) {
+    await svc(
+      "Attraction",
+      String(a.activityName || a.name || "Activity"),
+      a,
+      lineNote(a, [a.ticketType ? String(a.ticketType) : "", a.date ? String(a.date) : ""]),
+    );
+  }
+  for (const m of jsonArr(selected.meals)) {
+    await svc(
+      "Other",
+      `${m.mealType || "Meal"} ${m.restaurant || ""}`.trim(),
+      m,
+      lineNote(m, [m.cuisine ? String(m.cuisine) : "", m.date ? String(m.date) : ""]),
+    );
+  }
+  const visa = selected.visa && typeof selected.visa === "object" ? (selected.visa as Record<string, unknown>) : null;
+  if (visa?.enabled) {
+    await svc(
+      "Visa",
+      `Visa — ${visa.visaType || "Tourist"}`,
+      visa,
+      lineNote(visa, [visa.entryType ? String(visa.entryType) : "", visa.processingTime ? String(visa.processingTime) : ""]),
+    );
+  }
+  const ins = selected.insurance && typeof selected.insurance === "object" ? (selected.insurance as Record<string, unknown>) : null;
+  if (ins?.enabled) {
+    await svc(
+      "Insurance",
+      `${ins.provider || "Insurance"} ${ins.planName || ""}`.trim(),
+      ins,
+      lineNote(ins, [ins.coverage ? String(ins.coverage) : "", ins.validity ? String(ins.validity) : ""]),
+    );
+  }
+  for (const day of jsonArr(selected.itinerary)) {
+    const items = Array.isArray(day.items) ? (day.items as Array<{ activityName?: string; description?: string }>) : [];
+    const notes = items.map((i) => i.activityName || i.description || "").filter(Boolean).join("; ");
+    await svc("Other", String(day.title || `Day ${day.day || ""}`), { costPrice: 0, sellingPrice: 0 }, notes || undefined);
+  }
+  for (const a of jsonArr(selected.addOns)) {
+    if (a.enabled === false) continue;
+    await db.bookingAddOn.create({
+      data: {
+        bookingId,
+        addOnType: String(a.name || a.addOnType || "Other"),
+        title: String(a.name || "Add-on"),
+        amount: Math.round(Number(a.sellingPrice || 0)),
+        costPrice: Math.round(Number(a.costPrice || 0)),
+      },
+    });
+  }
+}
+
+function packageHasCopiedLines(selected: {
+  hotels: unknown;
+  flights: unknown;
+  transfers: unknown;
+  activities: unknown;
+  meals: unknown;
+  itinerary: unknown;
+  visa: unknown;
+  insurance: unknown;
+  addOns: unknown;
+}) {
+  const visa = selected.visa && typeof selected.visa === "object" ? (selected.visa as { enabled?: boolean }) : null;
+  const ins = selected.insurance && typeof selected.insurance === "object" ? (selected.insurance as { enabled?: boolean }) : null;
+  return (
+    jsonArr(selected.hotels).length +
+      jsonArr(selected.flights).length +
+      jsonArr(selected.transfers).length +
+      jsonArr(selected.activities).length +
+      jsonArr(selected.meals).length +
+      jsonArr(selected.itinerary).length +
+      jsonArr(selected.addOns).length >
+      0 ||
+    Boolean(visa?.enabled) ||
+    Boolean(ins?.enabled)
+  );
 }
 
 async function findBooking(req: AuthRequest, agencyScope: ScopeFn, branchScope: BranchScopeFn) {
@@ -102,8 +262,13 @@ export function mountBmsRoutes(
     async (req: AuthRequest, res: Response) => {
       try {
         const quoteId = paramId(req);
+        if (isAgentLike(req.auth?.role)) {
+          res.status(403).json({ error: "Agents cannot convert quotations to bookings" });
+          return;
+        }
         const quote = await db.quotation.findFirst({
           where: { id: quoteId, ...agencyScope(req) },
+          include: { packages: true },
         });
         if (!quote) {
           res.status(404).json({ error: "Quotation not found" });
@@ -118,14 +283,18 @@ export function mountBmsRoutes(
           res.status(409).json({ error: "Booking already exists for this quotation", booking: prior });
           return;
         }
-        if (
-          quote.status !== "Accepted" &&
-          quote.status !== "Converted to Booking" &&
-          quote.approvalStatus !== "Approved"
-        ) {
+        if (quote.status !== "Accepted") {
           res.status(400).json({
             error: "Quotation must be Accepted before proceeding to booking",
           });
+          return;
+        }
+        if (!quote.customerName?.trim()) {
+          res.status(400).json({ error: "Customer name is required before conversion" });
+          return;
+        }
+        if (!quote.travelStartDate && !quote.travelDates) {
+          res.status(400).json({ error: "Travel dates are required before conversion" });
           return;
         }
         const existing = await db.booking.findFirst({ where: { quotationId: quote.id } });
@@ -139,6 +308,8 @@ export function mountBmsRoutes(
         const infants = quote.infants ?? 0;
         const rooms = Math.max(1, Math.ceil((adults + children) / 3));
         const packageValue = quote.total;
+        const costPrice = quote.totalNetCost ?? 0;
+        const grossProfit = quote.grossProfit ?? packageValue - costPrice;
         const bookingRef = await nextBookingRef();
         const salesName = quote.salesExecutiveName || quote.createdBy || req.auth?.email || "Sales";
         const opsName = (req.body?.operationsExecutiveName as string) || "Operations";
@@ -170,9 +341,9 @@ export function mountBmsRoutes(
             packageValue,
             amountPaid: 0,
             balanceAmount: packageValue,
-            costPrice: 0,
-            grossProfit: packageValue,
-            netProfit: Math.round(packageValue * 0.9),
+            costPrice,
+            grossProfit,
+            netProfit: Math.round(grossProfit * 0.9),
             salesExecutiveId: quote.createdById ?? req.auth?.userId,
             salesExecutiveName: salesName,
             operationsExecutiveName: opsName,
@@ -183,6 +354,7 @@ export function mountBmsRoutes(
               amount: quote.amount,
               gst: quote.gst,
               total: quote.total,
+              totalNetCost: quote.totalNetCost,
               couponCode: quote.couponCode,
               couponDiscount: quote.couponDiscount,
               lineItems: quote.lineItems,
@@ -209,7 +381,15 @@ export function mountBmsRoutes(
           })),
         });
 
-        await seedBookingServices(booking.id, quote.isInternational);
+        const selected =
+          quote.packages.find((p) => p.id === quote.selectedPackageId) ||
+          quote.packages.find((p) => p.isSelected) ||
+          quote.packages[0];
+        const hasPackageLines = selected ? packageHasCopiedLines(selected) : false;
+
+        if (!hasPackageLines) {
+          await seedBookingServices(booking.id, quote.isInternational);
+        }
         await seedOpsTasks({
           bookingId: booking.id,
           bookingRef,
@@ -219,65 +399,8 @@ export function mountBmsRoutes(
           isInternational: quote.isInternational,
         });
 
-        // Deep-copy selected package into booking services / add-ons when present
-        const packages = await db.quotationPackage.findMany({ where: { quotationId: quote.id } });
-        const selected =
-          packages.find((p) => p.id === quote.selectedPackageId) ||
-          packages.find((p) => p.isSelected) ||
-          packages[0];
         if (selected) {
-          const hotels = Array.isArray(selected.hotels) ? selected.hotels as Array<Record<string, unknown>> : [];
-          for (const h of hotels) {
-            await db.bookingService.create({
-              data: {
-                bookingId: booking.id,
-                serviceType: "Hotel",
-                title: String(h.hotelName || h.name || "Hotel"),
-                status: "Pending",
-                costPrice: Number(h.costPrice || 0),
-                sellingPrice: Number(h.sellingPrice || 0),
-                supplierName: h.supplier ? String(h.supplier) : undefined,
-                notes: h.remarks ? String(h.remarks) : undefined,
-              },
-            });
-          }
-          const flights = Array.isArray(selected.flights) ? selected.flights as Array<Record<string, unknown>> : [];
-          for (const f of flights) {
-            await db.bookingService.create({
-              data: {
-                bookingId: booking.id,
-                serviceType: "Flight",
-                title: `${f.airline || "Flight"} ${f.flightNumber || ""}`.trim(),
-                status: "Pending",
-                costPrice: Number(f.costPrice || 0),
-                sellingPrice: Number(f.sellingPrice || f.fare || 0),
-                confirmationNo: f.pnr ? String(f.pnr) : undefined,
-              },
-            });
-          }
-          const addOns = Array.isArray(selected.addOns) ? selected.addOns as Array<Record<string, unknown>> : [];
-          for (const a of addOns) {
-            if (a.enabled === false) continue;
-            await db.bookingAddOn.create({
-              data: {
-                bookingId: booking.id,
-                addOnType: String(a.name || a.addOnType || "Other"),
-                title: String(a.name || "Add-on"),
-                amount: Number(a.sellingPrice || 0),
-                costPrice: Number(a.costPrice || 0),
-              },
-            });
-          }
-          if (quote.totalNetCost) {
-            await db.booking.update({
-              where: { id: booking.id },
-              data: {
-                costPrice: quote.totalNetCost,
-                grossProfit: quote.grossProfit || booking.amount - quote.totalNetCost,
-                netProfit: Math.round((quote.grossProfit || booking.amount - quote.totalNetCost) * 0.9),
-              },
-            });
-          }
+          await copySelectedPackageToBooking(booking.id, selected);
         }
 
         await db.quotation.update({

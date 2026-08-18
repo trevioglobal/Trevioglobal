@@ -424,6 +424,25 @@ export const api = {
       body: JSON.stringify(body || {}),
     }),
 
+  getQuotationVersions: (id: string) =>
+    apiFetch<{
+      versions: Array<{
+        id: string;
+        versionNumber: number;
+        changeSummary?: string | null;
+        reason?: string | null;
+        createdAt: string;
+        createdByName?: string | null;
+      }>;
+      currentVersion: number;
+    }>(`/api/quotations/${id}/versions`),
+
+  restoreQuotationVersion: (id: string, versionId: string) =>
+    apiFetch<{ quotation: ApiQuotation }>(`/api/quotations/${id}/versions/${versionId}/restore`, {
+      method: "POST",
+      body: "{}",
+    }),
+
   createQuotation: (body: Record<string, unknown>) =>
     apiFetch<{ quotation: ApiQuotation }>("/api/quotations", { method: "POST", body: JSON.stringify(body) }),
 
@@ -933,6 +952,7 @@ export interface ApiQuotation {
   contactPhone?: string | null;
   destination?: string | null;
   country?: string | null;
+  coverImage?: string | null;
   travelDates?: string | null;
   adults?: number | null;
   children?: number | null;

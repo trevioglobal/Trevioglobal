@@ -182,6 +182,7 @@ export function mapApiQuotation(q: ApiQuotation): Quotation {
     contactPhone: q.contactPhone ?? undefined,
     destination: q.destination ?? undefined,
     country: q.country ?? undefined,
+    coverImage: (q as { coverImage?: string | null }).coverImage ?? undefined,
     travelDates: q.travelDates ?? undefined,
     adults: q.adults ?? undefined,
     children: q.children ?? undefined,
@@ -229,6 +230,8 @@ export function mapApiQuotation(q: ApiQuotation): Quotation {
     convertedBookingId: (q as { convertedBookingId?: string | null }).convertedBookingId,
     salesExecutiveName: (q as { salesExecutiveName?: string }).salesExecutiveName,
     packages: (q as { packages?: Quotation["packages"] }).packages,
+    versions: (q as { versions?: Quotation["versions"] }).versions,
+    approvals: (q as { approvals?: Quotation["approvals"] }).approvals,
   };
 }
 

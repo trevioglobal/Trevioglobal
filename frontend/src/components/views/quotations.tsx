@@ -9,6 +9,7 @@ import { useDemoDataStore } from "@/store/demo-data-store";
 import { useAuthStore } from "@/store/app-store";
 import { api, ApiError } from "@/lib/api";
 import type { Quotation } from "@/types";
+import { mapApiQuotation } from "@/lib/api-mappers";
 import {
   formatINR, formatFullINR, StatusBadge, PageHeader, PageShell, MetricCard,
 } from "@/components/shared/ui-helpers";
@@ -41,7 +42,6 @@ import {
   shareQuotationViaEmail,
   shareQuotationViaWhatsApp,
 } from "@/lib/quotation-actions";
-import { mapApiQuotation } from "@/lib/api-mappers";
 
 const SERVICE_COLORS: Record<string, string> = {
   Flight: "bg-teal-100 text-teal-700 dark:bg-teal-500/15 dark:text-teal-400",
@@ -57,19 +57,24 @@ interface QuoteItem { id: string; description: string; qty: number; price: numbe
 function useProceedToBooking() {
   const { toast } = useToast();
   const upsertBooking = useDemoDataStore((s) => s.upsertBooking);
-  const updateQuotationStatus = useDemoDataStore((s) => s.updateQuotationStatus);
+  const hydrateFromApi = useDemoDataStore((s) => s.hydrateFromApi);
   const [busyId, setBusyId] = useState<string | null>(null);
 
   async function proceed(quote: Quotation) {
+    if (quote.status !== "Accepted") {
+      toast({
+        title: "Quote must be Accepted",
+        description: "Accept the quotation before converting it to a booking.",
+        variant: "destructive",
+      });
+      return;
+    }
     setBusyId(quote.id);
     try {
-      if (quote.status !== "Accepted") {
-        updateQuotationStatus(quote.id, "Accepted");
-        await api.updateQuotation(quote.id, { status: "Accepted" }).catch(() => undefined);
-      }
       const res = await api.proceedToBooking(quote.id);
       const booking = (await import("@/lib/api-mappers")).mapApiBooking(res.booking);
       upsertBooking(booking);
+      await hydrateFromApi().catch(() => undefined);
       toast({
         title: "Booking created",
         description: `${booking.bookingRef} — open Bookings to continue passenger details`,
@@ -91,13 +96,26 @@ function useProceedToBooking() {
 function useQuoteActions() {
   const { toast } = useToast();
   const updateQuotationStatus = useDemoDataStore((s) => s.updateQuotationStatus);
+  const upsertQuotation = useDemoDataStore((s) => s.upsertQuotation);
 
-  function pdf(quote: Quotation) {
-    const ok = downloadQuotationPdf(quote);
+  async function loadFull(quote: Quotation): Promise<Quotation> {
+    try {
+      const res = await api.getQuotationFull(quote.id);
+      const mapped = mapApiQuotation(res.quotation);
+      upsertQuotation(mapped);
+      return mapped;
+    } catch {
+      return quote;
+    }
+  }
+
+  async function pdf(quote: Quotation) {
+    const full = await loadFull(quote);
+    const ok = await downloadQuotationPdf(full);
     toast({
-      title: ok ? "PDF ready" : "Popup blocked",
+      title: ok ? "Client PDF ready" : "Popup blocked",
       description: ok
-        ? "Use the print dialog → Save as PDF. Then share the file with your client."
+        ? "Print dialog → Save as PDF. This is the customer brochure (no cost/profit). Attach it in email/WhatsApp."
         : "Allow popups to open the quotation PDF.",
       variant: ok ? "default" : "destructive",
     });
@@ -432,46 +450,76 @@ const APPROVAL_STEPS = [
   { key: "Approved", icon: CheckCircle2, color: "text-emerald-500 bg-emerald-100 dark:bg-emerald-500/15" },
 ];
 
+function approvalIndex(q: Quotation) {
+  if (
+    ["Sent to Agent", "Sent", "Customer Reviewing", "Accepted", "Converted to Booking"].includes(q.status) ||
+    q.approvalStatus === "Approved"
+  ) return 2;
+  if (q.status === "Pending Approval" || q.approvalStatus === "Pending") return 1;
+  return 0;
+}
+
 function QuoteDetailDialog({ quote, open, onOpenChange }: { quote: Quotation | null; open: boolean; onOpenChange: (v: boolean) => void }) {
   const { toast } = useToast();
-  const { pdf, email, whatsapp, markSent } = useQuoteActions();
+  const user = useAuthStore((s) => s.user);
+  const isAgent = user?.role === "travel_agent";
+  const { pdf, email, whatsapp } = useQuoteActions();
   const { proceed, busyId } = useProceedToBooking();
-  const updateQuotationStatus = useDemoDataStore((s) => s.updateQuotationStatus);
-  const [approvalStep, setApprovalStep] = useState(0);
-  if (!quote) return null;
-  const items = getQuotationLineItems(quote);
+  const upsertQuotation = useDemoDataStore((s) => s.upsertQuotation);
+  const [full, setFull] = useState<Quotation | null>(null);
+  const [extendDate, setExtendDate] = useState("");
+  const [versions, setVersions] = useState<NonNullable<Quotation["versions"]>>([]);
 
-  function requestApproval() {
-    if (approvalStep < 2) {
-      setApprovalStep(approvalStep + 1);
-      toast({ title: "Approval workflow updated", description: `Status: ${APPROVAL_STEPS[approvalStep + 1].key}` });
+  useEffect(() => {
+    if (!open || !quote) return;
+    setFull(quote);
+    setExtendDate(quote.validTill?.slice(0, 10) || "");
+    api.getQuotationFull(quote.id)
+      .then((res) => {
+        const mapped = mapApiQuotation(res.quotation);
+        setFull(mapped);
+        upsertQuotation(mapped);
+        setVersions(mapped.versions || []);
+        setExtendDate(mapped.validTill?.slice(0, 10) || "");
+      })
+      .catch(() => undefined);
+    if (!isAgent) {
+      api.getQuotationVersions(quote.id)
+        .then((res) => setVersions(res.versions || []))
+        .catch(() => undefined);
     }
-  }
+  }, [open, quote, isAgent, upsertQuotation]);
 
-  function acceptQuote() {
-    if (!quote) return;
-    updateQuotationStatus(quote.id, "Accepted");
-    api.updateQuotation(quote.id, { status: "Accepted" }).catch(() => undefined);
-    toast({ title: "Quotation accepted", description: "Proceed to Booking is now available" });
+  if (!quote) return null;
+  const display = full || quote;
+  const items = getQuotationLineItems(display);
+  const step = approvalIndex(display);
+
+  async function refresh() {
+    const res = await api.getQuotationFull(display.id);
+    const mapped = mapApiQuotation(res.quotation);
+    setFull(mapped);
+    upsertQuotation(mapped);
   }
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="sm:max-w-2xl">
+      <DialogContent className="sm:max-w-2xl max-h-[90vh] overflow-y-auto">
         <DialogHeader>
           <div className="flex items-center justify-between">
             <div>
               <DialogTitle className="flex items-center gap-2">
-                {quote.quoteNo}
-                <StatusBadge status={quote.status} />
+                {display.quoteNo}
+                <StatusBadge status={display.status} />
               </DialogTitle>
               <DialogDescription>
-                {quote.customerName} · {quote.service}
-                {quote.destination ? ` · ${quote.destination}` : ""}
-                {" · "}Created {new Date(quote.createdAt).toLocaleDateString("en-IN")}
+                {display.customerName} · {display.service}
+                {display.destination ? ` · ${display.destination}` : ""}
+                {" · "}Created {new Date(display.createdAt).toLocaleDateString("en-IN")}
+                {display.currentVersion ? ` · v${display.currentVersion}` : ""}
               </DialogDescription>
             </div>
-            <Badge variant="secondary" className={SERVICE_COLORS[quote.service]}>{quote.service}</Badge>
+            <Badge variant="secondary" className={SERVICE_COLORS[display.service]}>{display.service}</Badge>
           </div>
         </DialogHeader>
 
@@ -479,15 +527,15 @@ function QuoteDetailDialog({ quote, open, onOpenChange }: { quote: Quotation | n
           <div className="rounded-lg border p-3 bg-muted/20">
             <p className="text-[11px] font-semibold text-muted-foreground uppercase tracking-wide mb-2">Approval Workflow</p>
             <div className="flex items-center justify-between">
-              {APPROVAL_STEPS.map((step, i) => (
-                <div key={step.key} className="flex-1 flex flex-col items-center relative">
+              {APPROVAL_STEPS.map((s, i) => (
+                <div key={s.key} className="flex-1 flex flex-col items-center relative">
                   {i < APPROVAL_STEPS.length - 1 && (
-                    <div className={cn("absolute top-4 left-1/2 w-full h-0.5", i < approvalStep ? "bg-emerald-400" : "bg-border")} />
+                    <div className={cn("absolute top-4 left-1/2 w-full h-0.5", i < step ? "bg-emerald-400" : "bg-border")} />
                   )}
-                  <div className={cn("relative z-10 w-8 h-8 rounded-full flex items-center justify-center", i <= approvalStep ? step.color : "bg-muted text-muted-foreground")}>
-                    <step.icon className="w-4 h-4" />
+                  <div className={cn("relative z-10 w-8 h-8 rounded-full flex items-center justify-center", i <= step ? s.color : "bg-muted text-muted-foreground")}>
+                    <s.icon className="w-4 h-4" />
                   </div>
-                  <p className={cn("text-[10px] mt-1 text-center", i <= approvalStep ? "font-medium" : "text-muted-foreground")}>{step.key}</p>
+                  <p className={cn("text-[10px] mt-1 text-center", i <= step ? "font-medium" : "text-muted-foreground")}>{s.key}</p>
                 </div>
               ))}
             </div>
@@ -528,41 +576,110 @@ function QuoteDetailDialog({ quote, open, onOpenChange }: { quote: Quotation | n
 
           <div className="grid grid-cols-2 gap-3">
             <div className="space-y-1 text-xs">
-              <div className="flex justify-between"><span className="text-muted-foreground">Valid Till</span><span>{new Date(quote.validTill).toLocaleDateString("en-IN", { day: "2-digit", month: "short", year: "numeric" })}</span></div>
-              <div className="flex justify-between"><span className="text-muted-foreground">Created By</span><span>{quote.createdBy}</span></div>
-              <div className="flex justify-between"><span className="text-muted-foreground">Items</span><span>{quote.items}</span></div>
-              {quote.contactEmail && <div className="flex justify-between"><span className="text-muted-foreground">Email</span><span>{quote.contactEmail}</span></div>}
-              {quote.contactPhone && <div className="flex justify-between"><span className="text-muted-foreground">Phone</span><span>{quote.contactPhone}</span></div>}
+              <div className="flex justify-between"><span className="text-muted-foreground">Valid Till</span><span>{new Date(display.validTill).toLocaleDateString("en-IN", { day: "2-digit", month: "short", year: "numeric" })}</span></div>
+              <div className="flex justify-between"><span className="text-muted-foreground">Created By</span><span>{display.createdBy}</span></div>
+              <div className="flex justify-between"><span className="text-muted-foreground">Items</span><span>{display.items}</span></div>
+              {display.contactEmail && <div className="flex justify-between"><span className="text-muted-foreground">Email</span><span>{display.contactEmail}</span></div>}
+              {display.contactPhone && <div className="flex justify-between"><span className="text-muted-foreground">Phone</span><span>{display.contactPhone}</span></div>}
+              {!isAgent && display.internalNotes && (
+                <div className="rounded border border-amber-200 bg-amber-50 dark:bg-amber-500/10 p-2 mt-2">
+                  <p className="text-[10px] uppercase text-amber-800">Internal notes</p>
+                  <p>{display.internalNotes}</p>
+                </div>
+              )}
             </div>
             <div className="rounded-lg bg-muted/40 p-3 text-xs space-y-1">
-              <div className="flex justify-between"><span className="text-muted-foreground">Subtotal</span><span>{formatFullINR(quote.amount)}</span></div>
-              <div className="flex justify-between"><span className="text-muted-foreground">GST @ 18%</span><span>{formatFullINR(quote.gst)}</span></div>
+              <div className="flex justify-between"><span className="text-muted-foreground">Package</span><span>{formatFullINR(display.amount)}</span></div>
+              <div className="flex justify-between"><span className="text-muted-foreground">GST</span><span>{formatFullINR(display.gst)}</span></div>
+              {display.discountAmount ? <div className="flex justify-between"><span className="text-muted-foreground">Discount</span><span>{formatFullINR(display.discountAmount)}</span></div> : null}
               <Separator className="my-1" />
-              <div className="flex justify-between font-semibold text-sm"><span>Total</span><span className="text-teal-600">{formatFullINR(quote.total)}</span></div>
+              <div className="flex justify-between font-semibold text-sm"><span>Total</span><span className="text-teal-600">{formatFullINR(display.total)}</span></div>
+              {display.perPersonCost != null && <div className="flex justify-between text-muted-foreground"><span>Per person</span><span>{formatFullINR(display.perPersonCost)}</span></div>}
+              {!isAgent && display.totalNetCost != null && (
+                <>
+                  <Separator className="my-1" />
+                  <div className="flex justify-between text-amber-800 dark:text-amber-300"><span>Net cost</span><span>{formatFullINR(display.totalNetCost)}</span></div>
+                  <div className="flex justify-between text-amber-800 dark:text-amber-300"><span>Profit</span><span>{formatFullINR(display.grossProfit || 0)}</span></div>
+                  <div className="flex justify-between text-amber-800 dark:text-amber-300"><span>Margin</span><span>{display.profitMargin ?? 0}%</span></div>
+                </>
+              )}
             </div>
           </div>
 
+          {!isAgent && (
+            <div className="rounded-lg border p-3 space-y-2">
+              <p className="text-[11px] font-semibold text-muted-foreground uppercase">Validity & versions</p>
+              <div className="flex flex-wrap gap-2 items-end">
+                <div>
+                  <Label className="text-[10px]">Extend valid until</Label>
+                  <Input className="h-8 w-40 text-xs" type="date" value={extendDate} onChange={(e) => setExtendDate(e.target.value)} />
+                </div>
+                <Button size="sm" variant="outline" onClick={async () => {
+                  try {
+                    const res = await api.extendQuotation(display.id, extendDate);
+                    upsertQuotation(mapApiQuotation(res.quotation));
+                    setFull(mapApiQuotation(res.quotation));
+                    toast({ title: "Validity updated" });
+                  } catch (e) {
+                    toast({ title: "Extend failed", description: e instanceof ApiError ? e.message : "Error", variant: "destructive" });
+                  }
+                }}>Extend / renew</Button>
+                <Button size="sm" variant="outline" onClick={async () => {
+                  try {
+                    await api.createQuotationVersion(display.id, { changeSummary: "Manual snapshot" });
+                    const res = await api.getQuotationVersions(display.id);
+                    setVersions(res.versions || []);
+                    toast({ title: "Version saved" });
+                  } catch (e) {
+                    toast({ title: "Version failed", description: e instanceof ApiError ? e.message : "Error", variant: "destructive" });
+                  }
+                }}>Save version</Button>
+              </div>
+              {versions.length > 0 && (
+                <div className="max-h-28 overflow-y-auto text-xs space-y-1">
+                  {versions.map((v) => (
+                    <div key={v.id} className="flex justify-between items-center gap-2">
+                      <span>v{v.versionNumber} · {v.changeSummary || "Snapshot"} · {new Date(v.createdAt).toLocaleString("en-IN")}</span>
+                      <Button size="sm" variant="ghost" className="h-7" onClick={async () => {
+                        try {
+                          const res = await api.restoreQuotationVersion(display.id, v.id);
+                          const mapped = mapApiQuotation(res.quotation);
+                          setFull(mapped);
+                          upsertQuotation(mapped);
+                          toast({ title: `Restored v${v.versionNumber}` });
+                        } catch (e) {
+                          toast({ title: "Restore failed", description: e instanceof ApiError ? e.message : "Error", variant: "destructive" });
+                        }
+                      }}>Restore</Button>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+          )}
+
           <div className="flex flex-wrap gap-2">
-            <Button variant="outline" size="sm" onClick={() => pdf(quote)}><FileDown className="w-3.5 h-3.5 mr-1" /> Download PDF</Button>
-            <Button variant="outline" size="sm" onClick={() => email(quote)}><Mail className="w-3.5 h-3.5 mr-1" /> Email</Button>
-            <Button variant="outline" size="sm" onClick={() => whatsapp(quote)}><MessageCircle className="w-3.5 h-3.5 mr-1" /> WhatsApp</Button>
-            {quote.status === "Draft" && (
-              <Button variant="outline" size="sm" onClick={() => markSent(quote)}><Send className="w-3.5 h-3.5 mr-1" /> Mark Sent</Button>
-            )}
-            {["Sent", "Sent to Agent", "Customer Reviewing", "Draft", "In Progress"].includes(quote.status) && (
+            <Button variant="outline" size="sm" onClick={() => pdf(display)}><FileDown className="w-3.5 h-3.5 mr-1" /> Download PDF</Button>
+            <Button variant="outline" size="sm" onClick={() => email(display)}><Mail className="w-3.5 h-3.5 mr-1" /> Email</Button>
+            <Button variant="outline" size="sm" onClick={() => whatsapp(display)}><MessageCircle className="w-3.5 h-3.5 mr-1" /> WhatsApp</Button>
+            {["Sent", "Sent to Agent", "Customer Reviewing", "Draft", "In Progress"].includes(display.status) && (
               <Button variant="outline" size="sm" onClick={async () => {
                 try {
-                  await api.acceptQuotation(quote.id, { personName: quote.customerName });
-                  acceptQuote();
-                } catch { acceptQuote(); }
+                  await api.acceptQuotation(display.id, { personName: display.customerName });
+                  await refresh();
+                  toast({ title: "Quotation accepted", description: "Convert to Booking is now available for employees" });
+                } catch (e) {
+                  toast({ title: "Accept failed", description: e instanceof ApiError ? e.message : "Error", variant: "destructive" });
+                }
               }}>
                 <CheckCircle2 className="w-3.5 h-3.5 mr-1" /> Accept Quote
               </Button>
             )}
-            {["Sent to Agent", "Customer Reviewing", "Sent"].includes(quote.status) && (
+            {["Sent to Agent", "Customer Reviewing", "Sent"].includes(display.status) && (
               <Button variant="outline" size="sm" onClick={async () => {
                 try {
-                  await api.requestQuotationRevision(quote.id, { comments: "Please revise pricing / hotels" });
+                  await api.requestQuotationRevision(display.id, { comments: "Please revise pricing / hotels" });
+                  await refresh();
                   toast({ title: "Revision requested" });
                 } catch (e) {
                   toast({ title: "Revision failed", description: e instanceof ApiError ? e.message : "Error", variant: "destructive" });
@@ -571,36 +688,38 @@ function QuoteDetailDialog({ quote, open, onOpenChange }: { quote: Quotation | n
                 Request Revision
               </Button>
             )}
-            {(quote.status === "Accepted" || quote.status === "Converted to Booking" || approvalStep >= 2) && (
+            {!isAgent && (display.status === "Accepted" || display.status === "Converted to Booking") && (
               <Button
                 size="sm"
                 className="bg-teal-600 hover:bg-teal-700 text-white"
-                disabled={busyId === quote.id || quote.status === "Converted to Booking"}
-                onClick={() => proceed(quote)}
+                disabled={busyId === display.id || display.status === "Converted to Booking"}
+                onClick={() => proceed(display)}
               >
-                {busyId === quote.id ? <Loader2 className="w-3.5 h-3.5 mr-1 animate-spin" /> : <Ticket className="w-3.5 h-3.5 mr-1" />}
-                {quote.status === "Converted to Booking" ? "Booking Created" : "Convert to Booking"}
+                {busyId === display.id ? <Loader2 className="w-3.5 h-3.5 mr-1 animate-spin" /> : <Ticket className="w-3.5 h-3.5 mr-1" />}
+                {display.status === "Converted to Booking" ? "Booking Created" : "Convert to Booking"}
               </Button>
             )}
-            {["Draft", "In Progress"].includes(quote.status) && (
+            {!isAgent && ["Draft", "In Progress"].includes(display.status) && (
               <Button size="sm" className="bg-primary hover:bg-primary/90" onClick={async () => {
                 try {
-                  await api.submitQuotationApproval(quote.id);
+                  await api.submitQuotationApproval(display.id);
+                  await refresh();
                   toast({ title: "Submitted for approval" });
-                } catch {
-                  requestApproval();
+                } catch (e) {
+                  toast({ title: "Submit failed", description: e instanceof ApiError ? e.message : "Error", variant: "destructive" });
                 }
               }}>
                 <CheckCircle2 className="w-3.5 h-3.5 mr-1" /> Submit Approval
               </Button>
             )}
-            {quote.status === "Pending Approval" && (
+            {!isAgent && display.status === "Pending Approval" && (
               <Button size="sm" className="ml-auto" onClick={async () => {
                 try {
-                  await api.approveQuotation(quote.id, { readyToSend: true, stage: "Team Lead" });
+                  await api.approveQuotation(display.id, { readyToSend: true, stage: "Team Lead" });
+                  await refresh();
                   toast({ title: "Approved & ready to send" });
-                } catch {
-                  requestApproval();
+                } catch (e) {
+                  toast({ title: "Approve failed", description: e instanceof ApiError ? e.message : "Error", variant: "destructive" });
                 }
               }}>
                 Approve & Send
@@ -627,6 +746,8 @@ export function QuotationsView() {
   const [search, setSearch] = useState("");
   const [statusFilter, setStatusFilter] = useState("All");
   const [sort, setSort] = useState("latest");
+  const [travelFrom, setTravelFrom] = useState("");
+  const [travelTo, setTravelTo] = useState("");
   const [analytics, setAnalytics] = useState<Record<string, number | undefined>>({});
   const isAgent = user?.role === "travel_agent";
 
@@ -634,12 +755,17 @@ export function QuotationsView() {
     api.getQuotationAnalytics()
       .then((a) => setAnalytics(a as Record<string, number | undefined>))
       .catch(() => undefined);
-    api.getQuotationsManage({ pageSize: "100", sort })
+    const params: Record<string, string> = { pageSize: "100", sort };
+    if (statusFilter !== "All") params.status = statusFilter;
+    if (search.trim()) params.q = search.trim();
+    if (travelFrom) params.travelFrom = travelFrom;
+    if (travelTo) params.travelTo = travelTo;
+    api.getQuotationsManage(params)
       .then((res) => {
         res.quotations.forEach((q) => upsertQuotation(mapApiQuotation(q)));
       })
       .catch(() => undefined);
-  }, [sort, upsertQuotation]);
+  }, [sort, statusFilter, search, travelFrom, travelTo, upsertQuotation]);
 
   const filtered = useMemo(() => {
     let list = quotations;
@@ -734,10 +860,19 @@ export function QuotationsView() {
                 <SelectItem value="latest">Latest</SelectItem>
                 <SelectItem value="oldest">Oldest</SelectItem>
                 <SelectItem value="value">Quote Value</SelectItem>
-                <SelectItem value="profit">Profit</SelectItem>
+                {!isAgent && <SelectItem value="profit">Profit</SelectItem>}
                 <SelectItem value="status">Status</SelectItem>
+                <SelectItem value="travel">Travel date</SelectItem>
               </SelectContent>
             </Select>
+            <div className="flex items-center gap-1">
+              <Label className="text-[10px] text-muted-foreground whitespace-nowrap">Travel from</Label>
+              <Input type="date" className="h-9 w-36" value={travelFrom} onChange={(e) => setTravelFrom(e.target.value)} />
+            </div>
+            <div className="flex items-center gap-1">
+              <Label className="text-[10px] text-muted-foreground whitespace-nowrap">to</Label>
+              <Input type="date" className="h-9 w-36" value={travelTo} onChange={(e) => setTravelTo(e.target.value)} />
+            </div>
           </div>
           <div className="rounded-lg border border-border max-h-[60vh] overflow-y-auto scroll-thin">
             <Table>
@@ -791,7 +926,11 @@ export function QuotationsView() {
                           </Button>
                         )}
                         <Button variant="ghost" size="sm" className="h-7 w-7 p-0 text-cyan-600" title="Share / send" onClick={() => runAction("Shared", async () => {
-                          const res = await api.shareQuotation(q.id, { channel: "Email", recipient: q.contactEmail });
+                          const res = await api.shareQuotation(q.id, {
+                            channel: "Email",
+                            recipient: q.contactEmail,
+                            appOrigin: window.location.origin,
+                          });
                           if (res.mailto) window.location.href = res.mailto;
                           else markSent(q);
                         })}>

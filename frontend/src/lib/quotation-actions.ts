@@ -1,6 +1,7 @@
 import type { Quotation } from "@/types";
 import { downloadInternationalQuotationPdf } from "@/lib/quotation-pdf";
 import { downloadProductQuotationPdf, type ProductQuoteLine } from "@/lib/product-quotation-pdf";
+import { downloadClientQuotationBrochure } from "@/lib/client-quotation-brochure";
 
 function escapeHtml(value: string) {
   return value
@@ -125,8 +126,14 @@ function downloadClassicQuotationPdf(quote: Quotation): boolean {
   return true;
 }
 
-/** Open print/Save-as-PDF for any saved quotation (product images, international, or classic). */
-export function downloadQuotationPdf(quote: Quotation): boolean {
+/** Open print/Save-as-PDF. Wizard quotes use the Trevio client brochure (no cost/profit). */
+export async function downloadQuotationPdf(quote: Quotation): Promise<boolean> {
+  const hasBrochure =
+    Boolean(quote.packages?.length) ||
+    Boolean(quote.destination && (quote.travelStartDate || quote.travelDates));
+  if (hasBrochure || quote.service === "Holiday" || quote.service === "International") {
+    return downloadClientQuotationBrochure(quote);
+  }
   const lines = quoteLines(quote);
   const hasProductImages = lines.some((l) => l.imageUrl || (l.type && ["hotel", "activity", "transfer"].includes(l.type)));
 
@@ -159,7 +166,7 @@ export function downloadQuotationPdf(quote: Quotation): boolean {
     });
   }
 
-  if (quote.isInternational || quote.service === "International") {
+  if (quote.isInternational) {
     return downloadInternationalQuotationPdf({
       quoteNo: quote.quoteNo,
       customerName: quote.customerName,

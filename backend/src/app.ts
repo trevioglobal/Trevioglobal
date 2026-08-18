@@ -27,6 +27,7 @@ import { mountTravelProposalRoutes } from "./routes/travel-proposals.js";
 import { mountProposalPdfRoutes } from "./routes/proposal-pdf.js";
 import { mountBmsRoutes } from "./routes/bms.js";
 import { mountQuotationRoutes } from "./routes/quotations.js";
+import { sanitizeQuotationForRole } from "./lib/quotations.js";
 import { analyticsMiddleware } from "./middleware/analytics.js";
 import { analyticsRouter } from "./routes/analytics.js";
 import {
@@ -721,8 +722,16 @@ app.patch("/api/leads/:id", requireAuth, requirePermission("crm"), async (req: A
 
 app.get("/api/quotations", requireAuth, requirePermission("quotations"), async (req: AuthRequest, res) => {
   try {
-    const quotations = await db.quotation.findMany({ where: { ...agencyScope(req), ...branchScope(req, "createdById") }, orderBy: { createdAt: "desc" }, take: 200 });
-    res.json({ quotations, total: quotations.length });
+    const quotations = await db.quotation.findMany({
+      where: { deletedAt: null, ...agencyScope(req), ...branchScope(req, "createdById") },
+      orderBy: { createdAt: "desc" },
+      take: 200,
+    });
+    const role = req.auth?.role;
+    res.json({
+      quotations: quotations.map((q) => sanitizeQuotationForRole(q as unknown as Record<string, unknown>, role)),
+      total: quotations.length,
+    });
   } catch (e) {
     logger.error(e);
     res.status(500).json({ error: "Server error" });

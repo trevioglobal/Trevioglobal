@@ -1,37 +1,23 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import {
   Plane, Hotel, Zap, Palmtree, Shield, ArrowRight, Mail, Lock,
-  Building2, UserCog, User, Eye, EyeOff, CheckCircle2, Sparkles,
-  Globe, TrendingUp,
+  Eye, EyeOff, Sparkles,
 } from "lucide-react";
 import { useAuthStore } from "@/store/app-store";
 import { useDemoDataStore } from "@/store/demo-data-store";
-import { ROLE_LABELS, ROLE_DESCRIPTIONS } from "@/lib/nav-config";
-import { ROLE_USERS, DEMO_LOGIN_PASSWORD, DEMO_LOGIN_ROWS } from "@/lib/mock-data";
+import { ROLE_LABELS } from "@/lib/nav-config";
 import { api } from "@/lib/api";
-import type { Role } from "@/types";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { Checkbox } from "@/components/ui/checkbox";
 import { useToast } from "@/hooks/use-toast";
-import { cn } from "@/lib/utils";
 import { AgentRegistrationForm } from "@/components/auth/agent-registration-form";
-import { isDemoLoginEnabled, isDemoMode } from "@/lib/runtime-mode";
 
 type Mode = "login" | "forgot" | "reset" | "register";
-
-const ROLE_CARDS: { role: Role; icon: React.ElementType; gradient: string }[] = [
-  { role: "super_admin", icon: Shield, gradient: "from-blue-600 to-indigo-700" },
-  { role: "agency_admin", icon: Building2, gradient: "from-blue-500 to-teal-500" },
-  { role: "branch_manager", icon: UserCog, gradient: "from-teal-500 to-cyan-600" },
-  { role: "employee", icon: User, gradient: "from-sky-500 to-blue-600" },
-  { role: "accountant", icon: TrendingUp, gradient: "from-teal-600 to-emerald-600" },
-  { role: "sales_executive", icon: Sparkles, gradient: "from-violet-500 to-fuchsia-600" },
-  { role: "product_executive", icon: Globe, gradient: "from-cyan-500 to-blue-600" },
-];
 
 const HIGHLIGHTS = [
   { icon: Plane, label: "1M+ Flights Booked" },
@@ -44,32 +30,38 @@ export function LoginScreen() {
   const loginWithApi = useAuthStore((s) => s.loginWithApi);
   const hydrateFromApi = useDemoDataStore((s) => s.hydrateFromApi);
   const { toast } = useToast();
-  const showDemoLogin = isDemoLoginEnabled();
-  const allowPublicRegister =
-    process.env.NEXT_PUBLIC_ALLOW_PUBLIC_REGISTER === "true" || isDemoMode();
-  const [selectedRole, setSelectedRole] = useState<Role>("agency_admin");
+  const allowPublicRegister = process.env.NEXT_PUBLIC_ALLOW_PUBLIC_REGISTER === "true";
   const [mode, setMode] = useState<Mode>("login");
   const [showPassword, setShowPassword] = useState(false);
-  const [email, setEmail] = useState(showDemoLogin ? ROLE_USERS.agency_admin.email : "");
-  const [password, setPassword] = useState(showDemoLogin ? DEMO_LOGIN_PASSWORD : "");
+  const [email, setEmail] = useState("");
+  const [password, setPassword] = useState("");
+  const [rememberMe, setRememberMe] = useState(false);
   const [loading, setLoading] = useState(false);
   const [forgotEmail, setForgotEmail] = useState("");
   const [forgotLoading, setForgotLoading] = useState(false);
   const [resetToken, setResetToken] = useState("");
   const [newPassword, setNewPassword] = useState("");
   const [resetLoading, setResetLoading] = useState(false);
-  const [showCreds, setShowCreds] = useState(false);
 
-  const selectRole = (role: Role) => {
-    setSelectedRole(role);
-    if (!showDemoLogin) return;
-    setEmail(ROLE_USERS[role].email);
-    setPassword(DEMO_LOGIN_PASSWORD);
-  };
+  useEffect(() => {
+    try {
+      const saved = localStorage.getItem("tpp-remember-email");
+      if (saved) {
+        setEmail(saved);
+        setRememberMe(true);
+      }
+    } catch {
+      /* ignore */
+    }
+  }, []);
 
   const handleLogin = async () => {
+    if (!email.trim() || !password) {
+      toast({ title: "Enter email and password", variant: "destructive" });
+      return;
+    }
     setLoading(true);
-    const result = await loginWithApi(email, password);
+    const result = await loginWithApi(email.trim(), password);
     setLoading(false);
     if (!result.ok) {
       const err = result.error || "Invalid email or password";
@@ -77,15 +69,21 @@ export function LoginScreen() {
       toast({
         title: rateLimited ? "Too many attempts" : "Sign in failed",
         description: rateLimited
-          ? "Login is temporarily rate-limited. Wait a minute, or restart the API to clear the counter."
+          ? "Login is temporarily rate-limited. Wait a minute, then try again."
           : err,
         variant: "destructive",
       });
       return;
     }
+    try {
+      if (rememberMe) localStorage.setItem("tpp-remember-email", email.trim());
+      else localStorage.removeItem("tpp-remember-email");
+    } catch {
+      /* ignore */
+    }
     const user = useAuthStore.getState().user;
     await hydrateFromApi(user?.agencyId);
-    toast({ title: "Welcome back!", description: `Signed in as ${user ? ROLE_LABELS[user.role] : ""}` });
+    toast({ title: "Welcome back", description: user ? ROLE_LABELS[user.role] : undefined });
   };
 
   const handleForgotPassword = async () => {
@@ -100,7 +98,7 @@ export function LoginScreen() {
         setResetToken(res.resetToken);
         setMode("reset");
         toast({
-          title: "Reset code ready (dev)",
+          title: "Reset code ready",
           description: "Enter a new password below. The code was also returned for local testing.",
         });
         return;
@@ -160,13 +158,11 @@ export function LoginScreen() {
 
   return (
     <div className="min-h-screen flex flex-col lg:flex-row bg-background">
-      {/* Left hero panel */}
-      <div className="lg:w-1/2 relative overflow-hidden bg-gradient-to-br from-brand-blue via-primary to-brand-teal text-white p-8 lg:p-12 flex flex-col justify-between">
+      <div className="lg:w-1/2 relative overflow-hidden bg-gradient-to-br from-brand-blue via-primary to-brand-teal text-white p-8 lg:p-12 flex flex-col justify-between min-h-[42vh] lg:min-h-screen">
         <div className="absolute inset-0 hero-pattern opacity-40" />
         <div className="absolute top-20 -right-20 w-72 h-72 rounded-full bg-white/15 blur-3xl" />
         <div className="absolute bottom-10 -left-10 w-80 h-80 rounded-full bg-brand-teal/30 blur-3xl" />
 
-        {/* Floating plane animation */}
         <motion.div
           className="absolute top-1/3 right-12 opacity-20"
           animate={{ x: [0, 30, 0], y: [0, -20, 0], rotate: [0, 5, 0] }}
@@ -176,14 +172,12 @@ export function LoginScreen() {
         </motion.div>
 
         <div className="relative z-10">
-          <div className="flex items-center gap-2.5 mb-2">
-            <img
-              src="/trevio-logo.png"
-              alt="Trevio Global"
-              className="h-10 w-auto drop-shadow-md"
-            />
-          </div>
-          <p className="text-xs text-white/70 mt-1">Enterprise Travel SaaS Platform</p>
+          <img
+            src="/trevio-logo.png"
+            alt="Trevio Global"
+            className="h-10 w-auto drop-shadow-md"
+          />
+          <p className="text-xs text-white/70 mt-2">Enterprise Travel SaaS Platform</p>
         </div>
 
         <div className="relative z-10 space-y-6 max-w-md">
@@ -239,96 +233,105 @@ export function LoginScreen() {
         </div>
       </div>
 
-      {/* Right login panel */}
-      <div className="lg:w-1/2 flex items-center justify-center p-6 lg:p-12 overflow-y-auto">
-        <div className="w-full max-w-md">
+      <div className="relative lg:w-1/2 flex items-center justify-center p-6 lg:p-16 overflow-y-auto bg-[#f4f8fd]">
+        <div className="pointer-events-none absolute inset-0 overflow-hidden" aria-hidden>
+          <div className="absolute -top-24 -right-16 h-72 w-72 rounded-full bg-sky-200/50 blur-3xl" />
+          <div className="absolute -bottom-20 -left-10 h-80 w-80 rounded-full bg-brand-teal/20 blur-3xl" />
+          <div className="absolute top-1/3 -right-8 h-40 w-40 rounded-full bg-brand-blue/10 blur-2xl" />
+          <svg className="absolute top-10 left-8 h-24 w-24 text-sky-300/70" viewBox="0 0 80 80" fill="none">
+            {Array.from({ length: 5 }).map((_, row) =>
+              Array.from({ length: 5 }).map((_, col) => (
+                <circle key={`${row}-${col}`} cx={8 + col * 16} cy={8 + row * 16} r="1.6" fill="currentColor" />
+              )),
+            )}
+          </svg>
+          <svg className="absolute bottom-16 right-10 h-28 w-28 text-sky-300/60" viewBox="0 0 80 80" fill="none">
+            {Array.from({ length: 4 }).map((_, row) =>
+              Array.from({ length: 4 }).map((_, col) => (
+                <circle key={`${row}-${col}`} cx={10 + col * 18} cy={10 + row * 18} r="1.6" fill="currentColor" />
+              )),
+            )}
+          </svg>
+          <svg className="absolute top-8 right-16 h-32 w-40 text-sky-400/40" viewBox="0 0 160 120" fill="none">
+            <path d="M8 88 C 48 18, 112 18, 152 72" stroke="currentColor" strokeWidth="1.5" strokeDasharray="5 7" strokeLinecap="round" />
+          </svg>
+          <svg className="absolute bottom-10 left-12 h-24 w-36 text-sky-400/35" viewBox="0 0 160 90" fill="none">
+            <path d="M6 18 C 50 78, 110 78, 154 28" stroke="currentColor" strokeDasharray="5 7" strokeWidth="1.5" strokeLinecap="round" />
+          </svg>
+        </div>
+
+        <div className="relative z-10 w-full max-w-[420px]">
           <AnimatePresence mode="wait">
             <motion.div
               key={mode}
-              initial={{ opacity: 0, x: 20 }}
-              animate={{ opacity: 1, x: 0 }}
-              exit={{ opacity: 0, x: -20 }}
-              transition={{ duration: 0.3 }}
+              initial={{ opacity: 0, y: 12 }}
+              animate={{ opacity: 1, y: 0 }}
+              exit={{ opacity: 0, y: -8 }}
+              transition={{ duration: 0.28, ease: "easeOut" }}
+              className="rounded-[1.75rem] bg-white p-8 sm:p-10 shadow-[0_24px_60px_-20px_rgba(15,40,80,0.18)]"
             >
               {mode === "login" && (
                 <div className="space-y-6">
-                  <div>
-                    <h2 className="text-2xl font-bold">Sign in to your account</h2>
-                    <p className="text-sm text-muted-foreground mt-1">
-                      {showDemoLogin
-                        ? "Select a demo role to autofill credentials, or enter your own email and password."
-                        : "Enter your agency email and password to continue."}
-                    </p>
+                  <div className="lg:hidden mb-2 flex justify-center">
+                    <img src="/trevio-logo.png" alt="Trevio Global" className="h-8 w-auto" />
+                  </div>
+                  <div className="text-center space-y-3">
+                    <div className="mx-auto flex h-14 w-14 items-center justify-center rounded-full bg-gradient-to-br from-brand-blue to-brand-teal shadow-lg shadow-brand-blue/25">
+                      <Plane className="h-6 w-6 text-white -rotate-45 translate-x-px" />
+                    </div>
+                    <div className="space-y-1">
+                      <h2 className="text-[1.65rem] font-bold tracking-tight text-slate-900">Welcome back</h2>
+                      <p className="text-sm text-slate-500">
+                        Sign in with your Trevio Global account.
+                      </p>
+                    </div>
                   </div>
 
-                  {showDemoLogin && (
-                  <>
-                  <div className="grid grid-cols-4 gap-2">
-                    {ROLE_CARDS.map((rc) => {
-                      const active = selectedRole === rc.role;
-                      return (
-                        <button
-                          key={rc.role}
-                          onClick={() => selectRole(rc.role)}
-                          className={cn(
-                            "relative flex flex-col items-center gap-1.5 p-3 rounded-xl border-2 transition-all",
-                            active
-                              ? "border-primary bg-primary/5 shadow-sm"
-                              : "border-border hover:border-primary/40 hover:bg-muted/50"
-                          )}
-                        >
-                          <div className={cn("w-9 h-9 rounded-lg bg-gradient-to-br flex items-center justify-center text-white", rc.gradient)}>
-                            <rc.icon className="w-4.5 h-4.5" />
-                          </div>
-                          <span className="text-[11px] font-medium text-center leading-tight">
-                            {ROLE_LABELS[rc.role].split(" ")[0]}
-                          </span>
-                          {active && (
-                            <CheckCircle2 className="absolute -top-1.5 -right-1.5 w-4 h-4 text-primary bg-background rounded-full" />
-                          )}
-                        </button>
-                      );
-                    })}
-                  </div>
-
-                  <div className="p-3 rounded-lg bg-muted/60 border border-border">
-                    <p className="text-xs font-medium">{ROLE_LABELS[selectedRole]}</p>
-                    <p className="text-xs text-muted-foreground mt-0.5">{ROLE_DESCRIPTIONS[selectedRole]}</p>
-                  </div>
-                  </>
-                  )}
-
-                  <div className="space-y-3">
+                  <div className="space-y-4">
                     <div className="space-y-1.5">
-                      <Label className="text-xs">Email</Label>
+                      <Label htmlFor="login-email" className="text-sm font-semibold text-slate-800">Email</Label>
                       <div className="relative">
-                        <Mail className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
+                        <Mail className="absolute left-3.5 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400 pointer-events-none" />
                         <Input
-                          className="pl-9 h-11"
+                          id="login-email"
+                          type="email"
+                          autoComplete="email"
+                          className="pl-10 h-12 rounded-xl border-slate-200 bg-white text-slate-900 placeholder:text-slate-400 focus-visible:ring-brand-blue/30"
                           value={email}
                           onChange={(e) => setEmail(e.target.value)}
+                          onKeyDown={(e) => e.key === "Enter" && handleLogin()}
                           placeholder="you@agency.com"
                         />
                       </div>
                     </div>
                     <div className="space-y-1.5">
                       <div className="flex items-center justify-between">
-                        <Label className="text-xs">Password</Label>
-                        <button onClick={() => setMode("forgot")} className="text-xs text-primary hover:underline">
-                          Forgot?
+                        <Label htmlFor="login-password" className="text-sm font-semibold text-slate-800">Password</Label>
+                        <button
+                          type="button"
+                          onClick={() => setMode("forgot")}
+                          className="text-xs font-medium text-brand-blue hover:underline"
+                        >
+                          Forgot password?
                         </button>
                       </div>
                       <div className="relative">
-                        <Lock className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
+                        <Lock className="absolute left-3.5 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400 pointer-events-none" />
                         <Input
+                          id="login-password"
                           type={showPassword ? "text" : "password"}
-                          className="pl-9 pr-9 h-11"
+                          autoComplete="current-password"
+                          className="pl-10 pr-10 h-12 rounded-xl border-slate-200 bg-white text-slate-900 placeholder:text-slate-400 focus-visible:ring-brand-blue/30"
                           value={password}
                           onChange={(e) => setPassword(e.target.value)}
+                          onKeyDown={(e) => e.key === "Enter" && handleLogin()}
+                          placeholder="Enter your password"
                         />
                         <button
+                          type="button"
                           onClick={() => setShowPassword(!showPassword)}
-                          className="absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground"
+                          className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600"
+                          aria-label={showPassword ? "Hide password" : "Show password"}
                         >
                           {showPassword ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
                         </button>
@@ -336,86 +339,72 @@ export function LoginScreen() {
                     </div>
                   </div>
 
+                  <div className="flex items-center justify-between">
+                    <label htmlFor="remember-me" className="flex items-center gap-2 cursor-pointer select-none">
+                      <Checkbox
+                        id="remember-me"
+                        checked={rememberMe}
+                        onCheckedChange={(checked) => setRememberMe(checked === true)}
+                      />
+                      <span className="text-sm text-slate-600">Remember me</span>
+                    </label>
+                    <button
+                      type="button"
+                      onClick={() => setMode("forgot")}
+                      className="text-sm font-medium text-brand-blue hover:underline"
+                    >
+                      Need help?
+                    </button>
+                  </div>
+
                   <Button
                     onClick={handleLogin}
                     disabled={loading}
-                    className="w-full h-11 text-sm font-semibold"
+                    className="relative w-full h-12 overflow-hidden text-sm font-semibold rounded-xl bg-gradient-to-r from-brand-blue to-[#3b82f6] text-white shadow-md shadow-brand-blue/25 hover:opacity-95"
                     size="lg"
                   >
+                    <span className="pointer-events-none absolute inset-x-0 top-0 h-1/2 bg-gradient-to-b from-white/25 to-transparent" />
                     {loading ? (
-                      <span className="flex items-center gap-2">
+                      <span className="relative flex items-center gap-2">
                         <span className="w-4 h-4 border-2 border-white/40 border-t-white rounded-full animate-spin" />
-                        Signing in...
+                        Signing in…
                       </span>
                     ) : (
-                      <span className="flex items-center gap-2">
-                        {showDemoLogin ? `Sign in as ${ROLE_LABELS[selectedRole]}` : "Sign in"}
+                      <span className="relative flex items-center gap-2">
+                        Sign in
                         <ArrowRight className="w-4 h-4" />
                       </span>
                     )}
                   </Button>
 
-                  {showDemoLogin && (
-                    <div className="rounded-lg border border-border bg-muted/40 p-3 space-y-2">
-                      <button
-                        type="button"
-                        onClick={() => setShowCreds((v) => !v)}
-                        className="text-xs font-medium text-primary hover:underline"
-                      >
-                        {showCreds ? "Hide demo logins" : "Show all demo logins"}
-                      </button>
-                      <p className="text-[11px] text-muted-foreground">
-                        Shared password: <span className="font-mono text-foreground">{DEMO_LOGIN_PASSWORD}</span>
-                      </p>
-                      {showCreds && (
-                        <div className="max-h-40 overflow-y-auto space-y-1.5 scroll-thin">
-                          {DEMO_LOGIN_ROWS.map((row) => (
-                            <button
-                              key={row.email}
-                              type="button"
-                              className="w-full text-left rounded-md border border-border/60 bg-background/80 px-2 py-1.5 hover:border-primary/40"
-                              onClick={() => {
-                                setEmail(row.email);
-                                setPassword(row.password);
-                              }}
-                            >
-                              <p className="text-[11px] font-medium">{row.role}</p>
-                              <p className="text-[10px] font-mono text-muted-foreground">{row.email}</p>
-                            </button>
-                          ))}
-                        </div>
-                      )}
-                    </div>
-                  )}
-
                   {allowPublicRegister && (
-                  <p className="text-center text-sm text-muted-foreground">
-                    New travel agent?{" "}
-                    <button type="button" onClick={() => setMode("register")} className="text-primary font-semibold hover:underline">
-                      Register with Trevio Global
-                    </button>
-                  </p>
+                    <p className="text-center text-sm text-slate-500">
+                      New travel agent?{" "}
+                      <button type="button" onClick={() => setMode("register")} className="text-brand-blue font-semibold hover:underline">
+                        Register with Trevio Global
+                      </button>
+                    </p>
                   )}
                 </div>
               )}
 
               {mode === "forgot" && (
                 <div className="space-y-6">
-                  <button onClick={() => setMode("login")} className="text-sm text-muted-foreground hover:text-foreground flex items-center gap-1">
-                    ← Back to login
+                  <button type="button" onClick={() => setMode("login")} className="text-sm text-muted-foreground hover:text-foreground">
+                    ← Back to sign in
                   </button>
                   <div>
-                    <h2 className="text-2xl font-bold">Reset Password</h2>
+                    <h2 className="text-2xl font-bold tracking-tight">Reset password</h2>
                     <p className="text-sm text-muted-foreground mt-1">
-                      Enter your email. We&apos;ll send a one-time reset code (valid 1 hour). Your password stays unchanged until you complete the next step.
+                      Enter your email. If an account exists, we&apos;ll send a one-time reset code (valid 1 hour).
                     </p>
                   </div>
                   <div className="space-y-1.5">
-                    <Label>Email Address</Label>
+                    <Label>Email address</Label>
                     <div className="relative">
-                      <Mail className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
+                      <Mail className="absolute left-3.5 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
                       <Input
-                        className="pl-9 h-11"
+                        className="pl-10 h-11 rounded-xl"
                         placeholder="you@agency.com"
                         value={forgotEmail}
                         onChange={(e) => setForgotEmail(e.target.value)}
@@ -423,55 +412,54 @@ export function LoginScreen() {
                       />
                     </div>
                   </div>
-                  <Button onClick={handleForgotPassword} disabled={forgotLoading} className="w-full h-11">
-                    {forgotLoading ? "Sending..." : "Send reset code"}
+                  <Button onClick={handleForgotPassword} disabled={forgotLoading} className="w-full h-11 rounded-xl">
+                    {forgotLoading ? "Sending…" : "Send reset code"}
                   </Button>
                 </div>
               )}
 
               {mode === "reset" && (
                 <div className="space-y-6">
-                  <button onClick={() => setMode("forgot")} className="text-sm text-muted-foreground hover:text-foreground flex items-center gap-1">
+                  <button type="button" onClick={() => setMode("forgot")} className="text-sm text-muted-foreground hover:text-foreground">
                     ← Back
                   </button>
                   <div>
-                    <h2 className="text-2xl font-bold">Set new password</h2>
+                    <h2 className="text-2xl font-bold tracking-tight">Set new password</h2>
                     <p className="text-sm text-muted-foreground mt-1">
-                      Paste the reset code from your email (or the code shown in development) and choose a new password.
+                      Paste the reset code from your email and choose a new password.
                     </p>
                   </div>
                   <div className="space-y-1.5">
                     <Label>Email</Label>
-                    <Input value={forgotEmail} onChange={(e) => setForgotEmail(e.target.value)} className="h-11" />
+                    <Input value={forgotEmail} onChange={(e) => setForgotEmail(e.target.value)} className="h-11 rounded-xl" />
                   </div>
                   <div className="space-y-1.5">
                     <Label>Reset code</Label>
-                    <Input value={resetToken} onChange={(e) => setResetToken(e.target.value)} className="h-11 font-mono text-xs" />
+                    <Input value={resetToken} onChange={(e) => setResetToken(e.target.value)} className="h-11 font-mono text-xs rounded-xl" />
                   </div>
                   <div className="space-y-1.5">
                     <Label>New password</Label>
                     <div className="relative">
-                      <Lock className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
+                      <Lock className="absolute left-3.5 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
                       <Input
                         type="password"
-                        className="pl-9 h-11"
+                        className="pl-10 h-11 rounded-xl"
                         value={newPassword}
                         onChange={(e) => setNewPassword(e.target.value)}
                       />
                     </div>
                   </div>
-                  <Button onClick={handleResetPassword} disabled={resetLoading} className="w-full h-11">
-                    {resetLoading ? "Updating..." : "Update password"}
+                  <Button onClick={handleResetPassword} disabled={resetLoading} className="w-full h-11 rounded-xl">
+                    {resetLoading ? "Updating…" : "Update password"}
                   </Button>
                 </div>
               )}
             </motion.div>
           </AnimatePresence>
 
-          <p className="text-xs text-center text-muted-foreground mt-8">
-            {showDemoLogin
-              ? "Demo platform · Select any role to explore · No real credentials needed"
-              : "Secure sign-in · Authorized agency staff only"}
+          <p className="text-xs text-center text-slate-400 mt-7 flex items-center justify-center gap-1.5">
+            <Shield className="w-3.5 h-3.5" />
+            Secure sign-in • Authorized staff only
           </p>
         </div>
       </div>

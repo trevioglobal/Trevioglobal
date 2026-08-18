@@ -269,6 +269,7 @@ model Quotation {
   contactPhone  String?
   destination   String?
   country       String?
+  coverImage    String?
   departureCity String?
   travelDates   String?
   returnDate    String?

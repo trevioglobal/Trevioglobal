@@ -406,6 +406,7 @@ export interface Quotation {
   contactPhone?: string;
   destination?: string;
   country?: string;
+  coverImage?: string;
   departureCity?: string;
   travelDates?: string;
   returnDate?: string;
@@ -425,6 +426,7 @@ export interface Quotation {
   termsAndConditions?: string;
   paymentTerms?: string;
   cancellationPolicy?: string;
+  refundPolicy?: string;
   salesExecutiveName?: string;
   salesExecutivePhone?: string;
   salesExecutiveEmail?: string;
@@ -460,6 +462,14 @@ export interface Quotation {
   selectedPackageId?: string | null;
   convertedBookingId?: string | null;
   packages?: QuotationPackage[];
+  versions?: Array<{
+    id: string;
+    versionNumber: number;
+    changeSummary?: string | null;
+    createdAt: string;
+    createdByName?: string | null;
+  }>;
+  approvals?: Array<{ stage: string; status: string; comments?: string | null; decidedAt?: string | null }>;
 }
 
 export type NewQuotationInput = {

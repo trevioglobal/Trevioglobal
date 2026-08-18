@@ -82,33 +82,41 @@ function buildHtml(payload: EmailPayload): string {
 }
 
 export async function sendEmail(payload: EmailPayload): Promise<boolean> {
+  return sendRawHtml(payload.to, payload.subject, buildHtml(payload));
+}
+
+/** Transactional HTML (quotations, etc.) using the same SMTP/SendGrid transport. */
+export async function sendHtmlEmail(to: string, subject: string, html: string): Promise<boolean> {
+  return sendRawHtml(to, subject, html);
+}
+
+async function sendRawHtml(to: string, subject: string, html: string): Promise<boolean> {
   try {
-    const html = buildHtml(payload);
     const smtp = getSmtpTransport();
     if (smtp) {
       await smtp.sendMail({
-        to: payload.to,
+        to,
         from: fromAddress(),
-        subject: payload.subject,
+        subject,
         html,
       });
-      logger.info(`[EMAIL-SENT] To: ${payload.to}, Subject: ${payload.subject}`);
+      logger.info(`[EMAIL-SENT] To: ${to}, Subject: ${subject}`);
       return true;
     }
 
     const sgMail = await loadSendGrid();
     if (sgMail) {
       await sgMail.send({
-        to: payload.to,
+        to,
         from: fromAddress(),
-        subject: payload.subject,
+        subject,
         html,
       });
-      logger.info(`[EMAIL-SENT] To: ${payload.to}, Subject: ${payload.subject}`);
+      logger.info(`[EMAIL-SENT] To: ${to}, Subject: ${subject}`);
       return true;
     }
 
-    logger.warn(`[EMAIL-FALLBACK] SMTP/SendGrid not configured. To: ${payload.to}, Subject: ${payload.subject}`);
+    logger.warn(`[EMAIL-FALLBACK] SMTP/SendGrid not configured. To: ${to}, Subject: ${subject}`);
     return false;
   } catch (error) {
     logger.error(`Email send failed: ${error instanceof Error ? error.message : String(error)}`);

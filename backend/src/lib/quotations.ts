@@ -321,6 +321,58 @@ export function buildTermsSnapshot(q: {
   };
 }
 
+export async function expireDueQuotations(agencyWhere: Record<string, unknown>) {
+  const today = new Date().toISOString().slice(0, 10);
+  const due = await db.quotation.findMany({
+    where: {
+      ...agencyWhere,
+      deletedAt: null,
+      status: { in: ["Sent to Agent", "Sent", "Customer Reviewing"] },
+      validTill: { lt: today },
+    },
+    take: 200,
+    select: { id: true, quoteNo: true, agencyId: true },
+  });
+  for (const q of due) {
+    await db.quotation.update({ where: { id: q.id }, data: { status: "Expired" } });
+    await notifyQuote({ agencyId: q.agencyId, title: "Quote expired", message: `${q.quoteNo} expired` });
+  }
+  return due.length;
+}
+
+export async function restorePackagesFromSnapshot(quotationId: string, snapshot: Record<string, unknown>) {
+  const packages = Array.isArray(snapshot.packages) ? (snapshot.packages as Record<string, unknown>[]) : [];
+  await db.quotationPackage.deleteMany({ where: { quotationId } });
+  for (const rec of packages) {
+    await db.quotationPackage.create({
+      data: {
+        quotationId,
+        name: String(rec.name || "Package"),
+        sortOrder: Number(rec.sortOrder || 0),
+        isSelected: Boolean(rec.isSelected),
+        description: rec.description != null ? String(rec.description) : undefined,
+        hotels: (rec.hotels as object) ?? [],
+        flights: (rec.flights as object) ?? [],
+        transfers: (rec.transfers as object) ?? [],
+        activities: (rec.activities as object) ?? [],
+        meals: (rec.meals as object) ?? [],
+        itinerary: (rec.itinerary as object) ?? [],
+        visa: rec.visa != null ? (rec.visa as object) : undefined,
+        insurance: rec.insurance != null ? (rec.insurance as object) : undefined,
+        addOns: (rec.addOns as object) ?? [],
+        inclusions: (rec.inclusions as object) ?? [],
+        exclusions: (rec.exclusions as object) ?? [],
+        totalNetCost: Number(rec.totalNetCost || 0),
+        totalSelling: Number(rec.totalSelling || 0),
+        grossProfit: Number(rec.grossProfit || 0),
+        gst: Number(rec.gst || 0),
+        total: Number(rec.total || 0),
+        perPersonCost: Number(rec.perPersonCost || 0),
+      },
+    });
+  }
+}
+
 export async function snapshotVersion(
   quotationId: string,
   createdByName: string,
