@@ -33,7 +33,6 @@ import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
 import { useToast } from "@/hooks/use-toast";
 import { cn } from "@/lib/utils";
 import { formatFullINR, formatPrettyDate, PageShell } from "@/components/shared/ui-helpers";
-import { generateFlights } from "@/lib/mock-data";
 import { api } from "@/lib/api";
 import { mapApiFlight } from "@/lib/api-mappers";
 import { useDemoDataStore } from "@/store/demo-data-store";
@@ -379,16 +378,29 @@ export function FlightsView() {
     setLoading(true);
     (async () => {
       try {
-        const res = await api.searchFlights(from, to, 8);
+        const res = await api.searchFlights(from, to, 8, departDate);
         const r = res.flights.map(mapApiFlight);
+        if (!r.length) {
+          toast({
+            title: "No flights found",
+            description: res.source === "live"
+              ? "Amadeus returned no offers for this route/date. Try another date."
+              : "No demo flights matched. Try a different route.",
+            variant: "destructive",
+          });
+        } else if (res.source === "live") {
+          toast({ title: "Live inventory", description: `Showing Amadeus results (${res.provider}).` });
+        }
         setResults(r);
         const prices = r.map((f) => f.price);
-        setPriceRange([Math.min(...prices), Math.max(...prices)]);
-      } catch {
-        const r = generateFlights(from, to, 8);
-        setResults(r);
-        const prices = r.map((f) => f.price);
-        setPriceRange([Math.min(...prices), Math.max(...prices)]);
+        if (prices.length) setPriceRange([Math.min(...prices), Math.max(...prices)]);
+      } catch (e) {
+        toast({
+          title: "Flight search failed",
+          description: e instanceof Error ? e.message : "Check Amadeus API keys in Settings.",
+          variant: "destructive",
+        });
+        setResults([]);
       }
       setAirlineFilter([]);
       setStopFilter("all");

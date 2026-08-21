@@ -26,7 +26,8 @@ import { Checkbox } from "@/components/ui/checkbox";
 import { useToast } from "@/hooks/use-toast";
 import { PageShell, PageHeader, DemoModuleBanner, DemoDataBadge } from "@/components/shared/ui-helpers";
 import { cn } from "@/lib/utils";
-import { apiFetch } from "@/lib/api";
+import { api, apiFetch } from "@/lib/api";
+import { useAuthStore } from "@/store/app-store";
 import {
   MODULE_LABELS, ROLE_CRUD,
   type CrudAction,
@@ -482,8 +483,13 @@ function SecurityTab() {
 
 function ApiKeysTab() {
   const { toast } = useToast();
+  const user = useAuthStore((s) => s.user);
+  const isSuperAdmin = user?.role === "super_admin";
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
+  const [agencies, setAgencies] = useState<Array<{ id: string; name: string }>>([]);
+  const [agencyId, setAgencyId] = useState("");
+  const [status, setStatus] = useState({ razorpayLive: false, emailLive: false, agencyName: "" });
   const [keys, setKeys] = useState({
     razorpayKeyId: "",
     razorpayKeySecret: "",
@@ -500,6 +506,13 @@ function ApiKeysTab() {
     sendgridApiKey: "",
     sendgridApiKeyMasked: "",
     sendgridFromEmail: "",
+    smtpHost: "",
+    smtpPort: "587",
+    smtpUser: "",
+    smtpPassword: "",
+    smtpPasswordMasked: "",
+    smtpSecure: "false",
+    smtpFrom: "",
     s3Bucket: "",
     s3Region: "ap-south-1",
     s3AccessKey: "",
@@ -512,10 +525,27 @@ function ApiKeysTab() {
   });
 
   useEffect(() => {
+    if (!isSuperAdmin) return;
+    api.getAgencies()
+      .then((res) => {
+        const list = (res.agencies || []).map((a) => ({ id: a.id, name: a.name }));
+        setAgencies(list);
+        if (list[0] && !agencyId) setAgencyId(list[0].id);
+      })
+      .catch(() => undefined);
+  }, [isSuperAdmin]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  useEffect(() => {
+    if (isSuperAdmin && !agencyId) return;
+    setLoading(true);
+    const qs = agencyId ? `?agencyId=${encodeURIComponent(agencyId)}` : "";
     apiFetch<{
+      agencyId?: string;
+      agencyName?: string;
       razorpayKeyId: string;
       razorpayKeySecretMasked: string;
       razorpayMode: string;
+      razorpayLive?: boolean;
       flightProvider: string;
       flightApiKey: string;
       flightApiSecretMasked: string;
@@ -524,6 +554,13 @@ function ApiKeysTab() {
       hotelApiSecretMasked: string;
       sendgridApiKeyMasked: string;
       sendgridFromEmail: string;
+      smtpHost?: string;
+      smtpPort?: string;
+      smtpUser?: string;
+      smtpPasswordMasked?: string;
+      smtpSecure?: string;
+      smtpFrom?: string;
+      emailLive?: boolean;
       s3Bucket: string;
       s3Region: string;
       s3AccessKey: string;
@@ -531,8 +568,14 @@ function ApiKeysTab() {
       smsProvider: string;
       twilioAccountSid: string;
       twilioAuthTokenMasked: string;
-    }>("/api/settings/api-keys")
+    }>(`/api/settings/api-keys${qs}`)
       .then((res) => {
+        if (res.agencyId && !agencyId) setAgencyId(res.agencyId);
+        setStatus({
+          razorpayLive: Boolean(res.razorpayLive),
+          emailLive: Boolean(res.emailLive),
+          agencyName: res.agencyName || "",
+        });
         setKeys({
           razorpayKeyId: res.razorpayKeyId || "",
           razorpayKeySecret: res.razorpayKeySecretMasked || "",
@@ -549,6 +592,13 @@ function ApiKeysTab() {
           sendgridApiKey: res.sendgridApiKeyMasked || "",
           sendgridApiKeyMasked: res.sendgridApiKeyMasked || "",
           sendgridFromEmail: res.sendgridFromEmail || "",
+          smtpHost: res.smtpHost || "",
+          smtpPort: res.smtpPort || "587",
+          smtpUser: res.smtpUser || "",
+          smtpPassword: res.smtpPasswordMasked || "",
+          smtpPasswordMasked: res.smtpPasswordMasked || "",
+          smtpSecure: res.smtpSecure || "false",
+          smtpFrom: res.smtpFrom || "",
           s3Bucket: res.s3Bucket || "",
           s3Region: res.s3Region || "ap-south-1",
           s3AccessKey: res.s3AccessKey || "",
@@ -560,24 +610,41 @@ function ApiKeysTab() {
           twilioAuthTokenMasked: res.twilioAuthTokenMasked || "",
         });
       })
-      .catch(() => undefined)
+      .catch((e) => {
+        toast({
+          title: "Could not load API keys",
+          description: e instanceof Error ? e.message : "Failed to load",
+          variant: "destructive",
+        });
+      })
       .finally(() => setLoading(false));
-  }, []);
+  }, [agencyId, isSuperAdmin, toast]);
 
   const handleSave = async () => {
     setSaving(true);
     try {
       await apiFetch("/api/settings/api-keys", {
         method: "PUT",
-        body: JSON.stringify(keys),
+        body: JSON.stringify({
+          ...keys,
+          ...(agencyId ? { agencyId } : {}),
+        }),
       });
       toast({
-        title: "API Keys Saved",
-        description: "Your Live/Test API credentials have been saved to database and active for your agency.",
+        title: "API keys saved",
+        description: "Razorpay, email, and Amadeus flight/hotel search now use these credentials for this agency (and as platform fallback).",
+      });
+      // refresh live status
+      const qs = agencyId ? `?agencyId=${encodeURIComponent(agencyId)}` : "";
+      const res = await apiFetch<{ razorpayLive?: boolean; emailLive?: boolean; agencyName?: string }>(`/api/settings/api-keys${qs}`);
+      setStatus({
+        razorpayLive: Boolean(res.razorpayLive),
+        emailLive: Boolean(res.emailLive),
+        agencyName: res.agencyName || status.agencyName,
       });
     } catch (e) {
       toast({
-        title: "Save Failed",
+        title: "Save failed",
         description: e instanceof Error ? e.message : "Failed to save API credentials",
         variant: "destructive",
       });
@@ -598,24 +665,50 @@ function ApiKeysTab() {
 
   return (
     <div className="space-y-4">
-      {/* Header Info */}
       <Card className="border-teal-500/20 bg-teal-50/50 dark:bg-teal-500/5">
-        <CardContent className="p-4 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
-          <div className="flex items-center gap-3">
-            <div className="w-9 h-9 rounded-lg bg-teal-500/10 text-teal-600 flex items-center justify-center shrink-0">
-              <KeyRound className="w-5 h-5" />
+        <CardContent className="p-4 flex flex-col gap-4">
+          <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
+            <div className="flex items-center gap-3">
+              <div className="w-9 h-9 rounded-lg bg-teal-500/10 text-teal-600 flex items-center justify-center shrink-0">
+                <KeyRound className="w-5 h-5" />
+              </div>
+              <div>
+                <h4 className="text-sm font-semibold">Agency integration credentials</h4>
+                <p className="text-xs text-muted-foreground">
+                  Set keys once on the primary agency (superadmin). Every user/agency inherits them unless they override.
+                  Choose <strong>Amadeus</strong> for live flights/hotels, plus Razorpay + SMTP for payments and email.
+                </p>
+              </div>
             </div>
-            <div>
-              <h4 className="text-sm font-semibold">Live Integration Credentials Manager</h4>
-              <p className="text-xs text-muted-foreground">
-                Enter your production/test API keys here. SuperAdmin & Agency Admin can update these anytime.
-              </p>
-            </div>
+            <Button onClick={handleSave} disabled={saving} className="bg-primary hover:bg-primary/90 shrink-0">
+              <Save className="w-3.5 h-3.5 mr-1.5" />
+              {saving ? "Saving..." : "Save All API Keys"}
+            </Button>
           </div>
-          <Button onClick={handleSave} disabled={saving} className="bg-primary hover:bg-primary/90 shrink-0">
-            <Save className="w-3.5 h-3.5 mr-1.5" />
-            {saving ? "Saving..." : "Save All API Keys"}
-          </Button>
+          {isSuperAdmin && (
+            <div className="max-w-md space-y-1.5">
+              <Label>Agency to configure</Label>
+              <Select value={agencyId} onValueChange={setAgencyId}>
+                <SelectTrigger><SelectValue placeholder="Select agency…" /></SelectTrigger>
+                <SelectContent>
+                  {agencies.map((a) => (
+                    <SelectItem key={a.id} value={a.id}>{a.name}</SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+          )}
+          <div className="flex flex-wrap gap-2 text-xs">
+            <Badge variant={status.razorpayLive ? "default" : "secondary"}>
+              Payments: {status.razorpayLive ? "Ready" : "Not configured"}
+            </Badge>
+            <Badge variant={status.emailLive ? "default" : "secondary"}>
+              Email: {status.emailLive ? "Ready (SMTP/SendGrid)" : "Not configured"}
+            </Badge>
+            {status.agencyName && (
+              <Badge variant="outline">Agency: {status.agencyName}</Badge>
+            )}
+          </div>
         </CardContent>
       </Card>
 
@@ -628,10 +721,10 @@ function ApiKeysTab() {
               <CardTitle className="text-base">Payment Gateway (Razorpay)</CardTitle>
             </div>
             <Badge variant={keys.razorpayMode === "Live" ? "default" : "secondary"}>
-              {keys.razorpayMode === "Live" ? "🔴 Live Mode" : "🟡 Test Sandbox Mode"}
+              {keys.razorpayMode === "Live" ? "Live Mode" : "Test Sandbox Mode"}
             </Badge>
           </div>
-          <CardDescription>Configure live or test merchant keys for customer checkout and wallet top-ups</CardDescription>
+          <CardDescription>Used immediately for checkout and wallet top-ups after save</CardDescription>
         </CardHeader>
         <CardContent className="space-y-4">
           <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
@@ -666,107 +759,54 @@ function ApiKeysTab() {
         </CardContent>
       </Card>
 
-      {/* 2. Flight GDS Provider */}
-      <Card>
-        <CardHeader className="pb-3">
-          <div className="flex items-center gap-2">
-            <Plane className="w-4 h-4 text-sky-600" />
-            <CardTitle className="text-base">Flight GDS / Aggregator Integration</CardTitle>
-          </div>
-          <CardDescription>Select flight inventory provider (Amadeus, Duffel, TBO) and set credentials</CardDescription>
-        </CardHeader>
-        <CardContent className="space-y-4">
-          <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
-            <div className="space-y-1.5">
-              <Label>Flight GDS Provider</Label>
-              <Select value={keys.flightProvider} onValueChange={(v) => setKeys({ ...keys, flightProvider: v })}>
-                <SelectTrigger><SelectValue /></SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="mock">Mock Demo Engine</SelectItem>
-                  <SelectItem value="amadeus">Amadeus Self-Service API</SelectItem>
-                  <SelectItem value="duffel">Duffel Flights API</SelectItem>
-                  <SelectItem value="tbo">TBO Air API</SelectItem>
-                </SelectContent>
-              </Select>
-            </div>
-            <div className="space-y-1.5">
-              <Label>Flight API Key / Client ID</Label>
-              <Input
-                placeholder="Flight API Key"
-                value={keys.flightApiKey}
-                onChange={(e) => setKeys({ ...keys, flightApiKey: e.target.value })}
-              />
-            </div>
-            <div className="space-y-1.5">
-              <Label>Flight API Secret</Label>
-              <Input
-                type="password"
-                placeholder="API Secret Key"
-                value={keys.flightApiSecret}
-                onChange={(e) => setKeys({ ...keys, flightApiSecret: e.target.value })}
-              />
-            </div>
-          </div>
-        </CardContent>
-      </Card>
-
-      {/* 3. Hotel Supplier Provider */}
-      <Card>
-        <CardHeader className="pb-3">
-          <div className="flex items-center gap-2">
-            <Hotel className="w-4 h-4 text-amber-600" />
-            <CardTitle className="text-base">Hotel Inventory Provider Integration</CardTitle>
-          </div>
-          <CardDescription>Select hotel inventory supplier (RateHawk, HotelBeds, TBO) and set credentials</CardDescription>
-        </CardHeader>
-        <CardContent className="space-y-4">
-          <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
-            <div className="space-y-1.5">
-              <Label>Hotel Provider</Label>
-              <Select value={keys.hotelProvider} onValueChange={(v) => setKeys({ ...keys, hotelProvider: v })}>
-                <SelectTrigger><SelectValue /></SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="mock">Mock Demo Engine</SelectItem>
-                  <SelectItem value="ratehawk">RateHawk API</SelectItem>
-                  <SelectItem value="hotelbeds">HotelBeds APItude</SelectItem>
-                  <SelectItem value="tbo">TBO Hotel API</SelectItem>
-                </SelectContent>
-              </Select>
-            </div>
-            <div className="space-y-1.5">
-              <Label>Hotel API Key</Label>
-              <Input
-                placeholder="Hotel API Key"
-                value={keys.hotelApiKey}
-                onChange={(e) => setKeys({ ...keys, hotelApiKey: e.target.value })}
-              />
-            </div>
-            <div className="space-y-1.5">
-              <Label>Hotel API Secret</Label>
-              <Input
-                type="password"
-                placeholder="API Secret Key"
-                value={keys.hotelApiSecret}
-                onChange={(e) => setKeys({ ...keys, hotelApiSecret: e.target.value })}
-              />
-            </div>
-          </div>
-        </CardContent>
-      </Card>
-
-      {/* 4. Email & Communications (SendGrid) */}
+      {/* 2. Email — SMTP preferred, SendGrid fallback */}
       <Card>
         <CardHeader className="pb-3">
           <div className="flex items-center gap-2">
             <Mail className="w-4 h-4 text-emerald-600" />
-            <CardTitle className="text-base">Email Delivery (SendGrid)</CardTitle>
+            <CardTitle className="text-base">Email delivery (SMTP or SendGrid)</CardTitle>
           </div>
-          <CardDescription>Configure SendGrid for invoice emails, booking receipts, and password resets</CardDescription>
+          <CardDescription>
+            Used for user invite emails, password resets, and quotation share. SMTP is tried first; SendGrid is the fallback.
+          </CardDescription>
         </CardHeader>
         <CardContent className="space-y-4">
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
+            <div className="space-y-1.5">
+              <Label>SMTP Host</Label>
+              <Input placeholder="smtp.gmail.com" value={keys.smtpHost} onChange={(e) => setKeys({ ...keys, smtpHost: e.target.value })} />
+            </div>
+            <div className="space-y-1.5">
+              <Label>SMTP Port</Label>
+              <Input placeholder="587" value={keys.smtpPort} onChange={(e) => setKeys({ ...keys, smtpPort: e.target.value })} />
+            </div>
+            <div className="space-y-1.5">
+              <Label>SMTP Secure</Label>
+              <Select value={keys.smtpSecure} onValueChange={(v) => setKeys({ ...keys, smtpSecure: v })}>
+                <SelectTrigger><SelectValue /></SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="false">STARTTLS (587)</SelectItem>
+                  <SelectItem value="true">TLS/SSL (465)</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+            <div className="space-y-1.5">
+              <Label>SMTP User</Label>
+              <Input placeholder="you@company.com" value={keys.smtpUser} onChange={(e) => setKeys({ ...keys, smtpUser: e.target.value })} />
+            </div>
+            <div className="space-y-1.5">
+              <Label>SMTP Password / App password</Label>
+              <Input type="password" placeholder="App password" value={keys.smtpPassword} onChange={(e) => setKeys({ ...keys, smtpPassword: e.target.value })} />
+            </div>
+            <div className="space-y-1.5">
+              <Label>From email</Label>
+              <Input placeholder="noreply@company.com" value={keys.smtpFrom} onChange={(e) => setKeys({ ...keys, smtpFrom: e.target.value })} />
+            </div>
+          </div>
+          <Separator />
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
             <div className="space-y-1.5">
-              <Label>SendGrid API Key</Label>
+              <Label>SendGrid API Key (optional fallback)</Label>
               <Input
                 type="password"
                 placeholder="SG.xxxxxxxx..."
@@ -775,7 +815,7 @@ function ApiKeysTab() {
               />
             </div>
             <div className="space-y-1.5">
-              <Label>Verified From Email Address</Label>
+              <Label>SendGrid From Email</Label>
               <Input
                 placeholder="noreply@yourdomain.com"
                 value={keys.sendgridFromEmail}
@@ -786,55 +826,112 @@ function ApiKeysTab() {
         </CardContent>
       </Card>
 
-      {/* 5. Cloud Storage (AWS S3) */}
+      {/* 3. Flight GDS */}
       <Card>
         <CardHeader className="pb-3">
           <div className="flex items-center gap-2">
-            <Server className="w-4 h-4 text-indigo-600" />
-            <CardTitle className="text-base">Cloud Document Storage (AWS S3)</CardTitle>
+            <Plane className="w-4 h-4 text-sky-600" />
+            <CardTitle className="text-base">Flight GDS / Aggregator</CardTitle>
           </div>
-          <CardDescription>S3 bucket storage for agency logos, GST certificates, and customer passports</CardDescription>
+          <CardDescription>
+            Select Amadeus and paste Client ID + Secret to search live flight offers. Mock stays for demos without keys.
+          </CardDescription>
         </CardHeader>
         <CardContent className="space-y-4">
-          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+          <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
             <div className="space-y-1.5">
-              <Label>S3 Bucket Name</Label>
-              <Input
-                placeholder="trevio-client-docs"
-                value={keys.s3Bucket}
-                onChange={(e) => setKeys({ ...keys, s3Bucket: e.target.value })}
-              />
+              <Label>Flight GDS Provider</Label>
+              <Select value={keys.flightProvider} onValueChange={(v) => setKeys({ ...keys, flightProvider: v })}>
+                <SelectTrigger><SelectValue /></SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="mock">Mock Demo Engine</SelectItem>
+                  <SelectItem value="amadeus">Amadeus Self-Service API (live)</SelectItem>
+                  <SelectItem value="duffel">Duffel Flights API (coming soon)</SelectItem>
+                  <SelectItem value="tbo">TBO Air API (coming soon)</SelectItem>
+                </SelectContent>
+              </Select>
             </div>
             <div className="space-y-1.5">
-              <Label>AWS Region</Label>
-              <Input
-                placeholder="ap-south-1"
-                value={keys.s3Region}
-                onChange={(e) => setKeys({ ...keys, s3Region: e.target.value })}
-              />
+              <Label>Flight API Key / Client ID</Label>
+              <Input placeholder="Amadeus API Key" value={keys.flightApiKey} onChange={(e) => setKeys({ ...keys, flightApiKey: e.target.value })} />
             </div>
             <div className="space-y-1.5">
-              <Label>AWS Access Key ID</Label>
-              <Input
-                placeholder="AKIAxxxx..."
-                value={keys.s3AccessKey}
-                onChange={(e) => setKeys({ ...keys, s3AccessKey: e.target.value })}
-              />
-            </div>
-            <div className="space-y-1.5">
-              <Label>AWS Secret Access Key</Label>
-              <Input
-                type="password"
-                placeholder="Secret Access Key"
-                value={keys.s3SecretKey}
-                onChange={(e) => setKeys({ ...keys, s3SecretKey: e.target.value })}
-              />
+              <Label>Flight API Secret</Label>
+              <Input type="password" placeholder="Amadeus API Secret" value={keys.flightApiSecret} onChange={(e) => setKeys({ ...keys, flightApiSecret: e.target.value })} />
             </div>
           </div>
         </CardContent>
       </Card>
 
-      {/* Save Button Bar */}
+      {/* 4. Hotels */}
+      <Card>
+        <CardHeader className="pb-3">
+          <div className="flex items-center gap-2">
+            <Hotel className="w-4 h-4 text-amber-600" />
+            <CardTitle className="text-base">Hotel inventory provider</CardTitle>
+          </div>
+          <CardDescription>
+            Select Amadeus for live hotel list + offers (can reuse flight Amadeus credentials if hotel keys are empty).
+          </CardDescription>
+        </CardHeader>
+        <CardContent className="space-y-4">
+          <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+            <div className="space-y-1.5">
+              <Label>Hotel Provider</Label>
+              <Select value={keys.hotelProvider} onValueChange={(v) => setKeys({ ...keys, hotelProvider: v })}>
+                <SelectTrigger><SelectValue /></SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="mock">Mock Demo Engine</SelectItem>
+                  <SelectItem value="amadeus">Amadeus Hotel Search (live)</SelectItem>
+                  <SelectItem value="ratehawk">RateHawk API (coming soon)</SelectItem>
+                  <SelectItem value="hotelbeds">HotelBeds APItude (coming soon)</SelectItem>
+                  <SelectItem value="tbo">TBO Hotel API (coming soon)</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+            <div className="space-y-1.5">
+              <Label>Hotel API Key</Label>
+              <Input placeholder="Amadeus API Key (or leave blank to reuse flights)" value={keys.hotelApiKey} onChange={(e) => setKeys({ ...keys, hotelApiKey: e.target.value })} />
+            </div>
+            <div className="space-y-1.5">
+              <Label>Hotel API Secret</Label>
+              <Input type="password" placeholder="Amadeus API Secret" value={keys.hotelApiSecret} onChange={(e) => setKeys({ ...keys, hotelApiSecret: e.target.value })} />
+            </div>
+          </div>
+        </CardContent>
+      </Card>
+
+      {/* 5. S3 */}
+      <Card>
+        <CardHeader className="pb-3">
+          <div className="flex items-center gap-2">
+            <Server className="w-4 h-4 text-indigo-600" />
+            <CardTitle className="text-base">Cloud document storage (AWS S3)</CardTitle>
+          </div>
+          <CardDescription>Credentials are stored for this agency for upcoming document uploads</CardDescription>
+        </CardHeader>
+        <CardContent className="space-y-4">
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+            <div className="space-y-1.5">
+              <Label>S3 Bucket Name</Label>
+              <Input placeholder="trevio-client-docs" value={keys.s3Bucket} onChange={(e) => setKeys({ ...keys, s3Bucket: e.target.value })} />
+            </div>
+            <div className="space-y-1.5">
+              <Label>AWS Region</Label>
+              <Input placeholder="ap-south-1" value={keys.s3Region} onChange={(e) => setKeys({ ...keys, s3Region: e.target.value })} />
+            </div>
+            <div className="space-y-1.5">
+              <Label>AWS Access Key ID</Label>
+              <Input placeholder="AKIAxxxx..." value={keys.s3AccessKey} onChange={(e) => setKeys({ ...keys, s3AccessKey: e.target.value })} />
+            </div>
+            <div className="space-y-1.5">
+              <Label>AWS Secret Access Key</Label>
+              <Input type="password" placeholder="Secret Access Key" value={keys.s3SecretKey} onChange={(e) => setKeys({ ...keys, s3SecretKey: e.target.value })} />
+            </div>
+          </div>
+        </CardContent>
+      </Card>
+
       <div className="flex justify-end pt-2">
         <Button onClick={handleSave} disabled={saving} size="lg" className="bg-primary hover:bg-primary/90 px-8">
           <Save className="w-4 h-4 mr-2" />

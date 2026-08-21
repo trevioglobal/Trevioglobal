@@ -283,11 +283,25 @@ export const api = {
       byPaymentMethod: { method: string; count: number }[];
     }>("/api/reports"),
 
-  searchFlights: (origin: string, destination: string, count = 8) =>
-    apiFetch<{ flights: ApiFlight[] }>(`/api/flights/search?origin=${origin}&destination=${destination}&count=${count}`),
+  searchFlights: (origin: string, destination: string, count = 8, departureDate?: string) => {
+    const qs = new URLSearchParams({
+      origin,
+      destination,
+      count: String(count),
+    });
+    if (departureDate) qs.set("departureDate", departureDate);
+    return apiFetch<{ flights: ApiFlight[]; provider?: string; source?: string }>(`/api/flights/search?${qs}`);
+  },
 
-  searchHotels: (city: string, count = 8) =>
-    apiFetch<{ hotels: ApiHotel[] }>(`/api/hotels/search?city=${encodeURIComponent(city)}&count=${count}`),
+  searchHotels: (city: string, count = 8, checkIn?: string, checkOut?: string) => {
+    const qs = new URLSearchParams({
+      city,
+      count: String(count),
+    });
+    if (checkIn) qs.set("checkIn", checkIn);
+    if (checkOut) qs.set("checkOut", checkOut);
+    return apiFetch<{ hotels: ApiHotel[]; provider?: string; source?: string }>(`/api/hotels/search?${qs}`);
+  },
 
   walletTransaction: (body: Record<string, unknown>) =>
     apiFetch<{ balance: number; transaction: ApiWalletTxn }>("/api/wallet", {

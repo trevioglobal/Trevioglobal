@@ -17,6 +17,7 @@ import {
 } from "./lib/email.js";
 import { requireAuth, requireRole, requirePermission, requireAnyPermission, type AuthRequest } from "./middleware/auth.js";
 import { generateFlights, generateHotels } from "./lib/mock-data.js";
+import { searchAmadeusFlights, searchAmadeusHotels } from "./lib/amadeus.js";
 import { effectivePermissions } from "./lib/permissions.js";
 import { mountProductRoutes } from "./routes/products.js";
 import { mountDestinationRoutes } from "./routes/destinations.js";
@@ -44,7 +45,7 @@ import {
   couponCreateSchema, couponUpdateSchema, couponValidateSchema,
 } from "./lib/validation.js";
 import { effectiveCouponStatus, validateCouponForOrder } from "./lib/coupons.js";
-import { getAgencyApiKeys, maskSecret, type DynamicApiKeys } from "./lib/api-key-config.js";
+import { getAgencyApiKeys, maskSecret, resolveDefaultAgencyId, type DynamicApiKeys } from "./lib/api-key-config.js";
 import {
   assertRazorpayPayment,
   handleRazorpayWebhook,
@@ -95,14 +96,17 @@ function routeParamId(req: { params: Record<string, string | string[] | undefine
   return Array.isArray(id) ? id[0] : String(id ?? "");
 }
 
-/** Settings tenant: never fall back to a hardcoded agency id. */
-function resolveSettingsAgencyId(req: AuthRequest, res: express.Response): string | null {
+/**
+ * Settings tenant. Superadmin may pass ?agencyId= / body.agencyId;
+ * if omitted, falls back to the first agency so platform keys can be saved once.
+ */
+async function resolveSettingsAgencyId(req: AuthRequest, res: express.Response): Promise<string | null> {
   if (req.auth?.role === "super_admin") {
     const fromQuery = typeof req.query.agencyId === "string" ? req.query.agencyId : undefined;
     const fromBody = typeof req.body?.agencyId === "string" ? req.body.agencyId : undefined;
-    const id = fromQuery || fromBody || req.auth.agencyId;
+    const id = fromQuery || fromBody || req.auth.agencyId || (await resolveDefaultAgencyId());
     if (!id) {
-      res.status(400).json({ error: "agencyId is required" });
+      res.status(400).json({ error: "No agency found. Create an agency first, then save API keys." });
       return null;
     }
     return id;
@@ -385,6 +389,7 @@ app.post("/api/auth/forgot-password", authLimiter, validate(forgotPasswordSchema
       subject: "Reset your Trevio password",
       template: "password_reset",
       data: { agentName: user.name, resetToken },
+      agencyId: user.agencyId,
     });
 
     if (allowInsecureTempPasswordResponse()) {
@@ -1085,6 +1090,7 @@ app.post("/api/employees", requireAuth, requireRole("super_admin", "agency_admin
     });
 
     let tempPassword: string | undefined;
+    let emailedCredentials = false;
     try {
       tempPassword = generateTempPassword();
       const passwordHash = await bcrypt.hash(tempPassword, 10);
@@ -1101,22 +1107,24 @@ app.post("/api/employees", requireAuth, requireRole("super_admin", "agency_admin
           permissions: permissions ?? undefined,
         },
       });
-      await sendEmail({
+      emailedCredentials = await sendEmail({
         to: body.email,
         subject: "Your Trevio employee login",
         template: "temp_credentials",
         data: { agentName: body.name, loginEmail: body.email, tempPassword },
+        agencyId,
       });
     } catch {
       // Email already has a login (or another conflict) — the Employee record
       // above still succeeds; no new/duplicate login is created.
       tempPassword = undefined;
+      emailedCredentials = false;
     }
 
     res.status(201).json({
       employee,
       tempPassword: allowInsecureTempPasswordResponse() ? tempPassword : undefined,
-      emailedCredentials: Boolean(tempPassword),
+      emailedCredentials,
     });
   } catch (e) {
     logger.error(e);
@@ -1233,17 +1241,105 @@ app.get("/api/reports", requireAuth, requirePermission("reports"), async (req: A
   }
 });
 
-app.get("/api/flights/search", requireAuth, requirePermission("flights"), async (req, res) => {
-  const origin = (req.query.origin as string) || "BOM";
-  const destination = (req.query.destination as string) || "DEL";
-  const count = Math.min(parseInt(req.query.count as string) || 8, 20);
-  res.json({ flights: generateFlights(origin, destination, count) });
+app.get("/api/flights/search", requireAuth, requirePermission("flights"), async (req: AuthRequest, res) => {
+  try {
+    const origin = (req.query.origin as string) || "BOM";
+    const destination = (req.query.destination as string) || "DEL";
+    const count = Math.min(parseInt(req.query.count as string) || 8, 20);
+    const departureDate = (req.query.departureDate as string) || undefined;
+    const agencyId = req.auth?.agencyId || (await resolveDefaultAgencyId());
+    const keys = await getAgencyApiKeys(agencyId);
+    const provider = keys.flightProvider || "mock";
+
+    if (provider === "amadeus" && keys.flightApiKey && keys.flightApiSecret) {
+      const flights = await searchAmadeusFlights({
+        clientId: keys.flightApiKey,
+        clientSecret: keys.flightApiSecret,
+        origin,
+        destination,
+        departureDate,
+        max: count,
+      });
+      res.json({ flights, provider: "amadeus", source: "live" });
+      return;
+    }
+
+    if (provider !== "mock" && (!keys.flightApiKey || !keys.flightApiSecret)) {
+      res.status(400).json({
+        error: `Flight provider "${provider}" needs API key + secret in Settings → API Keys.`,
+        provider,
+      });
+      return;
+    }
+
+    if (provider !== "mock" && provider !== "amadeus") {
+      res.status(400).json({
+        error: `Flight provider "${provider}" is not enabled yet. Choose Amadeus (or Mock) in Settings.`,
+        provider,
+      });
+      return;
+    }
+
+    res.json({ flights: generateFlights(origin, destination, count), provider: "mock", source: "demo" });
+  } catch (e) {
+    logger.error(e);
+    res.status(502).json({
+      error: e instanceof Error ? e.message : "Flight search failed",
+      provider: "amadeus",
+    });
+  }
 });
 
-app.get("/api/hotels/search", requireAuth, requirePermission("hotels"), async (req, res) => {
-  const city = (req.query.city as string) || "Mumbai";
-  const count = Math.min(parseInt(req.query.count as string) || 8, 20);
-  res.json({ hotels: generateHotels(city, count) });
+app.get("/api/hotels/search", requireAuth, requirePermission("hotels"), async (req: AuthRequest, res) => {
+  try {
+    const city = (req.query.city as string) || "Mumbai";
+    const count = Math.min(parseInt(req.query.count as string) || 8, 20);
+    const checkIn = (req.query.checkIn as string) || undefined;
+    const checkOut = (req.query.checkOut as string) || undefined;
+    const agencyId = req.auth?.agencyId || (await resolveDefaultAgencyId());
+    const keys = await getAgencyApiKeys(agencyId);
+    // Prefer hotel keys; if hotel provider is amadeus with empty keys, reuse flight Amadeus credentials.
+    const provider = keys.hotelProvider || "mock";
+    const clientId = keys.hotelApiKey || (provider === "amadeus" ? keys.flightApiKey : undefined);
+    const clientSecret = keys.hotelApiSecret || (provider === "amadeus" ? keys.flightApiSecret : undefined);
+
+    if (provider === "amadeus" && clientId && clientSecret) {
+      const hotels = await searchAmadeusHotels({
+        clientId,
+        clientSecret,
+        city,
+        checkIn,
+        checkOut,
+        max: count,
+      });
+      res.json({ hotels, provider: "amadeus", source: "live" });
+      return;
+    }
+
+    if (provider !== "mock" && (!clientId || !clientSecret)) {
+      res.status(400).json({
+        error: `Hotel provider "${provider}" needs API key + secret in Settings → API Keys.`,
+        provider,
+      });
+      return;
+    }
+
+    if (provider !== "mock" && provider !== "amadeus") {
+      res.status(400).json({
+        error: `Hotel provider "${provider}" is not enabled yet. Choose Amadeus (or Mock) in Settings.`,
+        provider,
+      });
+      return;
+    }
+
+    res.json({ hotels: generateHotels(city, count), provider: "mock", source: "demo" });
+  } catch (e) {
+    logger.error(e);
+    res.status(502).json({
+      error: e instanceof Error ? e.message : "Hotel search failed",
+      provider: "amadeus",
+    });
+  }
 });
 
 app.get("/api/dashboard", requireAuth, async (req: AuthRequest, res) => {
@@ -1696,6 +1792,7 @@ app.post("/api/agencies", requireAuth, requireRole("super_admin"), validate(agen
     });
 
     let tempPassword: string | undefined;
+    let emailedCredentials = false;
     try {
       tempPassword = generateTempPassword();
       const passwordHash = await bcrypt.hash(tempPassword, 10);
@@ -1710,20 +1807,22 @@ app.post("/api/agencies", requireAuth, requireRole("super_admin"), validate(agen
           agencyId: agency.id,
         },
       });
-      await sendEmail({
+      emailedCredentials = await sendEmail({
         to: body.email,
         subject: "Your Trevio agency admin login",
         template: "temp_credentials",
         data: { agentName: body.owner, loginEmail: body.email, tempPassword },
+        agencyId: agency.id,
       });
     } catch {
       tempPassword = undefined;
+      emailedCredentials = false;
     }
 
     res.status(201).json({
       agency,
       tempPassword: allowInsecureTempPasswordResponse() ? tempPassword : undefined,
-      emailedCredentials: Boolean(tempPassword),
+      emailedCredentials,
     });
   } catch (e) {
     logger.error(e);
@@ -2482,7 +2581,7 @@ app.patch("/api/support/tickets/:id", requireAuth, requirePermission("support"),
 
 app.get("/api/settings", requireAuth, requireRole("super_admin", "agency_admin"), async (req: AuthRequest, res) => {
   try {
-    const agencyId = resolveSettingsAgencyId(req, res);
+    const agencyId = await resolveSettingsAgencyId(req, res);
     if (!agencyId) return;
     let settings = await db.settings.findUnique({ where: { agencyId } });
     if (!settings) {
@@ -2498,7 +2597,7 @@ app.get("/api/settings", requireAuth, requireRole("super_admin", "agency_admin")
 
 app.put("/api/settings", requireAuth, requireRole("super_admin", "agency_admin"), async (req: AuthRequest, res) => {
   try {
-    const agencyId = resolveSettingsAgencyId(req, res);
+    const agencyId = await resolveSettingsAgencyId(req, res);
     if (!agencyId) return;
     const body = req.body ?? {};
     const data: Record<string, unknown> = {};
@@ -2521,16 +2620,21 @@ app.put("/api/settings", requireAuth, requireRole("super_admin", "agency_admin")
 
 app.get("/api/settings/api-keys", requireAuth, requireRole("super_admin", "agency_admin"), async (req: AuthRequest, res) => {
   try {
-    const agencyId = resolveSettingsAgencyId(req, res);
+    const agencyId = await resolveSettingsAgencyId(req, res);
     if (!agencyId) return;
     const settings = await db.settings.findUnique({ where: { agencyId }, select: { apiKeys: true } });
     const stored = (settings?.apiKeys as DynamicApiKeys | null) ?? {};
+    const resolved = await getAgencyApiKeys(agencyId);
+    const agency = await db.agency.findUnique({ where: { id: agencyId }, select: { id: true, name: true } });
 
     res.json({
+      agencyId,
+      agencyName: agency?.name || "",
       razorpayKeyId: stored.razorpayKeyId || process.env.RAZORPAY_KEY_ID || "",
       razorpayKeySecretMasked: maskSecret(stored.razorpayKeySecret || process.env.RAZORPAY_KEY_SECRET),
       hasRazorpaySecret: Boolean(stored.razorpayKeySecret || process.env.RAZORPAY_KEY_SECRET),
       razorpayMode: stored.razorpayMode || "Test",
+      razorpayLive: Boolean(resolved.razorpayKeyId && resolved.razorpayKeySecret),
       flightProvider: stored.flightProvider || "mock",
       flightApiKey: stored.flightApiKey || "",
       flightApiSecretMasked: maskSecret(stored.flightApiSecret),
@@ -2542,6 +2646,17 @@ app.get("/api/settings/api-keys", requireAuth, requireRole("super_admin", "agenc
       sendgridApiKeyMasked: maskSecret(stored.sendgridApiKey || process.env.SENDGRID_API_KEY),
       hasSendgridKey: Boolean(stored.sendgridApiKey || process.env.SENDGRID_API_KEY),
       sendgridFromEmail: stored.sendgridFromEmail || process.env.SENDGRID_FROM_EMAIL || "",
+      smtpHost: stored.smtpHost || process.env.SMTP_HOST || "",
+      smtpPort: stored.smtpPort || process.env.SMTP_PORT || "587",
+      smtpUser: stored.smtpUser || process.env.SMTP_USER || "",
+      smtpPasswordMasked: maskSecret(stored.smtpPassword || process.env.SMTP_PASSWORD),
+      hasSmtpPassword: Boolean(stored.smtpPassword || process.env.SMTP_PASSWORD),
+      smtpSecure: stored.smtpSecure || process.env.SMTP_SECURE || "false",
+      smtpFrom: stored.smtpFrom || process.env.SMTP_FROM || "",
+      emailLive: Boolean(
+        (resolved.smtpHost && resolved.smtpUser && resolved.smtpPassword) ||
+          resolved.sendgridApiKey,
+      ),
       s3Bucket: stored.s3Bucket || process.env.AWS_S3_BUCKET || "",
       s3Region: stored.s3Region || process.env.AWS_REGION || "ap-south-1",
       s3AccessKey: stored.s3AccessKey || process.env.AWS_ACCESS_KEY_ID || "",
@@ -2560,7 +2675,7 @@ app.get("/api/settings/api-keys", requireAuth, requireRole("super_admin", "agenc
 
 app.put("/api/settings/api-keys", requireAuth, requireRole("super_admin", "agency_admin"), async (req: AuthRequest, res) => {
   try {
-    const agencyId = resolveSettingsAgencyId(req, res);
+    const agencyId = await resolveSettingsAgencyId(req, res);
     if (!agencyId) return;
     const body = req.body ?? {};
 
@@ -2572,6 +2687,7 @@ app.put("/api/settings/api-keys", requireAuth, requireRole("super_admin", "agenc
       "razorpayKeyId", "razorpayMode", "flightProvider", "flightApiKey",
       "hotelProvider", "hotelApiKey", "sendgridFromEmail", "s3Bucket",
       "s3Region", "s3AccessKey", "smsProvider", "twilioAccountSid",
+      "smtpHost", "smtpPort", "smtpUser", "smtpSecure", "smtpFrom",
     ];
 
     for (const f of fieldsToUpdate) {
@@ -2590,6 +2706,9 @@ app.put("/api/settings/api-keys", requireAuth, requireRole("super_admin", "agenc
     if (body.sendgridApiKey && !body.sendgridApiKey.includes("••••")) {
       updatedKeys.sendgridApiKey = String(body.sendgridApiKey).trim();
     }
+    if (body.smtpPassword && !body.smtpPassword.includes("••••")) {
+      updatedKeys.smtpPassword = String(body.smtpPassword).trim();
+    }
     if (body.s3SecretKey && !body.s3SecretKey.includes("••••")) {
       updatedKeys.s3SecretKey = String(body.s3SecretKey).trim();
     }
@@ -2603,7 +2722,7 @@ app.put("/api/settings/api-keys", requireAuth, requireRole("super_admin", "agenc
       create: { agencyId, apiKeys: updatedKeys },
     });
 
-    res.json({ ok: true, message: "API Keys & Integrations saved successfully." });
+    res.json({ ok: true, agencyId, message: "API Keys & Integrations saved. Razorpay and email use these keys immediately." });
   } catch (e) {
     logger.error(e);
     res.status(500).json({ error: "Server error" });
@@ -2612,7 +2731,7 @@ app.put("/api/settings/api-keys", requireAuth, requireRole("super_admin", "agenc
 
 app.get("/api/settings/role-permissions", requireAuth, requireRole("super_admin", "agency_admin"), async (req: AuthRequest, res) => {
   try {
-    const agencyId = resolveSettingsAgencyId(req, res);
+    const agencyId = await resolveSettingsAgencyId(req, res);
     if (!agencyId) return;
     const settings = await db.settings.findUnique({ where: { agencyId } });
     const { ROLE_CRUD, MODULES, ROLE_DEFAULT_PERMISSIONS } = await import("./lib/permissions.js");
@@ -2630,7 +2749,7 @@ app.get("/api/settings/role-permissions", requireAuth, requireRole("super_admin"
 
 app.put("/api/settings/role-permissions", requireAuth, requireRole("super_admin", "agency_admin"), async (req: AuthRequest, res) => {
   try {
-    const agencyId = resolveSettingsAgencyId(req, res);
+    const agencyId = await resolveSettingsAgencyId(req, res);
     if (!agencyId) return;
     const rolePermissions = req.body.rolePermissions ?? req.body;
     const settings = await db.settings.upsert({

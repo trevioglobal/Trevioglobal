@@ -1,6 +1,7 @@
 import nodemailer from "nodemailer";
 import { logger } from "./logger.js";
 import { escapeHtml } from "./html.js";
+import { getAgencyApiKeys, type DynamicApiKeys } from "./api-key-config.js";
 
 export interface EmailPayload {
   to: string;
@@ -16,6 +17,8 @@ export interface EmailPayload {
     resetToken?: string;
     loginEmail?: string;
   };
+  /** When set, uses that agency's Settings → API Keys (DB) before .env fallback. */
+  agencyId?: string | null;
 }
 
 type SendGridMail = {
@@ -23,55 +26,56 @@ type SendGridMail = {
   send: (msg: { to: string; from: string; subject: string; html: string }) => Promise<unknown>;
 };
 
-let sgMailPromise: Promise<SendGridMail | null> | null = null;
-let smtpTransport: nodemailer.Transporter | null | undefined;
+type EmailOpts = { agencyId?: string | null };
 
-function smtpConfigured(): boolean {
-  return Boolean(process.env.SMTP_HOST && process.env.SMTP_USER && process.env.SMTP_PASSWORD);
+function smtpReady(keys: DynamicApiKeys): boolean {
+  return Boolean(keys.smtpHost && keys.smtpUser && keys.smtpPassword);
 }
 
-function fromAddress(): string {
+function fromAddress(keys: DynamicApiKeys): string {
   return (
-    process.env.SMTP_FROM ||
-    process.env.SMTP_USER ||
-    process.env.SENDGRID_FROM_EMAIL ||
+    keys.smtpFrom ||
+    keys.smtpUser ||
+    keys.sendgridFromEmail ||
     "noreply@travelpartner.pro"
   );
 }
 
-function getSmtpTransport(): nodemailer.Transporter | null {
-  if (!smtpConfigured()) return null;
-  if (smtpTransport) return smtpTransport;
-
-  const port = Number(process.env.SMTP_PORT || 587);
-  const secure = process.env.SMTP_SECURE === "true" || port === 465;
-  smtpTransport = nodemailer.createTransport({
-    host: process.env.SMTP_HOST,
+function buildSmtpTransport(keys: DynamicApiKeys): nodemailer.Transporter | null {
+  if (!smtpReady(keys)) return null;
+  const port = Number(keys.smtpPort || 587);
+  const secure = keys.smtpSecure === "true" || port === 465;
+  return nodemailer.createTransport({
+    host: keys.smtpHost,
     port,
     secure,
     auth: {
-      user: process.env.SMTP_USER,
-      pass: (process.env.SMTP_PASSWORD || "").replace(/\s/g, ""),
+      user: keys.smtpUser,
+      pass: (keys.smtpPassword || "").replace(/\s/g, ""),
     },
+    connectionTimeout: 8_000,
+    greetingTimeout: 8_000,
+    socketTimeout: 12_000,
   });
-  return smtpTransport;
 }
 
-function loadSendGrid(): Promise<SendGridMail | null> {
-  if (!process.env.SENDGRID_API_KEY) return Promise.resolve(null);
-  if (!sgMailPromise) {
-    sgMailPromise = import("@sendgrid/mail")
-      .then((mod) => {
-        const client = mod.default as SendGridMail;
-        client.setApiKey(process.env.SENDGRID_API_KEY!);
-        return client;
-      })
-      .catch(() => {
-        logger.warn("SendGrid not installed. Email notifications will be logged only.");
-        return null;
-      });
+function emailDryRun(): boolean {
+  if (process.env.EMAIL_DRY_RUN === "true") return true;
+  if (process.env.EMAIL_DRY_RUN === "false") return false;
+  return Boolean(process.env.VITEST);
+}
+
+async function loadSendGrid(apiKey?: string): Promise<SendGridMail | null> {
+  if (!apiKey) return null;
+  try {
+    const mod = await import("@sendgrid/mail");
+    const client = mod.default as SendGridMail;
+    client.setApiKey(apiKey);
+    return client;
+  } catch {
+    logger.warn("SendGrid not installed. Email notifications will be logged only.");
+    return null;
   }
-  return sgMailPromise;
 }
 
 function buildHtml(payload: EmailPayload): string {
@@ -82,37 +86,40 @@ function buildHtml(payload: EmailPayload): string {
 }
 
 export async function sendEmail(payload: EmailPayload): Promise<boolean> {
-  return sendRawHtml(payload.to, payload.subject, buildHtml(payload));
+  return sendRawHtml(payload.to, payload.subject, buildHtml(payload), { agencyId: payload.agencyId });
 }
 
-/** Transactional HTML (quotations, etc.) using the same SMTP/SendGrid transport. */
-export async function sendHtmlEmail(to: string, subject: string, html: string): Promise<boolean> {
-  return sendRawHtml(to, subject, html);
+/** Transactional HTML (quotations, etc.) using agency API keys / SMTP / SendGrid. */
+export async function sendHtmlEmail(
+  to: string,
+  subject: string,
+  html: string,
+  opts?: EmailOpts,
+): Promise<boolean> {
+  return sendRawHtml(to, subject, html, opts);
 }
 
-async function sendRawHtml(to: string, subject: string, html: string): Promise<boolean> {
+async function sendRawHtml(to: string, subject: string, html: string, opts?: EmailOpts): Promise<boolean> {
   try {
-    const smtp = getSmtpTransport();
-    if (smtp) {
-      await smtp.sendMail({
-        to,
-        from: fromAddress(),
-        subject,
-        html,
-      });
-      logger.info(`[EMAIL-SENT] To: ${to}, Subject: ${subject}`);
+    if (emailDryRun()) {
+      logger.info(`[EMAIL-DRY-RUN] To: ${to}, Subject: ${subject}`);
       return true;
     }
 
-    const sgMail = await loadSendGrid();
+    const keys = await getAgencyApiKeys(opts?.agencyId);
+    const from = fromAddress(keys);
+
+    const smtp = buildSmtpTransport(keys);
+    if (smtp) {
+      await smtp.sendMail({ to, from, subject, html });
+      logger.info(`[EMAIL-SENT:SMTP] To: ${to}, Subject: ${subject}`);
+      return true;
+    }
+
+    const sgMail = await loadSendGrid(keys.sendgridApiKey);
     if (sgMail) {
-      await sgMail.send({
-        to,
-        from: fromAddress(),
-        subject,
-        html,
-      });
-      logger.info(`[EMAIL-SENT] To: ${to}, Subject: ${subject}`);
+      await sgMail.send({ to, from, subject, html });
+      logger.info(`[EMAIL-SENT:SENDGRID] To: ${to}, Subject: ${subject}`);
       return true;
     }
 

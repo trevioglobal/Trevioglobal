@@ -1131,7 +1131,12 @@ export function mountQuotationRoutes(
           <p>View: <a href="${escapeHtml(link)}">${escapeHtml(link || existing.quoteNo)}</a></p>
           <p>Regards,<br/>Trevio Global</p>
         `;
-        emailed = await sendHtmlEmail(recipient, `Quotation ${existing.quoteNo} — ${existing.destination || "Travel"}`, html);
+        emailed = await sendHtmlEmail(
+          recipient,
+          `Quotation ${existing.quoteNo} — ${existing.destination || "Travel"}`,
+          html,
+          { agencyId: existing.agencyId },
+        );
         await db.quotationShare.update({
           where: { id: share.id },
           data: { status: emailed ? "Sent" : "Failed" },

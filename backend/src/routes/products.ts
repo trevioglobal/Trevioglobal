@@ -109,6 +109,7 @@ async function approveProduct(
         productType,
         approverName: req.auth?.email,
       },
+      agencyId: (existing as { agencyId?: string | null }).agencyId ?? creator.agencyId,
     });
   }
   res.json({ item });
@@ -145,6 +146,7 @@ async function rejectProduct(
         reason: req.body.reason || "No reason provided",
         approverName: req.auth?.email,
       },
+      agencyId: (existing as { agencyId?: string | null }).agencyId ?? creator.agencyId,
     });
   }
   res.json({ item });

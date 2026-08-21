@@ -161,12 +161,24 @@ describe("smoke", () => {
     expect(allowedPayments.status).toBe(200);
   });
 
-  it("forgot-password issues a new temp password and invalidates the old one", async () => {
+  it("forgot-password issues a reset token and reset-password updates login", async () => {
     const reset = await request(app)
       .post("/api/auth/forgot-password")
       .send({ email: ACCOUNTANT_EMAIL });
     expect(reset.status).toBe(200);
-    expect(reset.body.tempPassword).toBeTruthy();
+    expect(reset.body.ok).toBe(true);
+    // Dev/test returns resetToken so automation can complete the flow without SMTP.
+    expect(reset.body.resetToken).toBeTruthy();
+
+    const newPassword = "ResetPassw0rd@123";
+    const confirm = await request(app)
+      .post("/api/auth/reset-password")
+      .send({
+        email: ACCOUNTANT_EMAIL,
+        token: reset.body.resetToken,
+        newPassword,
+      });
+    expect(confirm.status).toBe(200);
 
     const oldLogin = await request(app)
       .post("/api/auth/login")
@@ -175,7 +187,7 @@ describe("smoke", () => {
 
     const newLogin = await request(app)
       .post("/api/auth/login")
-      .send({ email: ACCOUNTANT_EMAIL, password: reset.body.tempPassword });
+      .send({ email: ACCOUNTANT_EMAIL, password: newPassword });
     expect(newLogin.status).toBe(200);
   });
 
@@ -184,7 +196,7 @@ describe("smoke", () => {
       .post("/api/auth/forgot-password")
       .send({ email: "nobody-at-all@wanderlusttravels.in" });
     expect(res.status).toBe(200);
-    expect(res.body.tempPassword).toBeUndefined();
+    expect(res.body.resetToken).toBeUndefined();
   });
 
   it("paginates /api/bookings and reports a real total count", async () => {

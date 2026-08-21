@@ -33,7 +33,6 @@ import { useToast } from "@/hooks/use-toast";
 import { cn } from "@/lib/utils";
 import { formatFullINR, formatPrettyDate, PageShell } from "@/components/shared/ui-helpers";
 import { CitySearchField, type CityOption } from "@/components/shared/city-search-field";
-import { generateHotels } from "@/lib/mock-data";
 import { api } from "@/lib/api";
 import { mapApiHotel } from "@/lib/api-mappers";
 import { useDemoDataStore } from "@/store/demo-data-store";
@@ -218,16 +217,29 @@ export function HotelsView() {
     setLoading(true);
     (async () => {
       try {
-        const res = await api.searchHotels(city, 8);
+        const res = await api.searchHotels(city, 8, checkIn, checkOut);
         const r = res.hotels.map(mapApiHotel);
+        if (!r.length) {
+          toast({
+            title: "No hotels found",
+            description: res.source === "live"
+              ? "Amadeus returned no hotels for this city/dates."
+              : "No demo hotels matched.",
+            variant: "destructive",
+          });
+        } else if (res.source === "live") {
+          toast({ title: "Live inventory", description: `Showing Amadeus hotel results.` });
+        }
         setResults(r);
         const prices = r.map((h) => h.pricePerNight);
-        setPriceRange([Math.min(...prices), Math.max(...prices)]);
-      } catch {
-        const r = generateHotels(city, 8);
-        setResults(r);
-        const prices = r.map((h) => h.pricePerNight);
-        setPriceRange([Math.min(...prices), Math.max(...prices)]);
+        if (prices.length) setPriceRange([Math.min(...prices), Math.max(...prices)]);
+      } catch (e) {
+        toast({
+          title: "Hotel search failed",
+          description: e instanceof Error ? e.message : "Check Amadeus API keys in Settings.",
+          variant: "destructive",
+        });
+        setResults([]);
       }
       setStarFilter([]);
       setAmenityFilter([]);
