@@ -56,6 +56,31 @@ const SERVICE_COLORS: Record<string, string> = {
   Transfer: "bg-violet-100 text-violet-700 dark:bg-violet-500/15 dark:text-violet-400",
 };
 
+const PENDING_BOOKING_OPEN_KEY = "trevio.openBookingId";
+
+function hotelDatesFromQuote(quote: Quotation): { travelStartDate?: string; travelEndDate?: string } {
+  const pkgs = quote.packages || [];
+  const selected =
+    pkgs.find((p) => p.isSelected) ||
+    (quote.selectedPackageId ? pkgs.find((p) => p.id === quote.selectedPackageId) : undefined) ||
+    pkgs[0];
+  const hotels = (selected?.hotels || []) as Array<{ checkIn?: string; checkOut?: string }>;
+  const h = hotels.find((x) => x.checkIn) || hotels[0];
+  return {
+    travelStartDate: h?.checkIn || undefined,
+    travelEndDate: h?.checkOut || undefined,
+  };
+}
+
+function openBookingInBookingsView(bookingId: string) {
+  try {
+    sessionStorage.setItem(PENDING_BOOKING_OPEN_KEY, bookingId);
+  } catch {
+    /* ignore */
+  }
+  useAppStore.getState().setView("bookings");
+}
+
 function useProceedToBooking() {
   const { toast } = useToast();
   const upsertBooking = useDemoDataStore((s) => s.upsertBooking);
@@ -64,6 +89,10 @@ function useProceedToBooking() {
   const [busyId, setBusyId] = useState<string | null>(null);
 
   async function proceed(quote: Quotation, dates?: { travelStartDate?: string; travelEndDate?: string }) {
+    if (quote.status === "Converted to Booking" && quote.convertedBookingId) {
+      openBookingInBookingsView(quote.convertedBookingId);
+      return;
+    }
     if (quote.status !== "Accepted") {
       toast({
         title: "Quote must be Accepted",
@@ -72,12 +101,22 @@ function useProceedToBooking() {
       });
       return;
     }
-    const travelStartDate = dates?.travelStartDate || quote.travelStartDate || quote.travelDates || "";
-    const travelEndDate = dates?.travelEndDate || quote.travelEndDate || "";
+    const fromHotels = hotelDatesFromQuote(quote);
+    const travelStartDate =
+      dates?.travelStartDate ||
+      quote.travelStartDate ||
+      quote.travelDates ||
+      fromHotels.travelStartDate ||
+      "";
+    const travelEndDate =
+      dates?.travelEndDate ||
+      quote.travelEndDate ||
+      fromHotels.travelEndDate ||
+      "";
     if (!travelStartDate) {
       toast({
         title: "Travel dates required",
-        description: "Set check-in / travel start date before converting to a booking.",
+        description: "Set check-in / travel start date (or add a hotel with check-in) before converting.",
         variant: "destructive",
       });
       return;
@@ -94,8 +133,9 @@ function useProceedToBooking() {
       await hydrateFromApi().catch(() => undefined);
       toast({
         title: res.idempotent ? "Booking already exists" : "Booking created",
-        description: `${booking.bookingRef} — open Bookings to continue passenger details`,
+        description: `${booking.bookingRef} — opening booking…`,
       });
+      openBookingInBookingsView(booking.id);
     } catch (e) {
       if (e instanceof ApiError && e.status === 409 && e.body?.booking) {
         const booking = (await import("@/lib/api-mappers")).mapApiBooking(e.body.booking as never);
@@ -103,8 +143,9 @@ function useProceedToBooking() {
         upsertQuotation({ ...quote, status: "Converted to Booking", convertedBookingId: booking.id });
         toast({
           title: "Booking already exists",
-          description: `${booking.bookingRef} — open Bookings to continue`,
+          description: `${booking.bookingRef} — opening booking…`,
         });
+        openBookingInBookingsView(booking.id);
         return;
       }
       toast({
@@ -327,8 +368,19 @@ function QuoteDetailDialog({ quote, open, onOpenChange }: { quote: Quotation | n
     if (!open || !quote) return;
     setFull(quote);
     setExtendDate(quote.validTill?.slice(0, 10) || "");
-    setConvertStart(toCalendarDate(quote.travelStartDate) || toCalendarDate(quote.travelDates));
-    setConvertEnd(toCalendarDate(quote.travelEndDate) || toCalendarDate(quote.returnDate));
+    const hotelDates = hotelDatesFromQuote(quote);
+    setConvertStart(
+      toCalendarDate(quote.travelStartDate) ||
+      toCalendarDate(quote.travelDates) ||
+      toCalendarDate(hotelDates.travelStartDate) ||
+      "",
+    );
+    setConvertEnd(
+      toCalendarDate(quote.travelEndDate) ||
+      toCalendarDate(quote.returnDate) ||
+      toCalendarDate(hotelDates.travelEndDate) ||
+      "",
+    );
     setAssignAgentId((quote as { agentId?: string }).agentId || "none");
     api.getQuotationFull(quote.id)
       .then((res) => {
@@ -337,8 +389,19 @@ function QuoteDetailDialog({ quote, open, onOpenChange }: { quote: Quotation | n
         upsertQuotation(mapped);
         setVersions(mapped.versions || []);
         setExtendDate(mapped.validTill?.slice(0, 10) || "");
-        setConvertStart(toCalendarDate(mapped.travelStartDate) || toCalendarDate(mapped.travelDates));
-        setConvertEnd(toCalendarDate(mapped.travelEndDate) || toCalendarDate(mapped.returnDate));
+        const mappedHotels = hotelDatesFromQuote(mapped);
+        setConvertStart(
+          toCalendarDate(mapped.travelStartDate) ||
+          toCalendarDate(mapped.travelDates) ||
+          toCalendarDate(mappedHotels.travelStartDate) ||
+          "",
+        );
+        setConvertEnd(
+          toCalendarDate(mapped.travelEndDate) ||
+          toCalendarDate(mapped.returnDate) ||
+          toCalendarDate(mappedHotels.travelEndDate) ||
+          "",
+        );
         setAssignAgentId((mapped as { agentId?: string }).agentId || "none");
       })
       .catch(() => undefined);
@@ -855,11 +918,11 @@ function QuoteDetailDialog({ quote, open, onOpenChange }: { quote: Quotation | n
               <Button
                 size="sm"
                 className="bg-teal-600 hover:bg-teal-700 text-white"
-                disabled={busyId === display.id || display.status === "Converted to Booking"}
+                disabled={busyId === display.id}
                 onClick={() => proceed(display, { travelStartDate: convertStart, travelEndDate: convertEnd })}
               >
                 {busyId === display.id ? <Loader2 className="w-3.5 h-3.5 mr-1 animate-spin" /> : <Ticket className="w-3.5 h-3.5 mr-1" />}
-                {display.status === "Converted to Booking" ? "Booking Created" : "Convert to Booking"}
+                {display.status === "Converted to Booking" ? "Open booking" : "Convert to Booking"}
               </Button>
             )}
             {display.status === "Expired" && (

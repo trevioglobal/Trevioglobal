@@ -2,18 +2,15 @@
 
 import { useMemo, useState } from "react";
 import {
-  ArrowLeft,
   Building2,
   Car,
   ChevronDown,
   ClipboardList,
   Clock,
   Eye,
-  FileDown,
   MoreHorizontal,
   Pencil,
   Plane,
-  Send,
   Star,
   Trash2,
   UserRound,
@@ -39,6 +36,7 @@ import {
 } from "@/components/ui/dropdown-menu";
 import { formatFullINR } from "@/components/shared/ui-helpers";
 import { ImageUrlListField } from "@/components/shared/image-url-list-field";
+import { QuoteWizardFooter } from "@/components/shared/quote-wizard-footer";
 import { ActivityDetailsDialog, type ActivityDetailsSource } from "@/components/shared/activity-details-dialog";
 import { QuotePriceBreakdown } from "@/components/shared/quote-price-breakdown";
 import { AgencyQuoteStepper, AGENCY_QUOTE_STEPS } from "@/components/shared/agency-quote-stepper";
@@ -66,7 +64,7 @@ const FLOW_TO_STAGE: Record<number, TripBuilderStage> = {
   5: "preview",
 };
 
-export type TripBuilderService = "Hotel" | "Transfers" | "Activities" | "Meals" | "Miscellaneous";
+export type TripBuilderService = "Hotel" | "Flights" | "Transfers" | "Activities" | "Meals" | "Miscellaneous";
 
 type TripFormSlice = {
   customerName: string;
@@ -246,6 +244,7 @@ export function QuoteTripBuilder({
   total,
   itinerary,
   hotels = [],
+  flights = [],
   busy,
   stage = "services",
   flowStep = 2,
@@ -266,6 +265,7 @@ export function QuoteTripBuilder({
   onSaveDraft,
   onOpenService,
   onRemoveHotel,
+  onRemoveFlight,
   onRemoveTransfer,
   onRemoveActivity,
   onRemoveMeal,
@@ -282,6 +282,7 @@ export function QuoteTripBuilder({
   total: number;
   itinerary: unknown;
   hotels?: Record<string, unknown>[];
+  flights?: Record<string, unknown>[];
   busy?: boolean;
   stage?: TripBuilderStage;
   flowStep?: number;
@@ -311,7 +312,7 @@ export function QuoteTripBuilder({
   onSendQuotation: () => void | Promise<void>;
   /** Explicit save — creates Draft if new, keeps work without auto-save on Continue. */
   onSaveDraft?: () => void | Promise<void>;
-  /** Opens live catalogue for Hotel / Transfers / Activities / Meals. */
+  /** Opens live catalogue for Hotel / Flights / Transfers / Activities / Meals. */
   onOpenService?: (target: {
     service: TripBuilderService;
     dayNumber: number;
@@ -320,6 +321,7 @@ export function QuoteTripBuilder({
     transferKind?: "transfer" | "airport_pickup";
   }) => void;
   onRemoveHotel?: (lineId: string) => void;
+  onRemoveFlight?: (flightLineId: string) => void;
   onRemoveTransfer?: (transferLineId: string) => void;
   onRemoveActivity?: (activityLineId: string) => void;
   onRemoveMeal?: (mealLineId: string) => void;
@@ -436,7 +438,9 @@ export function QuoteTripBuilder({
   }, [itinerary]);
 
   return (
-    <div className="flex flex-col gap-4 pb-8">
+    <div className="flex flex-col flex-1 min-h-0">
+      <div className="flex-1 min-h-0 overflow-y-auto">
+        <div className="flex flex-col gap-3 sm:gap-4 px-4 sm:px-6 lg:px-8 pt-4 pb-6 w-full min-w-0">
       <AgencyQuoteStepper
         activeIndex={activeFlow}
         onSelect={(index) => {
@@ -452,49 +456,13 @@ export function QuoteTripBuilder({
         }}
       />
 
-      <div className="flex flex-wrap items-center justify-between gap-3">
-        <div className="flex flex-wrap gap-2">
-          {onSaveDraft && (
-            <Button
-              type="button"
-              variant="outline"
-              className="rounded-full px-4"
-              disabled={busy}
-              onClick={() => void onSaveDraft()}
-            >
-              {busy ? "Saving…" : quoteId ? "Save draft" : "Save draft"}
-            </Button>
-          )}
-          {(activeStage === "preview" || activeStage === "pricing") && (
-            <>
-              <ActionPill icon={FileDown} label="Create PDF" disabled={busy} onClick={() => void onCreatePdf()} />
-              <ActionPill icon={Send} label="Send Quotation" disabled={busy} onClick={() => void onSendQuotation()} />
-            </>
-          )}
-        </div>
-        <div className="flex flex-wrap gap-2">
-          <Button type="button" variant="outline" className="rounded-full px-4" onClick={onBack}>
-            <ArrowLeft className="w-4 h-4 mr-1.5" /> Back
-          </Button>
-          {activeStage !== "preview" && onFlowStepChange && (
-            <Button
-              type="button"
-              className="bg-teal-600 hover:bg-teal-700 text-white rounded-full px-5"
-              onClick={() => onFlowStepChange(Math.min(activeFlow + 1, 5))}
-            >
-              Next · {AGENCY_QUOTE_STEPS[Math.min(activeFlow + 1, 5)]?.label}
-            </Button>
-          )}
-        </div>
-      </div>
-
       {activeStage === "services" && (
-        <div className="rounded-xl border border-teal-100 bg-teal-50/60 px-4 py-3 flex flex-wrap items-start justify-between gap-3">
+        <div className="rounded-lg border bg-muted/20 px-3 py-2.5 flex flex-wrap items-start justify-between gap-3">
           <div className="min-w-0">
-            <p className="text-sm font-semibold text-teal-900">Hotels, cars & activities</p>
-            <p className="text-xs text-teal-800/80 mt-0.5">
-              Per day: Hotel · Airport pickup / Transfers · Activities · Meals · Misc.
-              Lists follow the city from Travel (Products inventory). Skip any day if not needed.
+            <p className="text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">Hotels, flights, cars & activities</p>
+            <p className="text-xs text-muted-foreground mt-0.5 leading-relaxed">
+              Trip-level Flights (if not land-only). Per day: Hotel · Cars &amp; Transfers · Activities · Meals · Misc.
+              Same lines transfer into booking Travel / Itinerary.
             </p>
           </div>
           {onFlowStepChange ? (
@@ -502,7 +470,7 @@ export function QuoteTripBuilder({
               type="button"
               variant="outline"
               size="sm"
-              className="shrink-0 rounded-full border-teal-300 text-teal-800 hover:bg-teal-100"
+              className="shrink-0 h-8"
               onClick={() => onFlowStepChange(3)}
             >
               Skip to itinerary
@@ -511,44 +479,40 @@ export function QuoteTripBuilder({
         </div>
       )}
       {activeStage === "itinerary" && (
-        <div className="rounded-xl border border-amber-100 bg-amber-50/70 px-4 py-3">
-          <p className="text-sm font-semibold text-amber-950">Day-wise itinerary</p>
-          <p className="text-xs text-amber-900/80 mt-0.5">
-            Each day is locked to its Travel city. Pick sightseeing places (with images) from Products → Sightseeing Places for that city — select only, details auto-fill.
+        <div className="rounded-lg border bg-muted/20 px-3 py-2.5">
+          <p className="text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">Day-wise itinerary</p>
+          <p className="text-xs text-muted-foreground mt-0.5 leading-relaxed">
+            Each day is locked to its Travel city. Pick sightseeing places from Products → Sightseeing Places.
           </p>
         </div>
       )}
       {activeStage === "pricing" && (
-        <div className="rounded-xl border border-violet-100 bg-violet-50/60 px-4 py-3">
-          <p className="text-sm font-semibold text-violet-950">Pricing summary</p>
-          <p className="text-xs text-violet-900/80 mt-0.5">
-            Hotels / flights / cars fill automatically from catalogue selling prices when you add them. Edit line sell prices, add discount, then send.
+        <div className="rounded-lg border bg-muted/20 px-3 py-2.5">
+          <p className="text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">Pricing summary</p>
+          <p className="text-xs text-muted-foreground mt-0.5 leading-relaxed">
+            Hotels, Flights, Cars &amp; Transfers, Activities, Meals and Misc totals. Edit sell prices or discount, then send.
           </p>
         </div>
       )}
       {activeStage === "preview" && (
-        <div className="rounded-xl border border-sky-100 bg-sky-50/70 px-4 py-3 space-y-2">
-          <p className="text-sm font-semibold text-sky-950">Preview & send to customer</p>
-          <p className="text-xs text-sky-900/80">
-            Send the branded PDF. When the customer accepts, open Quotations → Proceed to Booking.
+        <div className="rounded-lg border bg-muted/20 px-3 py-2.5">
+          <p className="text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">Preview & send</p>
+          <p className="text-xs text-muted-foreground mt-0.5 leading-relaxed">
+            Use PDF and Send quotation in the footer. After accept → Quotations → Proceed to Booking — guest details fill Passengers automatically.
           </p>
-          <div className="flex flex-wrap gap-2 pt-1">
-            <ActionPill icon={FileDown} label="Preview PDF" disabled={busy} onClick={() => void onCreatePdf()} />
-            <ActionPill icon={Send} label="Send to customer" disabled={busy} onClick={() => void onSendQuotation()} />
-          </div>
         </div>
       )}
 
-      <section className="rounded-xl border border-border bg-card p-4 sm:p-5 shadow-[var(--shadow-card)]">
+      <section className="rounded-lg border bg-card p-3 sm:p-4">
         <div className="flex flex-wrap items-start justify-between gap-3">
           <div className="min-w-0 space-y-1">
             <div className="flex flex-wrap items-center gap-2">
-              <h2 className="text-lg sm:text-xl font-semibold tracking-tight text-foreground">{routeTitle}</h2>
+              <h2 className="text-base sm:text-lg font-semibold tracking-tight text-foreground">{routeTitle}</h2>
               <Button
                 type="button"
                 variant="outline"
                 size="sm"
-                className="h-7 rounded-full text-xs"
+                className="h-7 rounded-md text-xs"
                 onClick={onUpdateTripDetails}
               >
                 Edit travel
@@ -559,16 +523,23 @@ export function QuoteTripBuilder({
               <span className="mx-2 text-border">·</span>
               {paxLabel}
             </p>
-            {form.landOnly && (
-              <p className="text-xs font-medium text-brand-teal">Land only package</p>
+            {form.landOnly ? (
+              <p className="text-xs font-medium text-teal-800">Land only · flights not included</p>
+            ) : (
+              <p className="text-xs font-medium text-muted-foreground">With flights · add air fares under Flights</p>
             )}
-            <p className="text-xs text-muted-foreground">{destinationLabel}</p>
+            <p className="text-xs text-muted-foreground">
+              Cities: {destinationLabel}
+              {stayWindows.length
+                ? ` · ${stayWindows.map((w) => `${w.city} (${w.nights || 0}N)`).join(", ")}`
+                : ""}
+            </p>
           </div>
           <div className="text-right shrink-0 space-y-0.5">
-            <p className="text-xs text-muted-foreground">
+            <p className="text-[10px] uppercase tracking-wide text-muted-foreground">
               Quote <span className="font-semibold text-foreground">{quoteNo || quoteId || "DRAFT"}</span>
             </p>
-            <p className="text-xl font-semibold tabular-nums text-foreground">{formatFullINR(total)}</p>
+            <p className="text-lg font-semibold tabular-nums text-foreground">{formatFullINR(total)}</p>
           </div>
         </div>
 
@@ -589,18 +560,60 @@ export function QuoteTripBuilder({
       </section>
 
       {(activeStage === "pricing" || activeStage === "preview") && costing ? (
-        <section className="rounded-2xl border border-slate-200/80 bg-white p-4 sm:p-5 shadow-sm space-y-4">
+        <section className="rounded-lg border bg-card p-3 sm:p-4 space-y-3">
           <div>
-            <h3 className="text-sm font-semibold text-slate-900">Quotation pricing summary</h3>
-            <p className="text-xs text-slate-500 mt-0.5">
-              Totals come from hotels, flights, transfers/cars, activities and meals you added. Edit selling prices or add a discount before sending.
+            <h3 className="text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">Quotation pricing summary</h3>
+            <p className="text-xs text-muted-foreground mt-0.5">
+              Full package: hotels + flights + cars/transfers + activities + meals + misc. Edit sell prices or discount before sending.
             </p>
           </div>
 
+          <div className="rounded-lg border bg-muted/20 p-3 space-y-3">
+            <p className="text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">Travel / booking details</p>
+            <div className="grid grid-cols-2 md:grid-cols-4 gap-2 text-xs">
+              <div className="rounded-lg border bg-card p-2 min-w-0">
+                <p className="text-[10px] uppercase tracking-wide text-muted-foreground">From → To</p>
+                <p className="font-medium mt-0.5 break-words text-sm">{routeTitle}</p>
+              </div>
+              <div className="rounded-lg border bg-card p-2 min-w-0">
+                <p className="text-[10px] uppercase tracking-wide text-muted-foreground">Travel dates</p>
+                <p className="font-medium mt-0.5 break-words text-sm">{dateRangeLabel}</p>
+              </div>
+              <div className="rounded-lg border bg-card p-2 min-w-0">
+                <p className="text-[10px] uppercase tracking-wide text-muted-foreground">Guests / rooms</p>
+                <p className="font-medium mt-0.5 break-words text-sm">{paxLabel}</p>
+              </div>
+              <div className="rounded-lg border bg-card p-2 min-w-0">
+                <p className="text-[10px] uppercase tracking-wide text-muted-foreground">Package type</p>
+                <p className="font-medium mt-0.5 break-words text-sm">{form.landOnly ? "Land only" : "With flights"}</p>
+              </div>
+            </div>
+            {stayWindows.length > 0 && (
+              <div className="pt-2 border-t">
+                <p className="text-[10px] uppercase tracking-wide text-muted-foreground mb-1.5">City stays</p>
+                <ul className="flex flex-wrap gap-2">
+                  {stayWindows.map((w) => (
+                    <li
+                      key={`${w.city}-${w.checkIn}`}
+                      className="rounded-md border bg-card px-2.5 py-1 text-xs text-foreground"
+                    >
+                      <span className="font-semibold">{w.city}</span>
+                      {" · "}
+                      {w.nights || 0}N
+                      {w.checkIn && w.checkOut
+                        ? ` · ${formatStayShort(w.checkIn)} – ${formatStayShort(w.checkOut)}`
+                        : ""}
+                    </li>
+                  ))}
+                </ul>
+              </div>
+            )}
+          </div>
+
           {activeStage === "pricing" && (
-            <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 rounded-xl border border-slate-100 bg-slate-50/60 p-3">
-              <div className="space-y-1.5">
-                <Label className="text-xs">Discount type</Label>
+            <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 rounded-lg border bg-muted/15 p-3">
+              <div className="space-y-1">
+                <Label className="text-[10px] text-muted-foreground uppercase tracking-wide">Discount type</Label>
                 <select
                   className="h-9 w-full rounded-md border border-input bg-background px-2 text-sm"
                   value={discountType || "none"}
@@ -616,8 +629,8 @@ export function QuoteTripBuilder({
                   <option value="Percentage">Percentage (%)</option>
                 </select>
               </div>
-              <div className="space-y-1.5">
-                <Label className="text-xs">Discount value</Label>
+              <div className="space-y-1">
+                <Label className="text-[10px] text-muted-foreground uppercase tracking-wide">Discount value</Label>
                 <Input
                   className="h-9"
                   type="number"
@@ -626,8 +639,8 @@ export function QuoteTripBuilder({
                   onChange={(e) => onPricingChange?.({ discountValue: Number(e.target.value) || 0 })}
                 />
               </div>
-              <div className="space-y-1.5">
-                <Label className="text-xs">Trevio markup %</Label>
+              <div className="space-y-1">
+                <Label className="text-[10px] text-muted-foreground uppercase tracking-wide">Trevio markup %</Label>
                 <Input
                   className="h-9"
                   type="number"
@@ -639,35 +652,59 @@ export function QuoteTripBuilder({
             </div>
           )}
 
-          {serviceRows.some((r) => r.sellingPrice > 0 || r.netCost > 0) ? (
-            <div className="rounded-xl border overflow-hidden">
-              <div className="px-3 py-2 border-b bg-slate-50">
-                <p className="text-xs font-semibold uppercase tracking-wide text-slate-600">By service</p>
-              </div>
-              <table className="w-full text-sm">
-                <thead>
-                  <tr className="border-b text-left text-[11px] uppercase tracking-wide text-slate-500">
-                    <th className="px-3 py-2 font-medium">Service</th>
-                    <th className="px-3 py-2 font-medium text-right">Net cost</th>
-                    <th className="px-3 py-2 font-medium text-right">Selling</th>
+          <div className="rounded-lg border overflow-hidden">
+            <div className="px-3 py-2 border-b bg-muted/20">
+              <p className="text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">
+                Price by service (always shown)
+              </p>
+            </div>
+            <table className="w-full text-sm">
+              <thead>
+                <tr className="border-b text-left text-[10px] uppercase tracking-wide text-muted-foreground">
+                  <th className="px-3 py-2 font-medium">Service</th>
+                  <th className="px-3 py-2 font-medium text-right">Net cost</th>
+                  <th className="px-3 py-2 font-medium text-right">Selling</th>
+                </tr>
+              </thead>
+              <tbody>
+                {(serviceRows.length
+                  ? serviceRows
+                  : [
+                      { key: "hotels", label: "Hotels", netCost: 0, sellingPrice: 0 },
+                      { key: "flights", label: "Flights", netCost: 0, sellingPrice: 0 },
+                      { key: "transfers", label: "Cars & Transfers", netCost: 0, sellingPrice: 0 },
+                      { key: "activities", label: "Activities", netCost: 0, sellingPrice: 0 },
+                      { key: "meals", label: "Meals", netCost: 0, sellingPrice: 0 },
+                      { key: "addOns", label: "Misc / Add-ons", netCost: 0, sellingPrice: 0 },
+                    ]
+                ).map((row) => (
+                  <tr
+                    key={row.key}
+                    className={cn(
+                      "border-b last:border-0",
+                      row.sellingPrice <= 0 && row.netCost <= 0 ? "text-muted-foreground" : "",
+                    )}
+                  >
+                    <td className="px-3 py-2">{row.label}</td>
+                    <td className="px-3 py-2 text-right tabular-nums">{formatFullINR(row.netCost)}</td>
+                    <td className="px-3 py-2 text-right tabular-nums font-medium">{formatFullINR(row.sellingPrice)}</td>
                   </tr>
-                </thead>
-                <tbody>
-                  {serviceRows.filter((r) => r.sellingPrice > 0 || r.netCost > 0).map((row) => (
-                    <tr key={row.key} className="border-b last:border-0">
-                      <td className="px-3 py-2">{row.label}</td>
-                      <td className="px-3 py-2 text-right tabular-nums">{formatFullINR(row.netCost)}</td>
-                      <td className="px-3 py-2 text-right tabular-nums font-medium">{formatFullINR(row.sellingPrice)}</td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-          ) : (
-            <div className="rounded-xl border border-dashed border-slate-200 px-4 py-6 text-center text-sm text-slate-500">
-              No priced services yet. Go back to Hotels &amp; services and add hotels, flights or transfers — selling prices from the catalogue fill here automatically.
-            </div>
-          )}
+                ))}
+              </tbody>
+              <tfoot>
+                <tr className="bg-muted/20 font-semibold">
+                  <td className="px-3 py-2.5">Package total</td>
+                  <td className="px-3 py-2.5 text-right tabular-nums">{formatFullINR(costing.totalNetCost)}</td>
+                  <td className="px-3 py-2.5 text-right tabular-nums">{formatFullINR(costing.total)}</td>
+                </tr>
+              </tfoot>
+            </table>
+            {serviceRows.every((r) => r.sellingPrice <= 0 && r.netCost <= 0) && (
+              <p className="px-3 py-2 text-xs text-amber-900 bg-amber-50 border-t border-amber-100">
+                No priced lines yet — go back to Hotels &amp; services and add hotels, flights, cars or activities. Catalogue sell prices fill here automatically.
+              </p>
+            )}
+          </div>
 
           {activeStage === "pricing" && lineItems.length > 0 && (
             <div className="rounded-xl border overflow-hidden">
@@ -679,7 +716,10 @@ export function QuoteTripBuilder({
                   <div key={`${line.kind}-${line.lineId}`} className="flex flex-wrap items-center gap-3 px-3 py-2.5">
                     <div className="min-w-0 flex-1">
                       <p className="text-sm font-medium text-slate-900 truncate">{line.label}</p>
-                      <p className="text-[11px] text-slate-500 capitalize">{line.kind}{line.costPrice != null ? ` · cost ${formatFullINR(line.costPrice)}` : ""}</p>
+                      <p className="text-[11px] text-slate-500 capitalize">
+                        {line.kind === "transfer" ? "car / transfer" : line.kind}
+                        {line.costPrice != null ? ` · cost ${formatFullINR(line.costPrice)}` : ""}
+                      </p>
                     </div>
                     <div className="flex items-center gap-2">
                       <Label className="text-[11px] text-slate-500 shrink-0">Sell ₹</Label>
@@ -703,6 +743,81 @@ export function QuoteTripBuilder({
 
       {activeStage !== "pricing" ? (
       <div className="space-y-4">
+        {activeStage === "services" && !form.landOnly && (
+          <section className="rounded-2xl border border-sky-200/80 bg-white shadow-sm overflow-hidden">
+            <div className="flex flex-wrap items-center justify-between gap-3 px-4 sm:px-5 py-3 border-b border-sky-100 bg-sky-50/70">
+              <div className="min-w-0">
+                <h3 className="text-sm sm:text-base font-bold text-slate-900 flex items-center gap-2">
+                  <Plane className="w-4 h-4 text-sky-700" />
+                  Flights
+                </h3>
+                <p className="text-xs text-slate-500 mt-0.5">
+                  {String(form.departureCity || "Origin").trim()} →{" "}
+                  {stayWindows[0]?.city || form.destination || "Destination"} · air fares roll into Pricing
+                </p>
+              </div>
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                className="h-8 rounded-full border-sky-200 bg-white text-sky-800 hover:border-sky-400 hover:bg-sky-50"
+                onClick={() => {
+                  onOpenService?.({
+                    service: "Flights",
+                    dayNumber: 1,
+                    date: form.travelStartDate || "",
+                    city: stayWindows[0]?.city || form.destination || "",
+                  });
+                }}
+              >
+                <Plane className="w-3.5 h-3.5 mr-1.5" />
+                Add flight
+              </Button>
+            </div>
+            {flights.length === 0 ? (
+              <p className="px-4 py-5 text-sm text-slate-500">
+                No flights yet. Add outbound / return so flight charges appear in Pricing.
+              </p>
+            ) : (
+              <ul className="divide-y">
+                {flights.map((f, i) => {
+                  const lineId = String(f.lineId || f.productId || `flight-${i}`);
+                  const label = [
+                    String(f.airline || "").trim(),
+                    String(f.flightNumber || "").trim(),
+                  ].filter(Boolean).join(" ") || `Flight ${i + 1}`;
+                  const route = [String(f.from || "").trim(), String(f.to || "").trim()].filter(Boolean).join(" → ");
+                  const sell = Number(f.sellingPrice || f.fare || 0);
+                  return (
+                    <li key={lineId} className="flex flex-wrap items-center gap-3 px-4 sm:px-5 py-3">
+                      <div className="min-w-0 flex-1">
+                        <p className="text-sm font-medium text-slate-900">{label}</p>
+                        <p className="text-xs text-slate-500">
+                          {route || "Route TBD"}
+                          {f.date ? ` · ${formatStayShort(String(f.date))}` : ""}
+                          {f.cabinClass ? ` · ${String(f.cabinClass)}` : ""}
+                        </p>
+                      </div>
+                      <p className="text-sm font-semibold tabular-nums text-slate-900">{formatFullINR(sell)}</p>
+                      {onRemoveFlight ? (
+                        <Button
+                          type="button"
+                          variant="ghost"
+                          size="sm"
+                          className="h-8 w-8 p-0 text-slate-400 hover:text-destructive"
+                          onClick={() => onRemoveFlight(lineId)}
+                          aria-label="Remove flight"
+                        >
+                          <Trash2 className="w-3.5 h-3.5" />
+                        </Button>
+                      ) : null}
+                    </li>
+                  );
+                })}
+              </ul>
+            )}
+          </section>
+        )}
         {nights.length === 0 ? (
           <div className="rounded-2xl border border-dashed border-slate-200 bg-white/80 px-4 py-10 text-center text-sm text-slate-500">
             Add trip cities and nights in Travel details to build the day-wise plan.
@@ -747,7 +862,7 @@ export function QuoteTripBuilder({
                                   className="h-8 rounded-full border-slate-200 bg-white text-slate-700 hover:border-brand-blue/40 hover:text-brand-blue data-[state=open]:bg-brand-blue data-[state=open]:text-white data-[state=open]:border-brand-blue"
                                 >
                                   <Icon className="w-3.5 h-3.5 mr-1.5" />
-                                  Transfers
+                                  Cars & Transfers
                                   <ChevronDown className="w-3 h-3 ml-1 opacity-70" />
                                 </Button>
                               </DropdownMenuTrigger>
@@ -1277,6 +1392,32 @@ export function QuoteTripBuilder({
       </div>
       ) : null}
 
+        </div>
+      </div>
+
+      <QuoteWizardFooter
+        busy={busy}
+        onBack={onBack}
+        onSaveDraft={onSaveDraft}
+        onCreatePdf={activeStage === "pricing" || activeStage === "preview" ? onCreatePdf : undefined}
+        onSend={activeStage === "pricing" || activeStage === "preview" ? onSendQuotation : undefined}
+        showNext={activeStage !== "preview"}
+        nextLabel={
+          activeStage === "services"
+            ? "Next · Itinerary"
+            : activeStage === "itinerary"
+              ? "Next · Pricing"
+              : activeStage === "pricing"
+                ? "Next · Preview & send"
+                : "Next"
+        }
+        onNext={
+          onFlowStepChange
+            ? () => onFlowStepChange(Math.min(activeFlow + 1, 5))
+            : undefined
+        }
+      />
+
       <ServicePlaceholderDialog
         target={serviceTarget}
         onClose={() => setServiceTarget(null)}
@@ -1379,31 +1520,6 @@ export function QuoteTripBuilder({
   );
 }
 
-function ActionPill({
-  icon: Icon,
-  label,
-  onClick,
-  disabled,
-}: {
-  icon: typeof FileDown;
-  label: string;
-  onClick: () => void;
-  disabled?: boolean;
-}) {
-  return (
-    <Button
-      type="button"
-      variant="outline"
-      disabled={disabled}
-      className="h-9 rounded-full border-slate-200 bg-white text-slate-800 shadow-sm hover:border-brand-blue/40 hover:text-brand-blue"
-      onClick={onClick}
-    >
-      <Icon className="w-3.5 h-3.5 mr-1.5" />
-      {label}
-    </Button>
-  );
-}
-
 function ContactCard({
   title,
   name,
@@ -1416,15 +1532,10 @@ function ContactCard({
   email: string;
 }) {
   return (
-    <div className="rounded-lg border border-border bg-muted/30 px-3 py-2 flex gap-2.5 items-start">
-      <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-primary/10 text-primary mt-0.5">
-        <UserRound className="w-3.5 h-3.5" />
-      </div>
-      <div className="min-w-0">
-        <p className="text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">{title}</p>
-        <p className="text-sm font-medium text-foreground truncate">{name}</p>
-        <p className="text-[11px] text-muted-foreground truncate">{phone} · {email}</p>
-      </div>
+    <div className="rounded-lg border bg-muted/20 p-2 min-w-0">
+      <p className="text-[10px] text-muted-foreground uppercase tracking-wide">{title}</p>
+      <p className="font-medium mt-0.5 text-sm truncate">{name}</p>
+      <p className="text-[11px] text-muted-foreground truncate mt-0.5">{phone} · {email}</p>
     </div>
   );
 }

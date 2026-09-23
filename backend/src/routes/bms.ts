@@ -189,7 +189,7 @@ export function mountBmsRoutes(
           req,
         });
 
-        if (result.booking && result.booking.commission > 0 && result.booking.agencyId) {
+        if (result.booking && result.booking.commission > 0 && result.booking.agencyId && !result.idempotent) {
           try {
             await adjustAgencyWallet({
               agencyId: result.booking.agencyId,

@@ -13,6 +13,12 @@ export async function adjustAgencyWallet(opts: {
   if (!opts.agencyId) throw new Error("agencyId required");
 
   return db.$transaction(async (tx) => {
+    if (opts.paymentRef) {
+      const existing = await tx.walletTransaction.findUnique({ where: { paymentRef: opts.paymentRef } });
+      if (existing) {
+        return { balance: existing.balance, transaction: existing, idempotent: true as const };
+      }
+    }
     const agency = await tx.agency.findUnique({ where: { id: opts.agencyId } });
     if (!agency) throw new Error("Agency not found");
     const delta = opts.type === "Credit" ? amount : -amount;
@@ -33,6 +39,6 @@ export async function adjustAgencyWallet(opts: {
         paymentRef: opts.paymentRef,
       },
     });
-    return { balance, transaction: txn };
+    return { balance, transaction: txn, idempotent: false as const };
   });
 }

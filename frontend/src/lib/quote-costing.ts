@@ -107,13 +107,13 @@ export function calcPackageCosting(pkg: {
   const services: Array<{ key: string; label: string; netCost: number; sellingPrice: number }> = [
     { key: "hotels", label: "Hotels", netCost: hotels.cost, sellingPrice: hotels.selling },
     { key: "flights", label: "Flights", netCost: flights.cost, sellingPrice: flights.selling },
-    { key: "transfers", label: "Transfers", netCost: transfers.cost, sellingPrice: transfers.selling },
+    { key: "transfers", label: "Cars & Transfers", netCost: transfers.cost, sellingPrice: transfers.selling },
     { key: "activities", label: "Activities", netCost: activities.cost, sellingPrice: activities.selling },
     { key: "sightseeing", label: "Sightseeing", netCost: sightseeing.cost, sellingPrice: sightseeing.selling },
     { key: "meals", label: "Meals", netCost: meals.cost, sellingPrice: meals.selling },
     { key: "visa", label: "Visa", netCost: visa.cost, sellingPrice: visa.selling },
     { key: "insurance", label: "Insurance", netCost: insurance.cost, sellingPrice: insurance.selling },
-    { key: "addOns", label: "Add-ons", netCost: addOns.cost, sellingPrice: addOns.selling },
+    { key: "addOns", label: "Misc / Add-ons", netCost: addOns.cost, sellingPrice: addOns.selling },
   ];
 
   let totalNetCost = services.reduce((s, row) => s + row.netCost, 0);

@@ -202,7 +202,21 @@ export function mountAgentRegistrationRoutes(app: Express) {
           return next;
         }, { maxWait: 15_000, timeout: 30_000 });
 
-        res.json({ registration: publicRegistrationRow(updated) });
+        try {
+          const { ensureAgencyRegistrationCodes } = await import("../lib/agent-codes.js");
+          await ensureAgencyRegistrationCodes(id, agency.name);
+        } catch (e) {
+          logger.warn({ err: e, agencyId: id }, "Agency/agent code assignment on approve failed");
+        }
+
+        const withCode = await db.agency.findUnique({
+          where: { id },
+          include: {
+            users: { select: { id: true, name: true, email: true, role: true, status: true, agentCode: true } },
+          },
+        });
+
+        res.json({ registration: publicRegistrationRow(withCode || updated) });
       } catch (e) {
         logger.error(e);
         res.status(500).json({ error: "Server error" });

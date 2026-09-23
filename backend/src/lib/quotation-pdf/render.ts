@@ -10,6 +10,7 @@ const NAVY: [number, number, number] = [10, 22, 40];
 const TEAL: [number, number, number] = [13, 115, 119];
 const CREAM: [number, number, number] = [244, 241, 234];
 const GOLD: [number, number, number] = [196, 165, 116];
+const FOOTER_BAND = 44;
 
 function money(amount: number, currency: string): string {
   return pdfMoney(amount, currency);
@@ -20,7 +21,7 @@ function contentWidth(): number {
 }
 
 function ensure(doc: PDFKit.PDFDocument, needed: number, onNewPage: () => void) {
-  if (doc.y + needed > PAGE_H - 56) {
+  if (doc.y + needed > PAGE_H - FOOTER_BAND - 12) {
     onNewPage();
   }
 }
@@ -44,13 +45,13 @@ function footer(doc: PDFKit.PDFDocument, model: QuotationPdfModel, page: number)
 function kicker(doc: PDFKit.PDFDocument, text: string) {
   doc.x = MARGIN;
   doc.fillColor(TEAL).font("Helvetica-Bold").fontSize(9).text(text.toUpperCase(), { characterSpacing: 1.5, width: contentWidth() });
-  doc.moveDown(0.3);
+  doc.moveDown(0.25);
 }
 
 function heading(doc: PDFKit.PDFDocument, text: string) {
   doc.x = MARGIN;
-  doc.fillColor(NAVY).font("Helvetica-Bold").fontSize(18).text(text, { width: contentWidth() });
-  doc.moveDown(0.4);
+  doc.fillColor(NAVY).font("Helvetica-Bold").fontSize(18).text(pdfSafeText(text), { width: contentWidth() });
+  doc.moveDown(0.35);
 }
 
 function body(doc: PDFKit.PDFDocument, text: string, opts: PDFKit.Mixins.TextOptions = {}) {
@@ -58,37 +59,91 @@ function body(doc: PDFKit.PDFDocument, text: string, opts: PDFKit.Mixins.TextOpt
   doc.fillColor("#1a1a1a").font("Helvetica").fontSize(10).text(pdfSafeText(text), { width: contentWidth(), ...opts });
 }
 
+function measureText(doc: PDFKit.PDFDocument, text: string, width: number, fontSize = 10, font = "Helvetica"): number {
+  doc.font(font).fontSize(fontSize);
+  return doc.heightOfString(pdfSafeText(text), { width });
+}
+
 function kvTable(doc: PDFKit.PDFDocument, rows: Array<[string, string]>, onNewPage: () => void) {
   const labelW = 140;
   const valueW = contentWidth() - labelW;
   for (const [label, value] of rows) {
-    ensure(doc, 28, onNewPage);
+    const valueH = Math.max(22, measureText(doc, value, valueW - 16, 9) + 10);
+    ensure(doc, valueH + 4, onNewPage);
     const y = doc.y;
-    doc.rect(MARGIN, y, labelW, 22).fill(NAVY);
-    doc.rect(MARGIN + labelW, y, valueW, 22).fill(CREAM);
-    doc.fillColor("#f7f3ea").font("Helvetica-Bold").fontSize(8).text(label, MARGIN + 8, y + 7, { width: labelW - 12, lineBreak: false });
-    doc.fillColor("#1a1a1a").font("Helvetica").fontSize(9).text(value, MARGIN + labelW + 8, y + 7, { width: valueW - 12, lineBreak: false });
-    doc.y = y + 24;
+    doc.rect(MARGIN, y, labelW, valueH).fill(NAVY);
+    doc.rect(MARGIN + labelW, y, valueW, valueH).fill(CREAM);
+    doc.fillColor("#f7f3ea").font("Helvetica-Bold").fontSize(8)
+      .text(label, MARGIN + 8, y + 7, { width: labelW - 12 });
+    doc.fillColor("#1a1a1a").font("Helvetica").fontSize(9)
+      .text(pdfSafeText(value), MARGIN + labelW + 8, y + 7, { width: valueW - 16 });
+    doc.y = y + valueH + 2;
   }
-  doc.moveDown(0.4);
+  doc.moveDown(0.3);
 }
 
-async function drawImage(doc: PDFKit.PDFDocument, src: string | undefined, x: number, y: number, w: number, h: number) {
+async function drawImage(
+  doc: PDFKit.PDFDocument,
+  src: string | undefined,
+  x: number,
+  y: number,
+  w: number,
+  h: number,
+  mode: "fit" | "cover" = "cover",
+) {
   if (!src) return false;
   const buf = await loadImageBuffer(src);
   if (!buf) return false;
   try {
-    doc.image(buf, x, y, { fit: [w, h], align: "center", valign: "center" });
+    if (mode === "cover") {
+      doc.image(buf, x, y, { cover: [w, h] });
+    } else {
+      doc.image(buf, x, y, { fit: [w, h], align: "center", valign: "center" });
+    }
     return true;
   } catch {
     return false;
   }
 }
 
+function flightTripLabel(flights: QuotationPdfPackage["flights"]): string {
+  if (!flights.length) return "";
+  const types = flights.map((f) => String(f.tripType || f.direction || "").toLowerCase()).filter(Boolean);
+  if (types.some((t) => t.includes("round"))) return "Round trip";
+  if (types.some((t) => t.includes("multi"))) return "Multi-city";
+  if (flights.length >= 2) {
+    const a = flights[0];
+    const b = flights[flights.length - 1];
+    if (a.from && a.to && b.from && b.to && a.from === b.to && a.to === b.from) return "Round trip";
+    return "Multi-sector";
+  }
+  if (types.some((t) => t.includes("return") || t.includes("inbound"))) return "Round trip";
+  return "One way";
+}
+
 function packagePricing(doc: PDFKit.PDFDocument, pkg: QuotationPdfPackage, onNewPage: () => void) {
   ensure(doc, 90, onNewPage);
   kicker(doc, "Rate breakdown");
   heading(doc, `${pkg.name} — Price summary`);
+
+  if (pkg.serviceTotals.length) {
+    ensure(doc, 28 + pkg.serviceTotals.length * 18, onNewPage);
+    doc.fillColor(NAVY).font("Helvetica-Bold").fontSize(11).text("By service", MARGIN, doc.y, { width: contentWidth() });
+    doc.moveDown(0.3);
+    for (const row of pkg.serviceTotals) {
+      ensure(doc, 18, onNewPage);
+      const y = doc.y;
+      doc.fillColor("#1a1a1a").font("Helvetica").fontSize(10).text(row.label, MARGIN, y, { width: contentWidth() * 0.6, lineBreak: false });
+      doc.font("Helvetica-Bold").text(money(row.amount, pkg.pricing.currency), MARGIN, y, {
+        width: contentWidth(),
+        align: "right",
+        lineBreak: false,
+      });
+      doc.y = y + 16;
+    }
+    doc.moveDown(0.35);
+  }
+
   const rows: Array<[string, string]> = [
     ["Per Adult Price", money(pkg.pricing.perAdultPrice, pkg.pricing.currency)],
   ];
@@ -112,7 +167,7 @@ async function renderCover(doc: PDFKit.PDFDocument, model: QuotationPdfModel) {
     if (buf) {
       try {
         doc.image(buf, 0, 0, { cover: [PAGE_W, PAGE_H] });
-        doc.rect(0, 0, PAGE_W, PAGE_H).fillOpacity(0.55).fill(NAVY).fillOpacity(1);
+        doc.rect(0, 0, PAGE_W, PAGE_H).fillOpacity(0.52).fill(NAVY).fillOpacity(1);
       } catch {
         doc.rect(0, 0, PAGE_W, PAGE_H).fill(NAVY);
       }
@@ -124,30 +179,171 @@ async function renderCover(doc: PDFKit.PDFDocument, model: QuotationPdfModel) {
   }
 
   if (model.branding.logo) {
-    await drawImage(doc, model.branding.logo, MARGIN, MARGIN, 120, 48);
+    await drawImage(doc, model.branding.logo, MARGIN, MARGIN, 120, 48, "fit");
   }
-  doc.fillColor("#c4b8a4").font("Helvetica").fontSize(8).text(model.branding.legalName, MARGIN, MARGIN + 60, { width: contentWidth(), lineBreak: false });
+  doc.fillColor("#c4b8a4").font("Helvetica").fontSize(8)
+    .text(model.branding.legalName, MARGIN, MARGIN + 60, { width: contentWidth(), lineBreak: false });
   if (model.branding.address || model.branding.phone) {
-    doc.text([model.branding.address, model.branding.phone].filter(Boolean).join("  |  "), MARGIN, MARGIN + 74, { width: contentWidth(), lineBreak: false });
+    doc.text([model.branding.address, model.branding.phone].filter(Boolean).join("  |  "), MARGIN, MARGIN + 74, {
+      width: contentWidth(),
+      lineBreak: false,
+    });
   }
-  doc.fillColor(GOLD).font("Helvetica").fontSize(11).text("GREETINGS FROM", MARGIN, 280, { characterSpacing: 3, lineBreak: false });
-  doc.fillColor("#ffffff").font("Helvetica-Bold").fontSize(34).text(model.branding.brandName.toUpperCase(), MARGIN, 300, { width: contentWidth() });
+
+  // Destination as hero signal on cover (e.g. Malaysia)
+  const destTitle = (model.destination.split("·")[0] || model.destination).trim().toUpperCase();
+  doc.fillColor(GOLD).font("Helvetica").fontSize(11)
+    .text("YOUR JOURNEY TO", MARGIN, 240, { characterSpacing: 3, lineBreak: false });
+  doc.fillColor("#ffffff").font("Helvetica-Bold").fontSize(36)
+    .text(destTitle, MARGIN, 258, { width: contentWidth() });
+  doc.fillColor(GOLD).font("Helvetica").fontSize(11)
+    .text("GREETINGS FROM", MARGIN, 320, { characterSpacing: 3, lineBreak: false });
+  doc.fillColor("#ffffff").font("Helvetica-Bold").fontSize(28)
+    .text(model.branding.brandName.toUpperCase(), MARGIN, 338, { width: contentWidth() });
+
+  const route = model.routeLabel || model.destination;
   doc.fillColor("#f7f3ea").font("Helvetica").fontSize(12).text(
-    `Dear ${model.customerName},\n\nPlease find your travel quotation ${model.quoteNo} for ${model.destination}. This plan is designed as a ${model.nightsLabel} holiday.`,
+    `Dear ${model.customerName},\n\nPlease find your travel quotation ${model.quoteNo} for ${route}. This plan is designed as a ${model.nightsLabel} holiday${model.landOnly ? " (land only)" : ""}.`,
     MARGIN,
-    360,
-    { width: contentWidth() * 0.85, lineGap: 4 },
+    390,
+    { width: contentWidth() * 0.88, lineGap: 4 },
   );
-  doc.fillColor("#c4b8a4").font("Helvetica").fontSize(8).text(model.travelDates, MARGIN, PAGE_H - 48, { lineBreak: false });
+  doc.fillColor("#c4b8a4").font("Helvetica").fontSize(8)
+    .text(model.travelDates, MARGIN, PAGE_H - 48, { lineBreak: false });
   doc.text(model.quoteNo, MARGIN, PAGE_H - 48, { width: contentWidth(), align: "right", lineBreak: false });
   doc.page.margins.bottom = prevBottom;
   doc.y = MARGIN;
 }
 
+async function renderDayCard(
+  doc: PDFKit.PDFDocument,
+  day: QuotationPdfPackage["itinerary"][number],
+  onNewPage: () => void,
+) {
+  const places = Array.isArray(day.places) ? day.places.filter((p) => p?.name) : [];
+  const items = Array.isArray(day.items) ? day.items : [];
+
+  ensure(doc, 56, onNewPage);
+  doc.fillColor(NAVY).font("Helvetica-Bold").fontSize(13)
+    .text(pdfSafeText(day.title || `Day ${day.day}`), MARGIN, doc.y, { width: contentWidth() });
+  if (day.city || day.date) {
+    body(doc, [day.city, day.date].filter(Boolean).join(" · "));
+  }
+
+  if (day.coverImage) {
+    ensure(doc, 150, onNewPage);
+    const y = doc.y;
+    const drawn = await drawImage(doc, day.coverImage, MARGIN, y, contentWidth(), 132, "cover");
+    if (drawn) {
+      doc.y = y + 140;
+    }
+  }
+
+  for (const place of places) {
+    const imgW = 150;
+    const gap = 12;
+    const textW = place.imageUrl ? contentWidth() - imgW - gap : contentWidth();
+    const titleH = measureText(doc, place.name || "", textW, 11, "Helvetica-Bold");
+    const metaBits = [
+      place.bestTimeToVisit ? `Best time: ${place.bestTimeToVisit}` : "",
+      place.famousFor ? `Famous for: ${place.famousFor}` : "",
+    ].filter(Boolean);
+    const metaH = metaBits.length ? measureText(doc, metaBits.join("\n"), textW, 9) + 4 : 0;
+    const descH = place.description ? measureText(doc, place.description, textW, 9) + 4 : 0;
+    const textBlockH = titleH + metaH + descH + 8;
+    const rowH = place.imageUrl ? Math.max(96, textBlockH) : textBlockH;
+
+    ensure(doc, rowH + 10, onNewPage);
+    const y = doc.y;
+
+    if (place.imageUrl) {
+      const drawn = await drawImage(doc, place.imageUrl, MARGIN, y, imgW, Math.min(rowH, 110), "cover");
+      const textX = drawn ? MARGIN + imgW + gap : MARGIN;
+      const tw = drawn ? textW : contentWidth();
+      let ty = y;
+      doc.fillColor(NAVY).font("Helvetica-Bold").fontSize(11)
+        .text(pdfSafeText(place.name || ""), textX, ty, { width: tw });
+      ty = doc.y + 2;
+      if (metaBits.length) {
+        doc.fillColor(TEAL).font("Helvetica").fontSize(9)
+          .text(pdfSafeText(metaBits.join(" · ")), textX, ty, { width: tw });
+        ty = doc.y + 2;
+      }
+      if (place.description) {
+        doc.fillColor("#333333").font("Helvetica").fontSize(9)
+          .text(pdfSafeText(place.description), textX, ty, { width: tw });
+      }
+      doc.y = Math.max(y + (drawn ? Math.min(rowH, 110) : 0), doc.y) + 10;
+    } else {
+      body(doc, `• ${place.name}`, { width: contentWidth() });
+      if (place.bestTimeToVisit) body(doc, `  Best time: ${place.bestTimeToVisit}`, { width: contentWidth() });
+      if (place.famousFor) body(doc, `  Famous for: ${place.famousFor}`, { width: contentWidth() });
+      if (place.description) body(doc, `  ${place.description}`, { width: contentWidth() });
+      doc.moveDown(0.15);
+    }
+  }
+
+  for (const item of items) {
+    const prefix = item.itemType ? `[${String(item.itemType).charAt(0)}${String(item.itemType).slice(1).toLowerCase()}] ` : "";
+    const time = item.pickupTime ? `${item.pickupTime} · ` : "";
+    const line = [item.activityName, item.description].filter(Boolean).join(" — ");
+    if (line) {
+      ensure(doc, 20, onNewPage);
+      body(doc, `• ${prefix}${time}${line}`, { width: contentWidth() });
+    }
+  }
+
+  if (day.mealPlan) {
+    ensure(doc, 16, onNewPage);
+    doc.fillColor(TEAL).font("Helvetica-Bold").fontSize(9).text(`Meal plan: ${day.mealPlan}`);
+  }
+  doc.moveDown(0.4);
+}
+
+function renderInclusionsExclusions(
+  doc: PDFKit.PDFDocument,
+  pkg: QuotationPdfPackage,
+  onNewPage: () => void,
+) {
+  ensure(doc, 80, onNewPage);
+  kicker(doc, "Inclusions & exclusions");
+  heading(doc, "What is included");
+  const colW = contentWidth() / 2 - 10;
+  const mid = MARGIN + contentWidth() / 2 + 8;
+  ensure(doc, 24, onNewPage);
+  const top = doc.y;
+  doc.fillColor(NAVY).font("Helvetica-Bold").fontSize(11).text("Inclusions", MARGIN, top, { width: colW });
+  doc.text("Exclusions", mid, top, { width: colW });
+  doc.y = top + 18;
+
+  const leftItems = pkg.inclusions.length ? pkg.inclusions : ["As discussed"];
+  const rightItems = pkg.exclusions.length ? pkg.exclusions : ["Personal expenses"];
+  const max = Math.max(leftItems.length, rightItems.length);
+  for (let idx = 0; idx < max; idx += 1) {
+    const left = leftItems[idx] ? `• ${leftItems[idx]}` : "";
+    const right = rightItems[idx] ? `• ${rightItems[idx]}` : "";
+    const h = Math.max(
+      left ? measureText(doc, left, colW, 9) : 0,
+      right ? measureText(doc, right, colW, 9) : 0,
+      12,
+    );
+    ensure(doc, h + 6, onNewPage);
+    const y = doc.y;
+    if (left) {
+      doc.fillColor("#1a1a1a").font("Helvetica").fontSize(9).text(pdfSafeText(left), MARGIN, y, { width: colW });
+    }
+    if (right) {
+      doc.fillColor("#1a1a1a").font("Helvetica").fontSize(9).text(pdfSafeText(right), mid, y, { width: colW });
+    }
+    doc.y = y + h + 4;
+  }
+  doc.x = MARGIN;
+}
+
 export async function renderQuotationPdf(model: QuotationPdfModel): Promise<{ buffer: Buffer; pageCount: number }> {
   const doc = new PDFDocument({
     size: "A4",
-    margins: { top: MARGIN, bottom: 56, left: MARGIN, right: MARGIN },
+    margins: { top: MARGIN, bottom: FOOTER_BAND + 12, left: MARGIN, right: MARGIN },
     autoFirstPage: true,
     info: { Title: `${model.quoteNo} — ${model.destination}`, Author: model.branding.brandName },
   });
@@ -166,6 +362,7 @@ export async function renderQuotationPdf(model: QuotationPdfModel): Promise<{ bu
 
   await renderCover(doc, model);
 
+  // Overview
   doc.addPage();
   doc.x = MARGIN;
   doc.y = MARGIN;
@@ -173,9 +370,13 @@ export async function renderQuotationPdf(model: QuotationPdfModel): Promise<{ bu
   heading(doc, model.destination);
   kvTable(doc, [
     ["Destination", `${model.destination} : ${model.nightsLabel}`],
+    ...(model.routeLabel ? [["Travel route", model.routeLabel] as [string, string]] : []),
     ["Dates", model.travelDates],
+    ["Package type", model.landOnly ? "Land only (flights not included)" : "With flights"],
     ["Travellers", `${model.adults} adult(s)${model.children ? `, ${model.children} child(ren)` : ""}${model.infants ? `, ${model.infants} infant(s)` : ""}`],
     ["Customer", model.customerName],
+    ...(model.contactPhone ? [["Phone", model.contactPhone] as [string, string]] : []),
+    ...(model.contactEmail ? [["Email", model.contactEmail] as [string, string]] : []),
     ...(model.validTill ? [["Valid until", new Date(model.validTill).toLocaleDateString("en-IN", { day: "numeric", month: "short", year: "numeric" })] as [string, string]] : []),
   ], onNewPage);
   if (model.specialRequests) {
@@ -191,14 +392,43 @@ export async function renderQuotationPdf(model: QuotationPdfModel): Promise<{ bu
     kicker(doc, model.packages.length > 1 ? `Package ${i + 1}` : "Package");
     heading(doc, pkg.name);
     if (pkg.description) body(doc, pkg.description, { width: contentWidth() });
-    doc.moveDown(0.4);
+    doc.moveDown(0.35);
     packagePricing(doc, pkg, onNewPage);
 
     if (pkg.activities.length) {
       ensure(doc, 40, onNewPage);
       kicker(doc, "Highlights");
       for (const activity of pkg.activities.slice(0, 8)) {
-        ensure(doc, 36, onNewPage);
+        ensure(doc, 48, onNewPage);
+        if (activity.imageUrl) {
+          const y = doc.y;
+          const drawn = await drawImage(doc, activity.imageUrl, MARGIN, y, 72, 54, "cover");
+          if (drawn) {
+            doc.fillColor(NAVY).font("Helvetica-Bold").fontSize(11)
+              .text(activity.activityName || "Experience", MARGIN + 84, y, { width: contentWidth() - 84 });
+            const meta = [
+              activity.city,
+              activity.date,
+              activity.duration,
+              activity.timeSlot,
+              activity.paxLabel,
+              activity.ticketType,
+              activity.sellingPrice != null
+                ? `${activity.currency || "INR"} ${Math.round(activity.sellingPrice).toLocaleString("en-IN")}`
+                : "",
+            ].filter(Boolean).join(" · ");
+            if (meta) {
+              doc.fillColor("#1a1a1a").font("Helvetica").fontSize(9)
+                .text(meta, MARGIN + 84, doc.y + 2, { width: contentWidth() - 84 });
+            }
+            if (activity.description) {
+              doc.fillColor("#333").font("Helvetica").fontSize(9)
+                .text(pdfSafeText(activity.description), MARGIN + 84, doc.y + 2, { width: contentWidth() - 84 });
+            }
+            doc.y = Math.max(y + 60, doc.y) + 8;
+            continue;
+          }
+        }
         doc.fillColor(NAVY).font("Helvetica-Bold").fontSize(11).text(activity.activityName || "Experience");
         const meta = [
           activity.city,
@@ -218,35 +448,26 @@ export async function renderQuotationPdf(model: QuotationPdfModel): Promise<{ bu
     }
 
     if (pkg.itinerary.length) {
-      ensure(doc, 80, onNewPage);
+      ensure(doc, 60, onNewPage);
       kicker(doc, "Itinerary");
       heading(doc, "Day-wise plan");
       body(doc, "Tentative: flow can interchange based on weather and operational feasibility.");
-      doc.moveDown(0.4);
+      doc.moveDown(0.35);
+
+      // Journey days strip
+      ensure(doc, 28 + Math.min(pkg.itinerary.length, 8) * 14, onNewPage);
+      doc.fillColor(NAVY).font("Helvetica-Bold").fontSize(11).text("Days of journey", { width: contentWidth() });
+      doc.moveDown(0.2);
       for (const day of pkg.itinerary) {
-        ensure(doc, 50, onNewPage);
-        doc.fillColor(NAVY).font("Helvetica-Bold").fontSize(12).text(day.title || `Day ${day.day}`);
-        if (day.city || day.date) {
-          body(doc, [day.city, day.date].filter(Boolean).join(" · "));
-        }
-        const places = Array.isArray(day.places) ? day.places : [];
-        for (const place of places) {
-          if (!place?.name) continue;
-          body(doc, `• ${place.name}`, { width: contentWidth() });
-          if (place.bestTimeToVisit) body(doc, `  Best time: ${place.bestTimeToVisit}`, { width: contentWidth() });
-          if (place.famousFor) body(doc, `  Famous for: ${place.famousFor}`, { width: contentWidth() });
-          if (place.description) body(doc, `  ${place.description}`, { width: contentWidth() });
-        }
-        for (const item of day.items) {
-          const prefix = item.itemType ? `[${String(item.itemType).charAt(0)}${String(item.itemType).slice(1).toLowerCase()}] ` : "";
-          const time = item.pickupTime ? `${item.pickupTime} · ` : "";
-          const line = [item.activityName, item.description].filter(Boolean).join(" — ");
-          if (line) body(doc, `• ${prefix}${time}${line}`, { width: contentWidth() });
-        }
-        if (day.mealPlan) {
-          doc.fillColor(TEAL).font("Helvetica-Bold").fontSize(9).text(`Meal plan: ${day.mealPlan}`);
-        }
-        doc.moveDown(0.35);
+        ensure(doc, 14, onNewPage);
+        body(doc, `Day ${day.day}${day.city ? ` · ${day.city}` : ""}${day.date ? ` · ${day.date}` : ""}${day.title ? ` — ${day.title}` : ""}`, {
+          width: contentWidth(),
+        });
+      }
+      doc.moveDown(0.4);
+
+      for (const day of pkg.itinerary) {
+        await renderDayCard(doc, day, onNewPage);
       }
     }
 
@@ -256,8 +477,10 @@ export async function renderQuotationPdf(model: QuotationPdfModel): Promise<{ bu
         kicker(doc, "Accommodation");
         heading(doc, hotel.city || hotel.hotelName);
         if (hotel.imageUrl) {
-          const drawn = await drawImage(doc, hotel.imageUrl, MARGIN, doc.y, contentWidth(), 160);
-          if (drawn) doc.y += 170;
+          ensure(doc, 170, onNewPage);
+          const y = doc.y;
+          const drawn = await drawImage(doc, hotel.imageUrl, MARGIN, y, contentWidth(), 150, "cover");
+          if (drawn) doc.y = y + 160;
         }
         const hotelRows: Array<[string, string]> = [
           ["Property", hotel.hotelName],
@@ -277,10 +500,17 @@ export async function renderQuotationPdf(model: QuotationPdfModel): Promise<{ bu
       ensure(doc, 80, onNewPage);
       kicker(doc, "Airlines");
       heading(doc, "Flight itinerary");
+      const tripLabel = flightTripLabel(pkg.flights);
+      if (tripLabel) {
+        body(doc, `Trip type: ${tripLabel}`, { width: contentWidth() });
+        doc.moveDown(0.2);
+      }
       for (const flight of pkg.flights) {
-        ensure(doc, 36, onNewPage);
-        const sector = [flight.from, flight.to].filter(Boolean).join(" to ") || "Sector as discussed";
-        doc.fillColor(NAVY).font("Helvetica-Bold").fontSize(10).text(sector);
+        ensure(doc, 40, onNewPage);
+        const sector = [flight.from, flight.to].filter(Boolean).join(" → ") || "Sector as discussed";
+        const dir = flight.direction || flight.tripType;
+        doc.fillColor(NAVY).font("Helvetica-Bold").fontSize(10)
+          .text(dir ? `${sector} (${String(dir).replace(/_/g, " ")})` : sector);
         const dates = [flight.date, flight.arrivalDate && flight.arrivalDate !== flight.date ? `arr ${flight.arrivalDate}` : ""]
           .filter(Boolean)
           .join(" · ");
@@ -308,10 +538,10 @@ export async function renderQuotationPdf(model: QuotationPdfModel): Promise<{ bu
 
     if (pkg.transfers.length) {
       ensure(doc, 60, onNewPage);
-      kicker(doc, "Transfers");
+      kicker(doc, "Cars & Transfers");
       heading(doc, "Ground transfers");
       for (const transfer of pkg.transfers) {
-        ensure(doc, 28, onNewPage);
+        ensure(doc, 32, onNewPage);
         const route = transfer.route
           || (transfer.pickup && transfer.drop ? `${transfer.pickup} → ${transfer.drop}` : "")
           || transfer.pickup
@@ -394,25 +624,7 @@ export async function renderQuotationPdf(model: QuotationPdfModel): Promise<{ bu
     }
 
     if (pkg.inclusions.length || pkg.exclusions.length) {
-      ensure(doc, 100, onNewPage);
-      kicker(doc, "Inclusions & exclusions");
-      heading(doc, "What is included");
-      const mid = MARGIN + contentWidth() / 2 + 8;
-      const top = doc.y;
-      doc.fillColor(NAVY).font("Helvetica-Bold").fontSize(11).text("Inclusions", MARGIN, top);
-      doc.text("Exclusions", mid, top);
-      doc.y = top + 18;
-      const leftItems = pkg.inclusions.length ? pkg.inclusions : ["As discussed"];
-      const rightItems = pkg.exclusions.length ? pkg.exclusions : ["Personal expenses"];
-      const max = Math.max(leftItems.length, rightItems.length);
-      for (let idx = 0; idx < max; idx += 1) {
-        ensure(doc, 16, onNewPage);
-        const y = doc.y;
-        if (leftItems[idx]) doc.fillColor("#1a1a1a").font("Helvetica").fontSize(9).text(`• ${leftItems[idx]}`, MARGIN, y, { width: contentWidth() / 2 - 12 });
-        if (rightItems[idx]) doc.fillColor("#1a1a1a").font("Helvetica").fontSize(9).text(`• ${rightItems[idx]}`, mid, y, { width: contentWidth() / 2 - 12 });
-        doc.y = y + 14;
-      }
-      doc.x = MARGIN;
+      renderInclusionsExclusions(doc, pkg, onNewPage);
     }
   }
 
@@ -471,11 +683,20 @@ export async function renderQuotationPdf(model: QuotationPdfModel): Promise<{ bu
     } else {
       doc.rect(0, 0, PAGE_W, PAGE_H).fill(NAVY);
     }
-    doc.fillColor(GOLD).font("Helvetica").fontSize(11).text("THANK YOU", MARGIN, 340, { align: "center", width: contentWidth(), characterSpacing: 3, lineBreak: false });
-    doc.fillColor("#f7f3ea").font("Helvetica-Bold").fontSize(18).text("GLOBAL IMMERSION EXPERIENCES", MARGIN, 370, { align: "center", width: contentWidth(), characterSpacing: 2, lineBreak: false });
-    doc.fillColor("#c4b8a4").font("Helvetica").fontSize(9).text(model.branding.legalName, MARGIN, 410, { align: "center", width: contentWidth(), lineBreak: false });
+    doc.fillColor(GOLD).font("Helvetica").fontSize(11)
+      .text("THANK YOU", MARGIN, 320, { align: "center", width: contentWidth(), characterSpacing: 3, lineBreak: false });
+    doc.fillColor("#ffffff").font("Helvetica-Bold").fontSize(26)
+      .text(model.branding.brandName.toUpperCase(), MARGIN, 350, { align: "center", width: contentWidth(), lineBreak: false });
+    doc.fillColor("#f7f3ea").font("Helvetica-Bold").fontSize(14)
+      .text("GLOBAL IMMERSION EXPERIENCES", MARGIN, 390, { align: "center", width: contentWidth(), characterSpacing: 2, lineBreak: false });
+    doc.fillColor("#c4b8a4").font("Helvetica").fontSize(9)
+      .text(model.branding.legalName, MARGIN, 430, { align: "center", width: contentWidth(), lineBreak: false });
     if (model.branding.phone || model.branding.email) {
-      doc.text([model.branding.phone, model.branding.email].filter(Boolean).join("  ·  "), MARGIN, 430, { align: "center", width: contentWidth(), lineBreak: false });
+      doc.text([model.branding.phone, model.branding.email].filter(Boolean).join("  ·  "), MARGIN, 450, {
+        align: "center",
+        width: contentWidth(),
+        lineBreak: false,
+      });
     }
     doc.page.margins.bottom = prevBottom;
   }

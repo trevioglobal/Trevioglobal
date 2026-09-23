@@ -649,6 +649,19 @@ app.post("/api/auth/register", authLimiter, validate(agentRegistrationSchema), a
       return user;
     }, { maxWait: 15_000, timeout: 30_000 });
 
+    // Agency code at registration — quotation screen always has a stable agency code.
+    try {
+      const { ensureAgencyRegistrationCodes } = await import("./lib/agent-codes.js");
+      await ensureAgencyRegistrationCodes(result.agencyId!, body.companyName);
+    } catch (e) {
+      logger.warn({ err: e, agencyId: result.agencyId }, "Agency code assignment after register failed");
+    }
+
+    const refreshed = await db.user.findUnique({
+      where: { id: result.id },
+      include: { agency: true, branch: true },
+    });
+
     void import("./lib/email.js")
       .then(({ sendHtmlEmail }) =>
         sendHtmlEmail(
@@ -663,18 +676,20 @@ app.post("/api/auth/register", authLimiter, validate(agentRegistrationSchema), a
       )
       .catch(() => undefined);
 
-    const { password: _password, ...safeUser } = result;
+    const { password: _password, ...safeUser } = refreshed || result;
     res.status(201).json({
       ok: true,
       status: REGISTRATION_STATUS.SUBMITTED,
       message: "Registration submitted for admin approval. You cannot sign in until an administrator approves your account.",
       registrationId: result.agencyId,
+      agencyCode: refreshed?.agency?.code || null,
       user: {
         id: safeUser.id,
         name: safeUser.name,
         email: safeUser.email,
         status: safeUser.status,
         agencyId: safeUser.agencyId,
+        agentCode: refreshed?.agentCode || null,
       },
     });
   } catch (e) {
@@ -1271,8 +1286,17 @@ app.post("/api/payments/razorpay/verify", requireAuth, requireAnyPermission("pay
 app.get("/api/agencies", requireAuth, requireRole("super_admin"), async (_req, res) => {
   try {
     const agencies = await db.agency.findMany({ orderBy: { createdAt: "desc" } });
+    const { ensureAgencyCode } = await import("./lib/agent-codes.js");
     const enriched = await Promise.all(
       agencies.map(async (a) => {
+        let code = a.code;
+        if (!code) {
+          try {
+            code = await ensureAgencyCode(a.id, a.name);
+          } catch {
+            /* non-fatal */
+          }
+        }
         const [branches, employees] = await Promise.all([
           db.branch.count({ where: { agencyId: a.id } }),
           db.employee.count({ where: { agencyId: a.id } }),
@@ -1280,7 +1304,7 @@ app.get("/api/agencies", requireAuth, requireRole("super_admin"), async (_req, r
         const apiAllocation = a.apiAllocation && typeof a.apiAllocation === "object"
           ? a.apiAllocation
           : { flights: 0, hotels: 0 };
-        return { ...a, apiAllocation, branches, employees };
+        return { ...a, code, apiAllocation, branches, employees };
       })
     );
     res.json({ agencies: enriched, total: enriched.length });
@@ -1362,10 +1386,22 @@ app.post("/api/employees", requireAuth, requireRole("super_admin", "agency_admin
       tempPassword = generateTempPassword();
       const passwordHash = await bcrypt.hash(tempPassword, 10);
       let agentCode: string | undefined;
-      if (role === "travel_agent" && agencyId) {
+      if (agencyId) {
         const { allocateAgentCode, ensureAgencyCode } = await import("./lib/agent-codes.js");
         await ensureAgencyCode(agencyId);
-        agentCode = await allocateAgentCode(agencyId);
+        // Agency staff who create quotations need an agent code immediately.
+        const quoteRoles = new Set([
+          "travel_agent",
+          "agency_admin",
+          "branch_manager",
+          "sales_executive",
+          "product_executive",
+          "team_lead",
+          "employee",
+        ]);
+        if (quoteRoles.has(role)) {
+          agentCode = await allocateAgentCode(agencyId);
+        }
       }
       await db.user.create({
         data: {
@@ -2210,6 +2246,21 @@ app.patch("/api/employees/:id", requireAuth, requireRole("super_admin", "agency_
       await db.employee.update({ where: { id: employee.id }, data: { permissions: permissions ?? null } }).catch(() => undefined);
       await db.user.updateMany({ where: { email: employee.email }, data: { permissions: permissions ?? null } }).catch(() => undefined);
     }
+    // Sync login user role + allocate agent code when promoted to travel_agent / quote roles.
+    if (role && !isBranchManager) {
+      const linked = await db.user.findFirst({ where: { email: employee.email }, select: { id: true, agentCode: true, agencyId: true } });
+      if (linked) {
+        await db.user.update({ where: { id: linked.id }, data: { role } }).catch(() => undefined);
+        if (!linked.agentCode && linked.agencyId) {
+          try {
+            const { ensureUserAgentCode } = await import("./lib/agent-codes.js");
+            await ensureUserAgentCode(linked.id, true);
+          } catch {
+            /* non-fatal */
+          }
+        }
+      }
+    }
     res.json({ employee });
   } catch (e) {
     logger.error(e);
@@ -2319,12 +2370,12 @@ app.patch("/api/quotations/:id/assign-agent", requireAuth, requirePermission("qu
       agentCode = (await ensureUserAgentCode(agent.id, true)) || agent.agentCode || null;
       if (agent.agencyId) {
         agencyId = agent.agencyId;
-        await ensureAgencyCode(agent.agencyId);
-        agencyCode = agent.agency?.code || agencyCode;
+        agencyCode = (await ensureAgencyCode(agent.agencyId)) || agencyCode;
       }
     } else {
       agentId = null;
       agentName = null;
+      agentCode = null;
     }
 
     const quotation = await db.quotation.update({
@@ -2481,11 +2532,13 @@ app.post("/api/agencies", requireAuth, requireRole("super_admin"), validate(agen
         address: body.address,
       },
     });
+
+    let agencyCode: string | null = null;
     try {
       const { ensureAgencyCode } = await import("./lib/agent-codes.js");
-      await ensureAgencyCode(agency.id, agency.name);
-    } catch {
-      /* non-fatal */
+      agencyCode = await ensureAgencyCode(agency.id, agency.name);
+    } catch (e) {
+      logger.warn({ err: e, agencyId: agency.id }, "Agency code on admin create failed");
     }
 
     let tempPassword: string | undefined;
@@ -2493,7 +2546,7 @@ app.post("/api/agencies", requireAuth, requireRole("super_admin"), validate(agen
     try {
       tempPassword = generateTempPassword();
       const passwordHash = await bcrypt.hash(tempPassword, 10);
-      await db.user.create({
+      const ownerUser = await db.user.create({
         data: {
           name: body.owner,
           email: body.email,
@@ -2505,6 +2558,12 @@ app.post("/api/agencies", requireAuth, requireRole("super_admin"), validate(agen
           status: "Active",
         },
       });
+      try {
+        const { ensureUserAgentCode } = await import("./lib/agent-codes.js");
+        await ensureUserAgentCode(ownerUser.id, true);
+      } catch {
+        /* non-fatal */
+      }
       emailedCredentials = await sendEmail({
         to: body.email,
         subject: "Your Trevio agency admin login",
@@ -2517,8 +2576,11 @@ app.post("/api/agencies", requireAuth, requireRole("super_admin"), validate(agen
       emailedCredentials = false;
     }
 
+    const refreshedAgency = await db.agency.findUnique({ where: { id: agency.id } });
     res.status(201).json({
-      agency,
+      agency: refreshedAgency
+        ? { ...refreshedAgency, code: refreshedAgency.code || agencyCode }
+        : { ...agency, code: agencyCode },
       tempPassword: allowInsecureTempPasswordResponse() ? tempPassword : undefined,
       emailedCredentials,
     });

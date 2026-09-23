@@ -15,7 +15,7 @@ import { quoteUnresolvedRateReason } from "./contracted-rates.js";
 import { TAX_CONFIGURATION_REQUIRED, pricingBlockReason } from "./pricing.js";
 import { resolveCommissionAmount } from "./commission.js";
 import { copyQuoteDocumentsToBooking } from "../routes/documents.js";
-import { seedTravelDetailsFromServices } from "./travel-details.js";
+import { seedTravelDetailsFromPackage, seedTravelDetailsFromServices } from "./travel-details.js";
 import { travelDatesBlockReason } from "./travel-dates.js";
 import type { AuthRequest } from "../middleware/auth.js";
 
@@ -295,13 +295,17 @@ async function seedOpsTasksTx(tx: Tx, opts: {
   });
 }
 
-async function seedDefaultServicesTx(tx: Tx, bookingId: string, isInternational: boolean) {
+async function seedDefaultServicesTx(
+  tx: Tx,
+  bookingId: string,
+  opts: { isInternational: boolean; landOnly?: boolean },
+) {
   const rows = [
     { serviceType: "Hotel", title: "Hotel accommodation" },
-    { serviceType: "Flight", title: "Flights" },
+    ...(opts.landOnly ? [] : [{ serviceType: "Flight", title: "Flights" }]),
     { serviceType: "Transfer", title: "Airport transfers" },
     { serviceType: "Attraction", title: "Activities" },
-    ...(isInternational ? [{ serviceType: "Visa", title: "Visa processing" }] : []),
+    ...(opts.isInternational ? [{ serviceType: "Visa", title: "Visa processing" }] : []),
     { serviceType: "Insurance", title: "Travel insurance" },
   ];
   await tx.bookingService.createMany({
@@ -457,7 +461,7 @@ export async function convertQuotationToBooking(input: ConvertQuotationInput): P
   const adults = quote.adults ?? 2;
   const children = quote.children ?? 0;
   const infants = quote.infants ?? 0;
-  const rooms = Math.max(1, Math.ceil((adults + children) / 3));
+  const rooms = Math.max(1, Number(quote.rooms) || Math.ceil((adults + children) / 3));
   const salesName = quote.salesExecutiveName || quote.createdBy || input.email || "Sales";
   const opsName = input.operationsExecutiveName || "Operations";
   const opsId = input.operationsExecutiveId || undefined;
@@ -597,6 +601,7 @@ export async function convertQuotationToBooking(input: ConvertQuotationInput): P
 
       const slots = passengerSlotsFromRooms(rooms, adults, children, infants);
       const nameParts = quote.customerName.trim().split(/\s+/);
+      const passportFromNotes = String(quote.specialRequests || "").match(/^Passport:\s*(.+)$/im)?.[1]?.trim() || null;
       await tx.bookingPassenger.createMany({
         data: slots.map((s, idx) => ({
           bookingId: created.id,
@@ -604,12 +609,24 @@ export async function convertQuotationToBooking(input: ConvertQuotationInput): P
           isLead: s.isLead,
           firstName: idx === 0 ? (nameParts[0] || "Lead") : "Passenger",
           lastName: idx === 0 ? (nameParts.slice(1).join(" ") || "Traveller") : String(idx + 1),
+          // Lead guest details from quotation — no re-entry on booking Passengers tab
+          ...(idx === 0
+            ? {
+                email: quote.contactEmail?.trim() || null,
+                mobile: quote.contactPhone?.trim() || null,
+                nationality: quote.nationality?.trim() || null,
+                passportNumber: passportFromNotes,
+              }
+            : {}),
         })),
       });
 
       const hasPackageLines = packageHasCopiedLines(selected);
       if (!hasPackageLines) {
-        await seedDefaultServicesTx(tx, created.id, quote.isInternational);
+        await seedDefaultServicesTx(tx, created.id, {
+          isInternational: quote.isInternational,
+          landOnly: quote.landOnly === true,
+        });
       } else {
         await copySelectedPackageToBookingTx(tx, created.id, selected);
       }
@@ -620,11 +637,27 @@ export async function convertQuotationToBooking(input: ConvertQuotationInput): P
 
       const itinerary = jsonArr(selected.itinerary);
       const services = await tx.bookingService.findMany({ where: { bookingId: created.id } });
+      const packageTravel = seedTravelDetailsFromPackage(selected);
+      const serviceTravel = seedTravelDetailsFromServices(services);
+      const travelDetails = {
+        flights:
+          packageTravel.flights && packageTravel.flights.length
+            ? packageTravel.flights
+            : serviceTravel.flights || [],
+        hotel:
+          packageTravel.hotel?.name || packageTravel.hotel?.checkIn
+            ? packageTravel.hotel
+            : serviceTravel.hotel || {},
+      };
       await tx.booking.update({
         where: { id: created.id },
         data: {
           itinerary: itinerary.length > 0 ? (itinerary as object) : undefined,
-          travelDetails: services.length > 0 ? (seedTravelDetailsFromServices(services) as object) : undefined,
+          travelDetails: (travelDetails.flights.length > 0 || travelDetails.hotel?.name)
+            ? (travelDetails as object)
+            : services.length > 0
+              ? (serviceTravel as object)
+              : undefined,
         },
       });
 

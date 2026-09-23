@@ -99,9 +99,41 @@ export async function generateQuotationPdf(input: GenerateQuotationPdfInput) {
   }
 
   const branding = await loadBranding(quote.agencyId);
+
+  let destinationCoverImage: string | null = null;
+  if (!quote.coverImage && quote.destination) {
+    try {
+      const destName = String(quote.destination).split(/[·,]/)[0].trim();
+      const dest = await db.destination.findFirst({
+        where: {
+          AND: [
+            {
+              OR: [
+                { name: { equals: destName, mode: "insensitive" } },
+                { name: { contains: destName, mode: "insensitive" } },
+                ...(quote.country
+                  ? [{ country: { equals: String(quote.country), mode: "insensitive" as const } }]
+                  : []),
+              ],
+            },
+            ...(quote.agencyId
+              ? [{ OR: [{ agencyId: quote.agencyId }, { agencyId: null }] }]
+              : []),
+          ],
+        },
+        select: { heroImage: true, thumbnail: true },
+        orderBy: { updatedAt: "desc" },
+      });
+      destinationCoverImage = dest?.heroImage || dest?.thumbnail || null;
+    } catch {
+      destinationCoverImage = null;
+    }
+  }
+
   const model = buildQuotationPdfModel({
     quote: quote as unknown as Record<string, unknown>,
     branding,
+    destinationCoverImage,
     mode,
     audience,
   });

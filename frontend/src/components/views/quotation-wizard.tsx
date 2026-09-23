@@ -2,8 +2,8 @@
 
 import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import {
-  BadgeCheck, Check, ChevronDown, ChevronLeft, ChevronRight, Clock, Coffee, Copy, Crosshair, FileDown, Headphones, Home, Hotel,
-  ImageIcon, Info as InfoIcon, Loader2, Mail, MapPin, MessageCircle, Minus, Pencil, Plus, Printer, Search, ShieldCheck, Star, Trash2, X,
+  BadgeCheck, CalendarDays, Check, ChevronDown, ChevronLeft, ChevronRight, ClipboardList, Clock, Coffee, Copy, Crosshair, FileDown, FileText, Headphones, Home, Hotel,
+  ImageIcon, Info as InfoIcon, Loader2, Mail, MapPin, MessageCircle, Minus, NotebookPen, Pencil, Plus, Printer, Search, ShieldCheck, Star, Trash2, UserRound, X,
 } from "lucide-react";
 import { api, apiFetch, ApiError } from "@/lib/api";
 import { mapApiQuotation, mapApiUser } from "@/lib/api-mappers";
@@ -47,6 +47,8 @@ import {
 } from "@/lib/quote-discount";
 import { QuotePriceBreakdown } from "@/components/shared/quote-price-breakdown";
 import { AgencyQuoteStepper, AGENCY_QUOTE_STEPS } from "@/components/shared/agency-quote-stepper";
+import { QuoteWizardFooter } from "@/components/shared/quote-wizard-footer";
+import { QuoteFormSection, QuoteMetaChip } from "@/components/shared/quote-form-section";
 import { DESTINATION_QUOTE_PLANS, getDestinationQuotePlan } from "@/lib/destination-quote-plans";
 import { downloadQuotationPdf, deliverQuotationEmail, deliverQuotationWhatsApp } from "@/lib/quotation-actions";
 import { downloadClientQuotationBrochure } from "@/lib/client-quotation-brochure";
@@ -317,7 +319,7 @@ export function QuotationWizardView() {
   /** 0 Personal → 1 Travel → 2 Services → 3 Itinerary → 4 Pricing → 5 Preview */
   const [flowStep, setFlowStep] = useState(FLOW_PERSONAL);
   const [servicePicker, setServicePicker] = useState<{
-    service: "Hotel" | "Transfers" | "Activities" | "Meals" | "Miscellaneous";
+    service: "Hotel" | "Flights" | "Transfers" | "Activities" | "Meals" | "Miscellaneous";
     dayNumber: number;
     date: string;
     city: string;
@@ -437,6 +439,8 @@ export function QuotationWizardView() {
             contactPhone: q.contactPhone || "",
             agentName: q.agentName || "",
             agentId: (q as { agentId?: string }).agentId || "",
+            agentCode: q.agentCode || "",
+            agencyCode: q.agencyCode || "",
             salesExecutiveName: q.salesExecutiveName || f.salesExecutiveName,
             salesExecutiveEmail: (q as { salesExecutiveEmail?: string }).salesExecutiveEmail || f.salesExecutiveEmail,
             salesExecutivePhone: (q as { salesExecutivePhone?: string }).salesExecutivePhone || f.salesExecutivePhone,
@@ -552,11 +556,12 @@ export function QuotationWizardView() {
       }));
     } else {
       // Super admin / internal: auto sales executive = creator; travel agent left for optional pick.
+      // Still prefill agency + personal agent codes so quotation screen is never blank.
       setForm((f) => ({
         ...f,
         agentName: f.agentName || "",
         agentId: f.agentId || "",
-        agentCode: f.agentCode || "",
+        agentCode: f.agentCode || user.agentCode || "",
         agencyCode: user.agencyCode || f.agencyCode || "",
         salesExecutiveName: f.salesExecutiveName || user.name || user.email || "",
         salesExecutiveEmail: f.salesExecutiveEmail || user.email || "",
@@ -579,6 +584,8 @@ export function QuotationWizardView() {
           setForm((f) => ({
             ...f,
             agencyCode: mapped.agencyCode || f.agencyCode || "",
+            // Staff quote owner code until a travel agent is explicitly assigned.
+            agentCode: f.agentId ? f.agentCode : (mapped.agentCode || f.agentCode || ""),
             salesExecutiveName: f.salesExecutiveName || mapped.name || "",
             salesExecutiveEmail: f.salesExecutiveEmail || mapped.email || "",
             salesExecutivePhone: f.salesExecutivePhone || mapped.phone || "",
@@ -1748,9 +1755,94 @@ export function QuotationWizardView() {
     });
   }
 
+  function appendTripFlight(
+    item: ProductRecord,
+    rate: {
+      rateId: string;
+      validFrom: string;
+      validTo: string;
+      contractedCost?: number;
+      displayPrice?: number | null;
+      source?: "CONTRACTED_PRODUCT" | "MANUAL";
+    },
+  ) {
+    const selling = Number(rate.displayPrice || item.sellingPrice || 0);
+    const manual = rate.source === "MANUAL" || !rate.rateId;
+    const hasInternalCost = !manual && rate.contractedCost != null && Number.isFinite(Number(rate.contractedCost));
+    const cost = hasInternalCost ? Number(rate.contractedCost) : undefined;
+    const row: Record<string, unknown> = {
+      lineId: newHotelLineId(),
+      productId: item.id,
+      productType: "FLIGHT",
+      source: manual ? "MANUAL" : "CONTRACTED_PRODUCT",
+      airline: String(item.airline || item.name || ""),
+      airlineCode: String(item.airlineCode || ""),
+      flightNumber: String(item.flightNumber || ""),
+      from: String(item.origin || departureIata(form.departureCity) || ""),
+      to: String(item.destinationAirport || item.destination || ""),
+      cabinClass: String(item.cabinClass || "Economy"),
+      depTime: String(item.departureTime || ""),
+      arrTime: String(item.arrivalTime || ""),
+      duration: String(item.duration || ""),
+      baggage: String(item.baggage || ""),
+      currency: String(item.currency || form.currency || "INR"),
+      date: "",
+      flightDocuments: [],
+      segmentIndex: ((selected?.flights || []) as unknown[]).length,
+      adults: form.adults,
+      children: form.children,
+      infants: form.infants,
+      rateId: rate.rateId || undefined,
+      rateValidFrom: rate.validFrom,
+      rateValidTo: rate.validTo,
+      rateSelectedAt: new Date().toISOString(),
+      rateTravelDate: form.travelStartDate,
+      rateUnresolved: manual,
+      sellingPrice: selling || (cost ?? 0),
+      fare: selling || (cost ?? 0),
+    };
+    if (hasInternalCost) row.costPrice = cost;
+    const prev = (selected?.flights || []) as Record<string, unknown>[];
+    const flights = [...prev, row];
+    const itinerary = syncItineraryFromPackage(selected?.itinerary, { ...selected, flights }, {
+      stayWindows,
+      travelStartDate: form.travelStartDate,
+    });
+    void persistTripPackage(buildSelectedPackagePatch({ flights, itinerary }));
+    setServicePicker(null);
+    toast({
+      title: "Flight added",
+      description: `${String(row.airline || "Flight")}${row.flightNumber ? ` ${row.flightNumber}` : ""} · ${formatFullINR(Number(row.sellingPrice || 0))}`,
+    });
+  }
+
+  function appendTripFlightSearchRow(row: Record<string, unknown>) {
+    const withMeta: Record<string, unknown> = {
+      ...row,
+      lineId: newHotelLineId(),
+      segmentIndex: row.segmentIndex != null ? row.segmentIndex : ((selected?.flights || []) as unknown[]).length,
+      adults: row.adults != null ? row.adults : form.adults,
+      children: row.children != null ? row.children : form.children,
+      infants: row.infants != null ? row.infants : form.infants,
+    };
+    const prev = (selected?.flights || []) as Record<string, unknown>[];
+    const flights = [...prev, withMeta];
+    const itinerary = syncItineraryFromPackage(selected?.itinerary, { ...selected, flights }, {
+      stayWindows,
+      travelStartDate: form.travelStartDate,
+    });
+    void persistTripPackage(buildSelectedPackagePatch({ flights, itinerary }));
+    setServicePicker(null);
+    toast({
+      title: "Flight added",
+      description: `${String(withMeta.airline || "Flight")} · ${formatFullINR(Number(withMeta.sellingPrice || withMeta.fare || 0))}`,
+    });
+  }
+
   if (wizardPhase === "trip") {
     const pickerCity = servicePicker?.city || "";
     const isMiscPicker = servicePicker?.service === "Miscellaneous";
+    const isFlightPicker = servicePicker?.service === "Flights";
     const pickerKind =
       servicePicker?.service === "Transfers"
         ? "transfers" as const
@@ -1758,7 +1850,9 @@ export function QuotationWizardView() {
           ? "activities" as const
           : servicePicker?.service === "Meals"
             ? "meals" as const
-            : "hotels" as const;
+            : servicePicker?.service === "Flights"
+              ? "flights" as const
+              : "hotels" as const;
     const pickerTitle =
       servicePicker?.service === "Transfers"
         ? servicePicker.transferKind === "airport_pickup"
@@ -1770,9 +1864,11 @@ export function QuotationWizardView() {
             ? "Add Meal to your Package"
             : servicePicker?.service === "Miscellaneous"
               ? "Add Miscellaneous to your Package"
-              : `Add Hotel in ${pickerCity || "your trip"}`;
+              : servicePicker?.service === "Flights"
+                ? "Add Flight to your Package"
+                : `Add Hotel in ${pickerCity || "your trip"}`;
     return (
-      <div className="-mx-4 sm:-mx-6 lg:-mx-8 -mt-4 sm:-mt-6 lg:-mt-8 mb-[-1.5rem] sm:mb-[-2rem] lg:mb-[-2rem] min-h-[calc(100vh-3.5rem)] flex flex-col bg-background border-y border-border/60 relative">
+      <div className="-mx-4 sm:-mx-6 lg:-mx-8 -mt-4 sm:-mt-6 lg:-mt-8 mb-[-1.5rem] sm:mb-[-2rem] lg:mb-[-2rem] h-[calc(100vh-3.5rem)] flex flex-col bg-background border-y border-border/60 relative">
         <QuoteTripBuilder
           form={form}
           stayWindows={stayWindows}
@@ -1781,6 +1877,7 @@ export function QuotationWizardView() {
           total={liveCosting.total}
           itinerary={selected?.itinerary}
           hotels={(selected?.hotels || []) as Record<string, unknown>[]}
+          flights={(selected?.flights || []) as Record<string, unknown>[]}
           busy={busy}
           stage={
             flowStep === FLOW_ITINERARY
@@ -1845,6 +1942,22 @@ export function QuotationWizardView() {
               sellingPrice: Number(a.sellingPrice || 0),
               costPrice: a.costPrice != null ? Number(a.costPrice) : undefined,
             })),
+            ...((selected?.meals || []) as Record<string, unknown>[]).map((m, i) => ({
+              kind: "meal" as const,
+              lineId: String(m.lineId || m.productId || `meal-${i}`),
+              label: String(m.name || m.mealType || `Meal ${i + 1}`),
+              sellingPrice: Number(m.sellingPrice || 0),
+              costPrice: m.costPrice != null ? Number(m.costPrice) : undefined,
+            })),
+            ...((selected?.addOns || []) as Record<string, unknown>[])
+              .filter((row) => (row as { enabled?: boolean }).enabled !== false)
+              .map((a, i) => ({
+                kind: "misc" as const,
+                lineId: String(a.lineId || a.productId || `misc-${i}`),
+                label: String(a.name || a.category || `Add-on ${i + 1}`),
+                sellingPrice: Number(a.sellingPrice || 0),
+                costPrice: a.costPrice != null ? Number(a.costPrice) : undefined,
+              })),
           ]}
           onPricingChange={(patch) => {
             setForm((f) => ({
@@ -1867,7 +1980,7 @@ export function QuotationWizardView() {
             const rows = [...((selected?.[key] || []) as Record<string, unknown>[])];
             const idx = rows.findIndex((r, i) => String(r.lineId || r.productId || `${kind}-${i}`) === lineId);
             if (idx < 0) return;
-            rows[idx] = { ...rows[idx], sellingPrice };
+            rows[idx] = { ...rows[idx], sellingPrice, ...(key === "flights" ? { fare: sellingPrice } : {}) };
             void persistTripPackage(buildSelectedPackagePatch({ [key]: rows }));
           }}
           onFlowStepChange={setFlowStep}
@@ -1918,6 +2031,21 @@ export function QuotationWizardView() {
             });
             void persistTripPackage(buildSelectedPackagePatch({ hotels, itinerary }));
           }}
+          onRemoveFlight={(flightLineId) => {
+            const prev = (selected?.flights || []) as Record<string, unknown>[];
+            const flights = prev.filter((f, i) => {
+              const key = String(f.lineId || f.productId || `flight-${i}`);
+              return key !== flightLineId;
+            });
+            const itinerary = syncItineraryFromPackage(selected?.itinerary, {
+              ...selected,
+              flights,
+            }, {
+              stayWindows,
+              travelStartDate: form.travelStartDate,
+            });
+            void persistTripPackage(buildSelectedPackagePatch({ flights, itinerary }));
+          }}
           onRemoveTransfer={(transferLineId) => {
             const prev = (selected?.transfers || []) as Record<string, unknown>[];
             const transfers = prev.filter((t, i) => {
@@ -1966,7 +2094,7 @@ export function QuotationWizardView() {
           onRemoveMisc={(miscLineId) => {
             const prev = (selected?.addOns || []) as Record<string, unknown>[];
             const addOns = prev.filter((a, i) => {
-              const key = String(a.lineId || a.id || `misc-${i}`);
+              const key = String(a.lineId || a.productId || `misc-${i}`);
               return key !== miscLineId;
             });
             const itinerary = syncItineraryFromPackage(selected?.itinerary, {
@@ -2042,6 +2170,7 @@ export function QuotationWizardView() {
           onOpenService={(target) => {
             if (
               target.service === "Hotel"
+              || target.service === "Flights"
               || target.service === "Transfers"
               || target.service === "Activities"
               || target.service === "Meals"
@@ -2057,25 +2186,20 @@ export function QuotationWizardView() {
             }
           }}
         />
-
         {servicePicker && (
-          <div className="fixed inset-0 z-50 flex flex-col bg-background">
-            <div className="shrink-0 flex items-center justify-between gap-3 px-4 sm:px-6 py-3 bg-brand-blue text-white shadow-md">
-              <h2 className="text-base sm:text-lg font-semibold tracking-tight truncate">
-                {pickerTitle}
-              </h2>
+          <div className="absolute inset-0 z-40 flex flex-col bg-background/95 backdrop-blur-sm">
+            <div className="flex items-center justify-between gap-3 px-4 sm:px-6 py-3 border-b shrink-0">
+              <h2 className="text-base font-semibold truncate">{pickerTitle}</h2>
               <Button
                 type="button"
-                size="icon"
-                variant="ghost"
-                className="h-9 w-9 text-white hover:bg-white/15 hover:text-white shrink-0"
-                aria-label="Close catalogue"
+                variant="outline"
+                size="sm"
                 onClick={() => setServicePicker(null)}
               >
-                <X className="w-5 h-5" />
+                Close
               </Button>
             </div>
-            <div className="flex-1 min-h-0 overflow-hidden p-3 sm:p-4">
+            <div className="flex-1 min-h-0 overflow-hidden">
               {isMiscPicker ? (
                 <MiscCatalogPanel
                   adults={Math.max(1, form.adults || 1)}
@@ -2083,6 +2207,42 @@ export function QuotationWizardView() {
                   onPick={(item) => appendTripMisc(item)}
                   onClose={() => setServicePicker(null)}
                 />
+              ) : isFlightPicker ? (
+                <div className="h-full overflow-y-auto p-4 sm:p-6 space-y-4">
+                  <FlightApiSearch
+                    travelDate={form.travelStartDate}
+                    travelEndDate={form.travelEndDate}
+                    defaultFrom={departureIata(form.departureCity) || undefined}
+                    defaultTo={departureIata(form.destination) || departureIata(pickerCity) || undefined}
+                    adults={Math.max(1, form.adults || 1)}
+                    children={Math.max(0, form.children || 0)}
+                    infants={Math.max(0, form.infants || 0)}
+                    destinationLabel={form.destination}
+                    tripCities={hotelTripCities}
+                    onPick={(row) => appendTripFlightSearchRow(row)}
+                  />
+                  <CatalogPicker
+                    kind="flights"
+                    travelDate={form.travelStartDate}
+                    travelEndDate={form.travelEndDate}
+                    destinationId={destinationId || undefined}
+                    destination={form.destination}
+                    country={form.country || undefined}
+                    tripCities={hotelTripCities}
+                    adults={Math.max(1, form.adults || 1)}
+                    children={Math.max(0, form.children || 0)}
+                    trevioMarkupType={form.trevioMarkupType}
+                    trevioMarkupValue={Number(form.trevioMarkupValue || 0)}
+                    selectedFlights={(selected?.flights || []) as Record<string, unknown>[]}
+                    open
+                    onOpenChange={(open) => {
+                      if (!open) setServicePicker(null);
+                    }}
+                    variant="inline"
+                    fillViewport
+                    onPick={(item, rate) => appendTripFlight(item, rate)}
+                  />
+                </div>
               ) : (
               <CatalogPicker
                 kind={pickerKind}
@@ -2153,32 +2313,42 @@ export function QuotationWizardView() {
                 type="button"
                 variant="outline"
                 size="sm"
-                className="shrink-0 mt-0.5"
+                className="shrink-0 mt-0.5 h-8"
                 onClick={onClose}
               >
                 <ChevronLeft className="w-4 h-4 mr-0.5" /> Quotations
               </Button>
               <div className="min-w-0">
-                <h1 className="text-lg sm:text-xl font-semibold tracking-tight">
-                  {quoteNo || "New quotation"}
-                </h1>
+                <div className="flex flex-wrap items-center gap-2">
+                  <h1 className="text-lg font-semibold tracking-tight">
+                    {quoteNo || "New quotation"}
+                  </h1>
+                  <span
+                    className={cn(
+                      "inline-flex items-center rounded-full px-2 py-0.5 text-[10px] font-medium",
+                      id
+                        ? "bg-teal-100 text-teal-800"
+                        : "bg-muted text-muted-foreground",
+                    )}
+                  >
+                    {id ? "In progress" : "Draft"}
+                  </span>
+                </div>
                 <p className="text-sm text-muted-foreground mt-0.5">
-                  {AGENCY_QUOTE_STEPS[Math.min(flowStep, AGENCY_QUOTE_STEPS.length - 1)]?.label || "Quotation"}
-                  {nights != null ? ` · ${nights}N / ${tripDays}D` : ""}
-                  {id ? " · Editing" : " · New quote"}
+                  {[
+                    form.customerName || "Guest",
+                    form.destination || null,
+                    nights != null ? `${nights}N / ${tripDays}D` : null,
+                    AGENCY_QUOTE_STEPS[Math.min(flowStep, AGENCY_QUOTE_STEPS.length - 1)]?.label,
+                  ].filter(Boolean).join(" · ")}
                 </p>
               </div>
             </div>
-            <div className="text-right text-xs text-muted-foreground">
-              <p className="font-medium text-foreground tabular-nums text-sm">{formatFullINR(liveCosting.total)}</p>
-              <p>Live total · {liveCosting.profitMargin}% margin</p>
+            <div className="text-right shrink-0">
+              <p className="text-[10px] uppercase tracking-wide text-muted-foreground">Live total</p>
+              <p className="font-semibold tabular-nums text-base">{formatFullINR(liveCosting.total)}</p>
+              <p className="text-[11px] text-muted-foreground">{liveCosting.profitMargin}% margin</p>
             </div>
-          </div>
-          <div className="h-1.5 rounded-full bg-muted overflow-hidden">
-            <div
-              className="h-full rounded-full bg-teal-600 transition-all duration-300"
-              style={{ width: `${Math.max(progressPct, 8)}%` }}
-            />
           </div>
           <AgencyQuoteStepper
             activeIndex={flowStep}
@@ -2189,7 +2359,6 @@ export function QuotationWizardView() {
                 setFlowStep(index);
                 return;
               }
-              // Trip steps allowed without save — quote stays local until Save draft.
               setWizardPhase("trip");
               setFlowStep(index);
             }}
@@ -2199,61 +2368,62 @@ export function QuotationWizardView() {
         <div className="flex flex-1 min-h-0 overflow-hidden">
           <div className="flex-1 min-w-0 flex flex-col min-h-0 relative">
             <div
-              className="flex-1 min-h-0 px-4 sm:px-6 lg:px-8 overflow-y-auto py-5 pb-8 space-y-4"
+              className="flex-1 min-h-0 px-4 sm:px-6 lg:px-8 overflow-y-auto py-4 pb-8 space-y-3 bg-muted/15"
             >
         {step === 0 && (
-          <div className="space-y-5 max-w-3xl">
+          <div className="space-y-3 w-full min-w-0">
             {flowStep === FLOW_PERSONAL && (
               <>
-              <div className="rounded-xl border bg-teal-50/50 border-teal-100 px-4 py-3">
-                <p className="text-sm font-semibold text-teal-900">Step 1 · Personal details</p>
-                <p className="text-xs text-teal-800/80 mt-0.5">
-                  Guest contact, quote date / validity, and ID proofs (passport / Aadhaar) after Save draft.
-                </p>
-              </div>
-              {/* Quote meta */}
-              <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
-                <div className="space-y-1.5 min-w-0">
-                  <Label className="text-sm font-medium">Quote date</Label>
-                  <Input className="h-10 w-full bg-muted/40" value={form.quoteDate || todayYmd()} readOnly />
+              <QuoteFormSection
+                id="quote-settings"
+                title="Quote settings"
+                description="Validity and currency — carried into booking after accept."
+              >
+                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
+                  <div className="space-y-1 min-w-0">
+                    <Label className="text-[10px] text-muted-foreground uppercase tracking-wide">Quote date</Label>
+                    <Input className="h-9 w-full bg-muted/30" value={form.quoteDate || todayYmd()} readOnly />
+                  </div>
+                  <Field
+                    label="Valid till"
+                    type="date"
+                    value={form.validTill}
+                    onChange={(v) => setForm({ ...form, validTill: v })}
+                    min={todayYmd()}
+                  />
+                  <div className="space-y-1 min-w-0">
+                    <Label className="text-[10px] text-muted-foreground uppercase tracking-wide">Currency</Label>
+                    <Select
+                      value={form.currency || "INR"}
+                      onValueChange={(v) => setForm({ ...form, currency: v })}
+                    >
+                      <SelectTrigger className="h-9 w-full"><SelectValue /></SelectTrigger>
+                      <SelectContent side="bottom" avoidCollisions={false}>
+                        {["INR", "USD", "EUR", "GBP", "AED", "SGD", "MYR", "THB"].map((c) => (
+                          <SelectItem key={c} value={c}>{c}</SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  </div>
                 </div>
-                <Field
-                  label="Valid till"
-                  type="date"
-                  value={form.validTill}
-                  onChange={(v) => setForm({ ...form, validTill: v })}
-                  min={todayYmd()}
-                />
-                <div className="space-y-1.5 min-w-0">
-                  <Label className="text-sm font-medium">Currency</Label>
-                  <Select
-                    value={form.currency || "INR"}
-                    onValueChange={(v) => setForm({ ...form, currency: v })}
-                  >
-                    <SelectTrigger className="h-10 w-full"><SelectValue /></SelectTrigger>
-                    <SelectContent side="bottom" avoidCollisions={false}>
-                      {["INR", "USD", "EUR", "GBP", "AED", "SGD", "MYR", "THB"].map((c) => (
-                        <SelectItem key={c} value={c}>{c}</SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
-                </div>
-              </div>
+              </QuoteFormSection>
 
-              {/* Customer — FRD basic fields first (above the fold) */}
-              <div className="space-y-3 pt-1">
-                <p className="text-sm font-semibold">Customer details</p>
-                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+              <QuoteFormSection
+                id="customer-details"
+                title="Customer details"
+                description="These guest fields transfer automatically to booking Passengers / Overview when the quote is confirmed."
+              >
+                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-5 gap-3">
                   <Field label="Customer name" value={form.customerName} onChange={(v) => setForm({ ...form, customerName: v, contactPerson: form.contactPerson || v })} />
                   <Field label="Email" value={form.contactEmail} onChange={(v) => setForm({ ...form, contactEmail: v })} />
                   <Field label="Phone" value={form.contactPhone} onChange={(v) => setForm({ ...form, contactPhone: v })} />
-                  <div className="space-y-1.5 min-w-0">
-                    <Label className="text-sm font-medium">Nationality</Label>
+                  <div className="space-y-1 min-w-0">
+                    <Label className="text-[10px] text-muted-foreground uppercase tracking-wide">Nationality</Label>
                     <Select
                       value={nationalityDisplay(form.nationality)}
                       onValueChange={(v) => setForm({ ...form, nationality: v })}
                     >
-                      <SelectTrigger className="h-10 w-full"><SelectValue placeholder="Nationality" /></SelectTrigger>
+                      <SelectTrigger className="h-9 w-full"><SelectValue placeholder="Nationality" /></SelectTrigger>
                       <SelectContent side="bottom" avoidCollisions={false}>
                         {NATIONALITY_OPTIONS.map((n) => (
                           <SelectItem key={n.value} value={n.value}>{n.label}</SelectItem>
@@ -2266,12 +2436,25 @@ export function QuotationWizardView() {
                     value={form.passportNumber}
                     onChange={(v) => setForm({ ...form, passportNumber: v })}
                   />
-                  <div className="space-y-1.5 min-w-0 sm:col-span-2">
-                    <Label className="text-sm font-medium">Guest documents (passport / Aadhaar / ID)</Label>
-                    <GuestDocumentsAttach quotationId={id} />
-                  </div>
-                  <div className="space-y-1.5 min-w-0 sm:col-span-2">
-                    <Label className="text-sm font-medium">Special requests</Label>
+                </div>
+              </QuoteFormSection>
+
+              <QuoteFormSection
+                id="guest-documents"
+                title="Guest documents"
+                description="Passport / Aadhaar / ID — upload after Save draft. Files move with the booking."
+              >
+                <GuestDocumentsAttach quotationId={id} />
+              </QuoteFormSection>
+
+              <QuoteFormSection
+                id="quote-notes"
+                title="Notes"
+                description="Special requests appear on the customer quote and booking; internal notes stay staff-only."
+              >
+                <div className="grid grid-cols-1 lg:grid-cols-2 gap-3">
+                  <div className="space-y-1 min-w-0">
+                    <Label className="text-[10px] text-muted-foreground uppercase tracking-wide">Special requests</Label>
                     <Textarea
                       className="min-h-[72px] resize-y"
                       value={form.specialRequests}
@@ -2280,8 +2463,8 @@ export function QuotationWizardView() {
                     />
                   </div>
                   {!isTravelAgentUser && (
-                    <div className="space-y-1.5 min-w-0 sm:col-span-2">
-                      <Label className="text-sm font-medium">Internal notes (staff only)</Label>
+                    <div className="space-y-1 min-w-0">
+                      <Label className="text-[10px] text-muted-foreground uppercase tracking-wide">Internal notes (staff only)</Label>
                       <Textarea
                         className="min-h-[72px] resize-y"
                         value={form.internalNotes}
@@ -2292,26 +2475,20 @@ export function QuotationWizardView() {
                     </div>
                   )}
                 </div>
-              </div>
+              </QuoteFormSection>
               </>
             )}
 
             {flowStep === FLOW_TRAVEL && (
               <>
-              <div className="rounded-xl border bg-sky-50/60 border-sky-100 px-4 py-3">
-                <p className="text-sm font-semibold text-sky-900">Step 2 · Travel details</p>
-                <p className="text-xs text-sky-800/80 mt-0.5">
-                  Pick <strong>destination cities</strong> (not country only) — e.g. Malacca, then Mainland Penang.
-                  Hotels, cars, activities and itinerary places all follow these cities from Products.
-                </p>
-              </div>
-
-              <div className="space-y-4">
-                <p className="text-sm font-semibold">Trip search</p>
-                {/* Row 1: From | To — booking-app order */}
+              <QuoteFormSection
+                id="trip-search"
+                title="Travel"
+                description="From → destination, dates and guests. Same details feed booking Travel / Overview."
+              >
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                  <div className="space-y-1.5 min-w-0">
-                    <Label className="text-sm font-medium">From (leaving airport)</Label>
+                  <div className="space-y-1 min-w-0">
+                    <Label className="text-[10px] text-muted-foreground uppercase tracking-wide">From (leaving airport)</Label>
                     <AirportSelect
                       value={form.departureCity}
                       onChange={(v) => {
@@ -2319,11 +2496,11 @@ export function QuotationWizardView() {
                         setForm((f) => ({ ...f, departureCity: v }));
                       }}
                       placeholder="Select leaving airport…"
-                      className="h-10 w-full"
+                      className="h-9 w-full"
                     />
                   </div>
-                  <div className="space-y-1.5 min-w-0">
-                    <Label className="text-sm font-medium">To (destination)</Label>
+                  <div className="space-y-1 min-w-0">
+                    <Label className="text-[10px] text-muted-foreground uppercase tracking-wide">To (destination)</Label>
                     <DestinationSelect
                       value={tripCities[0]?.destinationId || destinationId || ""}
                       placeholder="Select destination (Products → Destinations)"
@@ -2352,7 +2529,7 @@ export function QuotationWizardView() {
                 </div>
 
                 {/* Row 2: Check-in | Duration | Check-out */}
-                <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
                   <Field
                     label="Check-in"
                     type="date"
@@ -2360,8 +2537,8 @@ export function QuotationWizardView() {
                     onChange={onStartDateChange}
                     min={todayYmd()}
                   />
-                  <div className="space-y-1.5 min-w-0">
-                    <Label className="text-sm font-medium">Trip duration</Label>
+                  <div className="space-y-1 min-w-0">
+                    <Label className="text-[10px] text-muted-foreground uppercase tracking-wide">Trip duration</Label>
                     <Select
                       value={nights != null && nights >= 1 && nights <= 21 ? String(nights) : "custom"}
                       onValueChange={(v) => {
@@ -2381,7 +2558,7 @@ export function QuotationWizardView() {
                         }
                       }}
                     >
-                      <SelectTrigger className="h-10 w-full"><SelectValue placeholder="Select nights" /></SelectTrigger>
+                      <SelectTrigger className="h-9 w-full"><SelectValue placeholder="Select nights" /></SelectTrigger>
                       <SelectContent side="bottom" avoidCollisions={false}>
                         {[1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 12, 14, 21].map((n) => (
                           <SelectItem key={n} value={String(n)}>
@@ -2394,10 +2571,10 @@ export function QuotationWizardView() {
                       </SelectContent>
                     </Select>
                   </div>
-                  <div className="space-y-1.5 min-w-0">
-                    <Label className="text-sm font-medium">Check-out</Label>
+                  <div className="space-y-1 min-w-0">
+                    <Label className="text-[10px] text-muted-foreground uppercase tracking-wide">Check-out</Label>
                     <Input
-                      className="h-10 w-full"
+                      className="h-9 w-full"
                       type="date"
                       value={form.travelEndDate || ""}
                       min={form.travelStartDate || todayYmd()}
@@ -2429,11 +2606,11 @@ export function QuotationWizardView() {
 
                 {/* Row 3: Guests | Hotel star */}
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                  <div className="space-y-1.5 min-w-0">
-                    <Label className="text-sm font-medium">Rooms / travellers</Label>
+                  <div className="space-y-1 min-w-0">
+                    <Label className="text-[10px] text-muted-foreground uppercase tracking-wide">Rooms / travellers</Label>
                     <Popover>
                       <PopoverTrigger asChild>
-                        <Button type="button" variant="outline" className="h-10 w-full justify-between font-normal">
+                        <Button type="button" variant="outline" className="h-9 w-full justify-between font-normal">
                           <span className="truncate text-sm">
                             {form.rooms} room{form.rooms === 1 ? "" : "s"}, {form.adults} adult{form.adults === 1 ? "" : "s"}
                             {form.children > 0 ? `, ${form.children} child${form.children === 1 ? "" : "ren"}` : ""}
@@ -2483,13 +2660,13 @@ export function QuotationWizardView() {
                       </PopoverContent>
                     </Popover>
                   </div>
-                  <div className="space-y-1.5 min-w-0">
-                    <Label className="text-sm font-medium">Hotel star preference</Label>
+                  <div className="space-y-1 min-w-0">
+                    <Label className="text-[10px] text-muted-foreground uppercase tracking-wide">Hotel star preference</Label>
                     <Select
                       value={form.hotelStarPreference || "all"}
                       onValueChange={(v) => setForm({ ...form, hotelStarPreference: v === "all" ? "" : v })}
                     >
-                      <SelectTrigger className="h-10 w-full"><SelectValue placeholder="Any star" /></SelectTrigger>
+                      <SelectTrigger className="h-9 w-full"><SelectValue placeholder="Any star" /></SelectTrigger>
                       <SelectContent side="bottom" avoidCollisions={false}>
                         <SelectItem value="all">Any star</SelectItem>
                         <SelectItem value="3">3★</SelectItem>
@@ -2500,21 +2677,22 @@ export function QuotationWizardView() {
                     </Select>
                   </div>
                 </div>
-              </div>
+              </QuoteFormSection>
 
-              <div className="space-y-2 pt-1">
-                <p className="text-sm font-semibold">Stay plan — cities & nights</p>
-                <p className="text-xs text-muted-foreground">
-                  Each city must exist under Products → Destinations. Split nights (e.g. 2N Malacca + 2N Penang).
-                  Step 3 hotels & Step 4 sightseeing places load from these cities.
-                </p>
-                <div className="grid grid-cols-[1fr_120px_36px] gap-2 text-xs text-muted-foreground px-0.5">
+              <QuoteFormSection
+                id="stay-plan"
+                title="Stay plan — cities & nights"
+                description="Each city must exist under Products → Destinations. Hotels & sightseeing follow these cities into booking."
+              >
+                <div className="hidden sm:grid grid-cols-[1fr_120px_36px] gap-2 text-xs text-muted-foreground px-0.5">
                   <span>City / place</span>
                   <span>Nights</span>
                   <span />
                 </div>
                 {tripCities.map((row, idx) => (
-                  <div key={idx} className="grid grid-cols-[1fr_120px_36px] gap-2 items-start">
+                  <div key={idx} className="grid grid-cols-1 sm:grid-cols-[1fr_120px_36px] gap-2 items-start">
+                    <div className="space-y-1 min-w-0">
+                      <Label className="sm:hidden text-[10px] text-muted-foreground uppercase tracking-wide">City / place</Label>
                     <DestinationSelect
                       value={row.destinationId || ""}
                       placeholder="Select city (Products → Destinations)"
@@ -2589,8 +2767,11 @@ export function QuotationWizardView() {
                         );
                       }}
                     />
+                    </div>
+                    <div className="space-y-1 min-w-0 sm:contents">
+                      <Label className="sm:hidden text-[10px] text-muted-foreground uppercase tracking-wide">Nights</Label>
                     <Input
-                      className="h-10"
+                      className="h-9"
                       type="number"
                       min={1}
                       value={row.nights}
@@ -2598,11 +2779,12 @@ export function QuotationWizardView() {
                         i === idx ? { ...c, nights: Math.max(1, Number(e.target.value) || 1) } : c
                       )))}
                     />
+                    </div>
                     <Button
                       type="button"
                       variant="ghost"
                       size="icon"
-                      className="h-10 w-9"
+                      className="h-9 w-9 justify-self-end sm:justify-self-auto"
                       disabled={tripCities.length <= 1}
                       onClick={() => setTripCities((prev) => prev.filter((_, i) => i !== idx))}
                     >
@@ -2612,17 +2794,22 @@ export function QuotationWizardView() {
                 ))}
                 <button
                   type="button"
-                  className="text-sm text-sky-600 hover:text-sky-700 font-medium"
+                  className="text-xs font-medium text-primary hover:underline"
                   onClick={() => setTripCities((prev) => [...prev, { city: "", nights: 1, order: prev.length + 1, destinationId: null }])}
                 >
                   + Add new city
                 </button>
-              </div>
+              </QuoteFormSection>
 
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 pt-1">
-                <div className="space-y-1.5 min-w-0">
-                  <Label className="text-sm font-medium">Land Only</Label>
-                  <div className="flex items-center gap-5 h-10">
+              <QuoteFormSection
+                id="package-options"
+                title="Package & assignment"
+                description="Land-only skips flights. Agency / agent codes auto-fill from registration and carry to booking."
+              >
+              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-3">
+                <div className="space-y-1 min-w-0">
+                  <Label className="text-[10px] text-muted-foreground uppercase tracking-wide">Land Only</Label>
+                  <div className="flex items-center gap-5 h-9">
                     <label className="flex items-center gap-2 text-sm cursor-pointer">
                       <input
                         type="radio"
@@ -2653,8 +2840,8 @@ export function QuotationWizardView() {
                 />
 
                 {canAssignTravelAgent ? (
-                <div className="space-y-1.5 min-w-0">
-                  <Label className="text-sm font-medium">Assign travel agent</Label>
+                <div className="space-y-1 min-w-0">
+                  <Label className="text-[10px] text-muted-foreground uppercase tracking-wide">Assign travel agent</Label>
                   {agents.length ? (
                     <Select
                       value={form.agentId || "none"}
@@ -2664,7 +2851,8 @@ export function QuotationWizardView() {
                             ...form,
                             agentId: "",
                             agentName: "",
-                            agentCode: "",
+                            agentCode: user?.agentCode || "",
+                            agencyCode: user?.agencyCode || form.agencyCode,
                           });
                           return;
                         }
@@ -2678,7 +2866,7 @@ export function QuotationWizardView() {
                         });
                       }}
                     >
-                      <SelectTrigger className="h-10 w-full">
+                      <SelectTrigger className="h-9 w-full">
                         <SelectValue placeholder="Select registered agent" className="truncate" />
                       </SelectTrigger>
                       <SelectContent side="bottom" avoidCollisions={false}>
@@ -2693,15 +2881,15 @@ export function QuotationWizardView() {
                       </SelectContent>
                     </Select>
                   ) : (
-                    <p className="text-xs text-muted-foreground h-10 flex items-center">
+                    <p className="text-xs text-muted-foreground h-9 flex items-center">
                       No registered travel agents found.
                     </p>
                   )}
                 </div>
                 ) : null}
                 {canPickSalesExecutive ? (
-                <div className="space-y-1.5 min-w-0">
-                  <Label className="text-sm font-medium">Sales executive</Label>
+                <div className="space-y-1 min-w-0">
+                  <Label className="text-[10px] text-muted-foreground uppercase tracking-wide">Sales executive</Label>
                   <Select
                     value={!salesExecutiveId || salesExecutiveId === user?.id ? "self" : salesExecutiveId}
                     onValueChange={(v) => {
@@ -2725,7 +2913,7 @@ export function QuotationWizardView() {
                       });
                     }}
                   >
-                    <SelectTrigger className="h-10 w-full">
+                    <SelectTrigger className="h-9 w-full">
                       <SelectValue placeholder="Select sales executive" className="truncate" />
                     </SelectTrigger>
                     <SelectContent side="bottom" avoidCollisions={false}>
@@ -2739,24 +2927,25 @@ export function QuotationWizardView() {
                   </Select>
                 </div>
                 ) : (
-                <div className="space-y-1.5 min-w-0">
-                  <Label className="text-sm font-medium">Destination expert</Label>
+                <div className="space-y-1 min-w-0">
+                  <Label className="text-[10px] text-muted-foreground uppercase tracking-wide">Destination expert</Label>
                   <Input
-                    className="h-10 w-full bg-muted/40"
+                    className="h-9 w-full bg-muted/40"
                     value={form.salesExecutiveName || "—"}
                     readOnly
                   />
                 </div>
                 )}
-                <div className="space-y-1.5 min-w-0">
-                  <Label className="text-sm font-medium">Agency code</Label>
-                  <Input className="h-10 w-full bg-muted/40 font-mono" value={form.agencyCode || "—"} readOnly />
+                <div className="space-y-1 min-w-0">
+                  <Label className="text-[10px] text-muted-foreground uppercase tracking-wide">Agency code</Label>
+                  <Input className="h-9 w-full bg-muted/40 font-mono" value={form.agencyCode || "—"} readOnly />
                 </div>
-                <div className="space-y-1.5 min-w-0">
-                  <Label className="text-sm font-medium">Agent code</Label>
-                  <Input className="h-10 w-full bg-muted/40 font-mono" value={form.agentCode || "—"} readOnly />
+                <div className="space-y-1 min-w-0">
+                  <Label className="text-[10px] text-muted-foreground uppercase tracking-wide">Agent code</Label>
+                  <Input className="h-9 w-full bg-muted/40 font-mono" value={form.agentCode || "—"} readOnly />
                 </div>
               </div>
+              </QuoteFormSection>
               </>
             )}
           </div>
@@ -4119,37 +4308,27 @@ export function QuotationWizardView() {
 
             </div>
 
-            <div className="shrink-0 border-t bg-background px-4 sm:px-5 py-3 space-y-3">
-              <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 text-xs">
-                <Info label="Customer" value={form.customerName || "—"} />
-                <Info label="Destination" value={form.destination || "—"} />
-                <Info label="Travel" value={`${form.travelStartDate || "—"} → ${form.travelEndDate || "—"}`} />
-                <Info label="Total" value={formatFullINR(liveCosting.total)} />
-              </div>
-
-              {saveError && (
-                <div className="rounded-md border border-destructive/40 bg-destructive/10 px-3 py-2 text-xs text-destructive">
-                  Save failed: {saveError}
-                </div>
-              )}
-              <div className="flex flex-wrap gap-2 justify-between">
-                <div className="flex gap-2">
-                  <Button variant="outline" disabled={busy} onClick={() => void backFlow()}>
-                    <ChevronLeft className="w-4 h-4 mr-0.5" /> Back
-                  </Button>
-                  <Button variant="outline" disabled={busy} onClick={() => persist(0)}>
-                    {busy ? <Loader2 className="w-4 h-4 animate-spin" /> : "Save draft"}
-                  </Button>
-                </div>
-                <div className="flex gap-2">
-                  <Button disabled={busy} onClick={() => void next()} className="bg-teal-600 hover:bg-teal-700">
-                    {flowStep === FLOW_PERSONAL
-                      ? "Next · Travel details"
-                      : "Continue · Hotels & trip"}
-                    <ChevronRight className="w-4 h-4 ml-0.5" />
-                  </Button>
-                </div>
-              </div>
+            <div className="shrink-0">
+              <QuoteWizardFooter
+                busy={busy}
+                error={saveError ? `Save failed: ${saveError}` : null}
+                meta={
+                  <div className="grid grid-cols-2 sm:grid-cols-4 gap-2.5">
+                    <Info label="Customer" value={form.customerName || "—"} />
+                    <Info label="Destination" value={form.destination || "—"} />
+                    <Info label="Travel" value={`${form.travelStartDate || "—"} → ${form.travelEndDate || "—"}`} />
+                    <Info label="Total" value={formatFullINR(liveCosting.total)} />
+                  </div>
+                }
+                onBack={() => void backFlow()}
+                onSaveDraft={() => void persist(0)}
+                onNext={() => void next()}
+                nextLabel={
+                  flowStep === FLOW_PERSONAL
+                    ? "Next · Travel"
+                    : "Next · Hotels & services"
+                }
+              />
             </div>
           </div>
         </div>
@@ -4163,20 +4342,15 @@ function Field({
   label: string; value: string; onChange: (v: string) => void; type?: string; min?: string; max?: string;
 }) {
   return (
-    <div className="space-y-1.5 min-w-0">
-      <Label className="text-sm font-medium">{label}</Label>
-      <Input className="h-10 w-full" type={type} value={value} min={min} max={max} onChange={(e) => onChange(e.target.value)} />
+    <div className="space-y-1 min-w-0">
+      <Label className="text-[10px] text-muted-foreground uppercase tracking-wide">{label}</Label>
+      <Input className="h-9 w-full" type={type} value={value} min={min} max={max} onChange={(e) => onChange(e.target.value)} />
     </div>
   );
 }
 
 function Info({ label, value }: { label: string; value: string }) {
-  return (
-    <div className="rounded-lg border bg-muted/30 px-2.5 py-2 min-w-0">
-      <p className="text-[10px] text-muted-foreground uppercase tracking-wide">{label}</p>
-      <p className="font-medium text-sm truncate">{value || "—"}</p>
-    </div>
-  );
+  return <QuoteMetaChip label={label} value={value} emphasize={label === "Total"} />;
 }
 
 function firstProductImage(item: ProductRecord): string {
@@ -6089,6 +6263,7 @@ function mapSearchResultToFlightLine(
     children: number;
     infants: number;
     fallbackDate?: string;
+    tripType?: "one_way" | "round_trip" | "multi_city";
   },
 ): Record<string, unknown> {
   const departDate = String(item.departDate || item.departureDate || item.date || opts.fallbackDate || "");
@@ -6119,6 +6294,7 @@ function mapSearchResultToFlightLine(
     pnr: "",
     flightDocuments: [],
     direction: item.direction ? String(item.direction) : undefined,
+    tripType: opts.tripType || (item.tripType ? String(item.tripType) : undefined),
     segmentIndex: item.segmentIndex != null ? Number(item.segmentIndex) : 0,
     journeyId: item.journeyId ? String(item.journeyId) : String(item.id || ""),
     adults: opts.adults,
@@ -6438,6 +6614,7 @@ function FlightApiSearch({
                   children: paxChildren,
                   infants: paxInfants,
                   fallbackDate: depDate || travelDate,
+                  tripType,
                 }));
                 setOpen(false);
               }}

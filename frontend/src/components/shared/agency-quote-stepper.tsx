@@ -1,6 +1,6 @@
 "use client";
 
-import { Check } from "lucide-react";
+import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 
 export const AGENCY_QUOTE_STEPS = [
@@ -14,6 +14,7 @@ export const AGENCY_QUOTE_STEPS = [
 
 export type AgencyQuoteStepId = (typeof AGENCY_QUOTE_STEPS)[number]["id"];
 
+/** Booking-detail style soft pill tabs (blue active). */
 export function AgencyQuoteStepper({
   activeIndex,
   onSelect,
@@ -28,58 +29,31 @@ export function AgencyQuoteStepper({
       aria-label="Quotation steps"
       className={cn("w-full overflow-x-auto", className)}
     >
-      <ol className="flex min-w-max items-center gap-1 sm:gap-0 sm:justify-between">
+      <div className="flex flex-wrap gap-1 border-b pb-2 min-w-max">
         {AGENCY_QUOTE_STEPS.map((step, index) => {
           const done = index < activeIndex;
           const active = index === activeIndex;
           const clickable = Boolean(onSelect) && index <= activeIndex;
           return (
-            <li key={step.id} className="flex items-center gap-1 sm:flex-1 sm:min-w-0">
-              <button
-                type="button"
-                disabled={!clickable}
-                onClick={() => onSelect?.(index)}
-                className={cn(
-                  "flex items-center gap-2 rounded-lg px-2 py-1.5 text-left transition-colors",
-                  clickable && "hover:bg-muted/60 cursor-pointer",
-                  !clickable && "cursor-default",
-                )}
-              >
-                <span
-                  className={cn(
-                    "flex h-7 w-7 shrink-0 items-center justify-center rounded-full text-xs font-semibold border",
-                    done && "bg-teal-600 border-teal-600 text-white",
-                    active && "bg-teal-50 border-teal-600 text-teal-800",
-                    !done && !active && "bg-background border-border text-muted-foreground",
-                  )}
-                >
-                  {done ? <Check className="h-3.5 w-3.5" /> : index + 1}
-                </span>
-                <span className="min-w-0 hidden sm:block">
-                  <span
-                    className={cn(
-                      "block text-xs font-semibold truncate",
-                      active ? "text-foreground" : "text-muted-foreground",
-                    )}
-                  >
-                    {step.label}
-                  </span>
-                  <span className="block text-[10px] text-muted-foreground truncate">{step.hint}</span>
-                </span>
-              </button>
-              {index < AGENCY_QUOTE_STEPS.length - 1 && (
-                <span
-                  className={cn(
-                    "hidden sm:block h-px flex-1 mx-1 min-w-[12px]",
-                    index < activeIndex ? "bg-teal-500" : "bg-border",
-                  )}
-                  aria-hidden
-                />
+            <Button
+              key={step.id}
+              type="button"
+              size="sm"
+              variant={active ? "default" : "ghost"}
+              disabled={!clickable}
+              onClick={() => onSelect?.(index)}
+              className={cn(
+                "h-8 rounded-md px-3 text-xs font-medium",
+                !active && done && "text-foreground",
+                !clickable && !active && "opacity-60",
               )}
-            </li>
+            >
+              <span className="sm:hidden">{index + 1}. {step.label}</span>
+              <span className="hidden sm:inline">{step.label}</span>
+            </Button>
           );
         })}
-      </ol>
+      </div>
     </nav>
   );
 }

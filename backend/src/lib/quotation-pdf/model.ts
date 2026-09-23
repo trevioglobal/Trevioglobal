@@ -35,6 +35,9 @@ export type QuotationPdfPackage = {
     baggage?: string;
     sellingPrice?: number;
     currency?: string;
+    /** one_way | round_trip | multi_city | outbound | return */
+    tripType?: string;
+    direction?: string;
   }>;
   transfers: Array<{
     transferType?: string;
@@ -119,6 +122,8 @@ export type QuotationPdfPackage = {
   }>;
   inclusions: string[];
   exclusions: string[];
+  /** Customer-facing selling totals by service (no cost/markup). */
+  serviceTotals: Array<{ label: string; amount: number }>;
   pricing: {
     perAdultPrice: number;
     perChildPrice: number;
@@ -134,8 +139,13 @@ export type QuotationPdfPackage = {
 export type QuotationPdfModel = {
   quoteNo: string;
   customerName: string;
+  contactEmail?: string;
+  contactPhone?: string;
   destination: string;
   country?: string;
+  departureCity?: string;
+  routeLabel?: string;
+  landOnly?: boolean;
   travelDates: string;
   nightsLabel: string;
   adults: number;
@@ -307,6 +317,8 @@ function mapFlights(rows: Record<string, unknown>[]) {
       baggage: str(f.baggage) || undefined,
       sellingPrice: Number.isFinite(selling) && selling > 0 ? Math.round(selling) : undefined,
       currency: str(f.currency) || undefined,
+      tripType: str(f.tripType) || undefined,
+      direction: str(f.direction) || undefined,
     };
   });
 }
@@ -458,6 +470,10 @@ function mapInsurance(raw: unknown): QuotationPdfPackage["insurance"] {
   };
 }
 
+function sumSelling(rows: Array<{ sellingPrice?: number }>): number {
+  return rows.reduce((s, r) => s + (Number(r.sellingPrice) > 0 ? Math.round(Number(r.sellingPrice)) : 0), 0);
+}
+
 function mapPackage(pkg: Record<string, unknown>, quote: Record<string, unknown>): QuotationPdfPackage {
   const inclusions = Array.isArray(pkg.inclusions) && pkg.inclusions.length
     ? pkg.inclusions.map(String)
@@ -465,19 +481,35 @@ function mapPackage(pkg: Record<string, unknown>, quote: Record<string, unknown>
   const exclusions = Array.isArray(pkg.exclusions) && pkg.exclusions.length
     ? pkg.exclusions.map(String)
     : Array.isArray(quote.packageExcludes) ? (quote.packageExcludes as unknown[]).map(String) : [];
+  const hotels = mapHotels(asArr(pkg.hotels));
+  const flights = mapFlights(asArr(pkg.flights));
+  const transfers = mapTransfers(asArr(pkg.transfers));
+  const activities = mapActivities(asArr(pkg.activities));
+  const meals = mapMeals(asArr(pkg.meals));
+  const hotelSell = asArr(pkg.hotels).reduce((s, h) => {
+    const n = Number(h.sellingPrice);
+    return s + (Number.isFinite(n) && n > 0 ? Math.round(n) : 0);
+  }, 0);
   return {
     name: str(pkg.name, "Package"),
     description: str(pkg.description) || undefined,
-    hotels: mapHotels(asArr(pkg.hotels)),
-    flights: mapFlights(asArr(pkg.flights)),
-    transfers: mapTransfers(asArr(pkg.transfers)),
-    activities: mapActivities(asArr(pkg.activities)),
-    meals: mapMeals(asArr(pkg.meals)),
+    hotels,
+    flights,
+    transfers,
+    activities,
+    meals,
     visa: mapVisa(pkg.visa),
     insurance: mapInsurance(pkg.insurance),
     itinerary: mapItinerary(asArr(pkg.itinerary)),
     inclusions,
     exclusions,
+    serviceTotals: [
+      { label: "Hotels", amount: hotelSell },
+      { label: "Flights", amount: sumSelling(flights) },
+      { label: "Cars & Transfers", amount: sumSelling(transfers) },
+      { label: "Activities", amount: sumSelling(activities) },
+      { label: "Meals", amount: sumSelling(meals) },
+    ].filter((r) => r.amount > 0),
     pricing: packagePricing(pkg, quote),
   };
 }
@@ -505,6 +537,8 @@ export function buildQuotationPdfModel(input: {
     email?: string | null;
     address?: string | null;
   };
+  /** Destination hero / thumbnail when quote has no coverImage. */
+  destinationCoverImage?: string | null;
   mode: PdfMode;
   audience: PdfAudience;
 }): QuotationPdfModel {
@@ -514,21 +548,33 @@ export function buildQuotationPdfModel(input: {
     ? [...packages].sort((a, b) => Number(a.sortOrder || 0) - Number(b.sortOrder || 0))
     : [{ name: "Standard", hotels: [], flights: [], transfers: [], activities: [], meals: [], itinerary: [], inclusions: [], exclusions: [] }];
   const first = ordered[0];
-  const dest = [str(quote.destination), str(quote.country)].filter(Boolean).join(" · ") || "Holiday";
+  const destName = str(quote.destination) || "Holiday";
+  const dest = [destName, str(quote.country)].filter(Boolean).join(" · ") || "Holiday";
+  const departureCity = str(quote.departureCity) || undefined;
   const cover =
     (isImgUrl(quote.coverImage) && str(quote.coverImage))
+    || (isImgUrl(input.destinationCoverImage) && str(input.destinationCoverImage))
     || mapItinerary(asArr(first.itinerary)).find((d) => d.coverImage)?.coverImage
-    || mapHotels(asArr(first.hotels)).find((h) => h.imageUrl)?.imageUrl;
+    || mapHotels(asArr(first.hotels)).find((h) => h.imageUrl)?.imageUrl
+    || undefined;
   const branding = input.branding || {};
   const agencyName = str(branding.agencyName, "Trevio Global");
   const visa = asRecord(first.visa);
   const insurance = asRecord(first.insurance);
+  const routeLabel = departureCity
+    ? `${departureCity} → ${destName}`
+    : destName;
 
   return {
     quoteNo: str(quote.quoteNo, "QUOTE"),
     customerName: str(quote.customerName, "Traveller"),
+    contactEmail: str(quote.contactEmail) || undefined,
+    contactPhone: str(quote.contactPhone) || undefined,
     destination: dest,
     country: str(quote.country) || undefined,
+    departureCity,
+    routeLabel,
+    landOnly: quote.landOnly === true,
     travelDates: formatDates(quote),
     nightsLabel: nightsLabel(quote, first),
     adults: Math.max(0, Number(quote.adults ?? 0) || 0),

@@ -122,7 +122,7 @@ export async function downloadClientQuotationBrochure(
   const exclusions = (pkg?.exclusions?.length ? pkg.exclusions : quote.packageExcludes) || [];
   const logo = showLogo && isImgUrl(branding?.logo) ? str(branding?.logo) : showLogo ? `${window.location.origin}/trevio-logo.png` : "";
   const agencyBrand = str(branding?.footerText, "").split("•")[0].trim() || "Your Travel Partner";
-  const brandName = agentBranding ? agencyBrand : COMPANY.brand;
+  const brandName = agentBranding ? agencyBrand : "Trevio Global";
   const coverLegal = agentBranding ? agencyBrand : COMPANY.legal;
   const coverPhone = COMPANY.phone;
   const code = (quote.quoteNo || "TG").replace(/[^A-Za-z0-9]/g, "_").slice(0, 18);
@@ -135,6 +135,10 @@ export async function downloadClientQuotationBrochure(
     .join(" · ") || "As per itinerary";
   const roomTypes = [...new Set(hotels.map((h) => str(h.roomType)).filter(Boolean))].join(" / ") || "Standard";
   const dest = [quote.destination, quote.country].filter(Boolean).join(" · ") || "Holiday";
+  const destHero = String(quote.destination || "").split(/[·,]/)[0].trim() || dest;
+  const routeLabel = quote.departureCity
+    ? `${str(quote.departureCity)} → ${destHero}`
+    : destHero;
   const coverSrc =
     str(quote.coverImage) ||
     str(itinerary.find((d) => isImgUrl(d.coverImage))?.coverImage) ||
@@ -177,22 +181,29 @@ export async function downloadClientQuotationBrochure(
             p.famousFor ? `Famous for: ${escapeHtml(str(p.famousFor))}` : "",
             p.description ? escapeHtml(str(p.description)) : "",
           ].filter(Boolean);
-          return `<li><strong>${escapeHtml(str(p.name))}</strong>${bits.length ? `<br/><span class="muted">${bits.join(" · ")}</span>` : ""}${
-            isImgUrl(p.imageUrl) ? imgTag(p.imageUrl, "day-photo", str(p.name)) : ""
-          }</li>`;
+          return `<li class="place-row">
+            ${isImgUrl(p.imageUrl) ? imgTag(p.imageUrl, "place-photo", str(p.name)) : ""}
+            <div>
+              <strong>${escapeHtml(str(p.name))}</strong>
+              ${bits.length ? `<p class="muted" style="margin:4px 0 0">${bits.join(" · ")}</p>` : ""}
+            </div>
+          </li>`;
         })
         .join("");
       const items = asArr(day.items);
       const lis = items
-        .map((it) => `<li>${escapeHtml(str(it.activityName || it.description))}${it.description && it.activityName && it.description !== it.activityName ? ` — ${escapeHtml(str(it.description))}` : ""}</li>`)
+        .map((it) => {
+          const time = it.pickupTime ? `${escapeHtml(str(it.pickupTime))} · ` : "";
+          return `<li>${time}${escapeHtml(str(it.activityName || it.description))}${it.description && it.activityName && it.description !== it.activityName ? ` — ${escapeHtml(str(it.description))}` : ""}</li>`;
+        })
         .join("");
       return `
         <div class="day">
           <h3>${escapeHtml(str(day.title, `Day ${day.day || i + 1}`))}</h3>
-          ${day.city ? `<p class="muted">${escapeHtml(str(day.city))}</p>` : ""}
+          ${day.city || day.date ? `<p class="muted">${escapeHtml([day.city, day.date].filter(Boolean).map(String).join(" · "))}</p>` : ""}
           ${imgTag(day.coverImage, "day-photo", str(day.title, `Day ${i + 1}`))}
           ${galleryHtml(day)}
-          <ul>${placeLis || lis || "<li>Leisure</li>"}</ul>
+          <ul class="places">${placeLis || lis || "<li>Leisure</li>"}</ul>
           ${placeLis && lis ? `<ul>${lis}</ul>` : ""}
           ${day.mealPlan ? `<p class="meals">Meal plan: ${escapeHtml(str(day.mealPlan))}</p>` : ""}
         </div>`;
@@ -274,6 +285,9 @@ export async function downloadClientQuotationBrochure(
     .day { border-left: 3px solid #0d7377; padding: 0 0 14px 14px; margin-bottom: 8px; }
     .day ul { margin: 6px 0; padding-left: 16px; font-size: 13px; }
     .day-photo { width: 100%; max-height: 48mm; object-fit: cover; border-radius: 8px; margin: 6px 0 8px; display: block; }
+    .places { list-style: none; padding-left: 0 !important; }
+    .place-row { display: flex; gap: 12px; align-items: flex-start; margin-bottom: 10px; }
+    .place-photo { width: 42mm; height: 32mm; object-fit: cover; border-radius: 8px; flex-shrink: 0; }
     .gallery { display: flex; gap: 6px; flex-wrap: wrap; margin: 0 0 8px; }
     .gallery-img { width: 32%; height: 28mm; object-fit: cover; border-radius: 6px; }
     .meals { font-size: 12px; color: #0d7377; font-weight: 600; }
@@ -301,10 +315,12 @@ export async function downloadClientQuotationBrochure(
       <p class="addr">${agentBranding ? "" : `${escapeHtml(COMPANY.address)}<br/>`}| ${escapeHtml(coverPhone)} |</p>
     </div>
     <div>
-      <p class="greet">Greetings from</p>
+      <p class="greet">YOUR JOURNEY TO</p>
+      <p class="brand" style="font-size:36px;letter-spacing:.08em">${escapeHtml(destHero.toUpperCase())}</p>
+      <p class="greet" style="margin-top:20px">Greetings from</p>
       <p class="brand">${escapeHtml(brandName.toUpperCase())}</p>
       <p class="dear">Dear ${escapeHtml(quote.customerName || "Sir/Ma'am")},<br/><br/>
-      Please find your travel quotation <strong>${escapeHtml(quote.quoteNo)}</strong> for ${escapeHtml(dest)}.
+      Please find your travel quotation <strong>${escapeHtml(quote.quoteNo)}</strong> for ${escapeHtml(routeLabel)}.
       ${quote.nights ? `This plan is designed as a ${escapeHtml(nightsLabel(quote, pkg))} holiday.` : ""}</p>
     </div>
     <footer class="foot"><span>${new Date(quote.quoteDate || quote.createdAt).toLocaleDateString("en-IN", { weekday: "long", day: "numeric", month: "long", year: "numeric" })}</span><span>${escapeHtml(quote.quoteNo)}</span></footer>
@@ -316,9 +332,12 @@ export async function downloadClientQuotationBrochure(
     <h2>${escapeHtml(dest)}</h2>
     <table class="kv">
       <tr><th>Destination</th><td>${escapeHtml(dest)} : ${escapeHtml(nightsLabel(quote, pkg))}</td></tr>
+      ${quote.departureCity ? `<tr><th>Travel route</th><td>${escapeHtml(routeLabel)}</td></tr>` : ""}
       <tr><th>Dates</th><td>${escapeHtml(formatDates(quote))}</td></tr>
+      <tr><th>Package type</th><td>${quote.landOnly ? "Land only (flights not included)" : "With flights"}</td></tr>
       <tr><th>Property (or similar)</th><td>${escapeHtml(hotelLine)}</td></tr>
       <tr><th>Room type</th><td>${escapeHtml(roomTypes)}</td></tr>
+      ${transfers.length ? `<tr><th>Cars &amp; Transfers</th><td>${escapeHtml(String(transfers.length))} transfer(s) included</td></tr>` : ""}
       ${priceRows}
     </table>
     <div class="note">

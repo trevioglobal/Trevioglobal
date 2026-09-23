@@ -1006,7 +1006,8 @@ function BookingDetailDialog({
                   Confirm each component with the supplier and actual cost (total invoice amount).
                 </p>
                 <p className="text-[10px] text-amber-700 bg-amber-50 border border-amber-200 rounded p-2">
-                  Complete the Travel tab (flight from/to/date + hotel name) before the booking can reach Confirmed status.
+                  Travel tab: if this booking has flights, fill from/to/date; hotel name is required when a hotel service exists.
+                  Quote → Proceed to Booking already copies hotel/flight lines — confirm with suppliers here, do not re-book from Flights/Hotels search.
                 </p>
                 {(booking.services || []).map((svc) => {
                   const allowedTypes = supplierTypesForService(svc.serviceType);
@@ -1512,6 +1513,19 @@ export function BookingsView() {
   const [queueFilter, setQueueFilter] = useState<"all" | "mine" | "unassigned">("all");
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [detailOpen, setDetailOpen] = useState(false);
+
+  useEffect(() => {
+    let pending: string | null = null;
+    try {
+      pending = sessionStorage.getItem("trevio.openBookingId");
+      if (pending) sessionStorage.removeItem("trevio.openBookingId");
+    } catch {
+      pending = null;
+    }
+    if (!pending) return;
+    setSelectedId(pending);
+    setDetailOpen(true);
+  }, []);
 
   useEffect(() => {
     if (queueFilter === "all") return;

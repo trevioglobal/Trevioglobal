@@ -1,4 +1,5 @@
 import { db } from "./db.js";
+import { logger } from "./logger.js";
 
 /** Derive a short agency code from the company name (e.g. Wanderlust → WAN). */
 export function deriveAgencyCodeBase(name: string): string {
@@ -16,6 +17,10 @@ export function deriveAgencyCodeBase(name: string): string {
   return (letters + "AGY").slice(0, 3);
 }
 
+/**
+ * Ensure Agency.code exists. Called at registration, approval, login, and quote create.
+ * Format: name initials (e.g. WAN) with numeric suffix on collision.
+ */
 export async function ensureAgencyCode(agencyId: string, agencyName?: string): Promise<string> {
   const agency = await db.agency.findUnique({ where: { id: agencyId } });
   if (!agency) throw new Error("Agency not found");
@@ -31,10 +36,14 @@ export async function ensureAgencyCode(agencyId: string, agencyName?: string): P
   return code;
 }
 
+/**
+ * Next agent code for an agency user: `{AGENCY}-AGT-0001`.
+ * Counts every user in the agency that already has an agentCode (not only travel_agent).
+ */
 export async function allocateAgentCode(agencyId: string): Promise<string> {
   const agencyCode = await ensureAgencyCode(agencyId);
   const existing = await db.user.count({
-    where: { agencyId, role: "travel_agent", agentCode: { not: null } },
+    where: { agencyId, agentCode: { not: null } },
   });
   let seq = existing + 1;
   let code = `${agencyCode}-AGT-${String(seq).padStart(4, "0")}`;
@@ -46,9 +55,9 @@ export async function allocateAgentCode(agencyId: string): Promise<string> {
 }
 
 /**
- * Ensure the user has an agent code (ADCI-AGT-0001).
- * Travel agents always get one. Other agency users get one when they create/own a quote
- * so Agency code and Agent code both populate on the quotation screen.
+ * Ensure the user has an agent code (e.g. WAN-AGT-0001).
+ * Travel agents always get one. Other agency staff get one when forQuote=true
+ * (login, /me, quotation create) so Agency + Agent codes show on the quote screen.
  */
 export async function ensureUserAgentCode(userId: string, forQuote = false): Promise<string | null> {
   const user = await db.user.findUnique({ where: { id: userId } });
@@ -59,4 +68,29 @@ export async function ensureUserAgentCode(userId: string, forQuote = false): Pro
   const agentCode = await allocateAgentCode(user.agencyId);
   await db.user.update({ where: { id: userId }, data: { agentCode } });
   return agentCode;
+}
+
+/**
+ * After agency registration / approval: set Agency.code and give every
+ * agency user an agent code so quotation screens never show blank codes.
+ */
+export async function ensureAgencyRegistrationCodes(
+  agencyId: string,
+  agencyName?: string,
+): Promise<{ agencyCode: string; usersUpdated: number }> {
+  const agencyCode = await ensureAgencyCode(agencyId, agencyName);
+  const users = await db.user.findMany({
+    where: { agencyId, agentCode: null },
+    select: { id: true },
+  });
+  let usersUpdated = 0;
+  for (const u of users) {
+    try {
+      const code = await ensureUserAgentCode(u.id, true);
+      if (code) usersUpdated += 1;
+    } catch (e) {
+      logger.warn({ err: e, userId: u.id, agencyId }, "Failed to assign agent code");
+    }
+  }
+  return { agencyCode, usersUpdated };
 }

@@ -203,6 +203,7 @@ async function resolveQuoteAgentCodes(opts: {
       agentName = match.name;
     }
   }
+  // Default quote owner to the logged-in staff member when no travel agent was picked.
   if (!agentId) agentId = emptyToNull(opts.req.auth?.userId);
 
   if (agentId) {
@@ -210,26 +211,21 @@ async function resolveQuoteAgentCodes(opts: {
       agentCode = (await ensureUserAgentCode(agentId, true)) || agentCode;
       const agent = await db.user.findUnique({
         where: { id: agentId },
-        select: { name: true, agentCode: true },
+        select: { name: true, agentCode: true, agencyId: true },
       });
       if (agent) {
         agentName = agent.name || agentName;
         agentCode = agent.agentCode || agentCode;
+        if (!agencyCode && agent.agencyId) {
+          agencyCode = (await ensureAgencyCode(agent.agencyId)) || agencyCode;
+        }
       }
     } catch {
       /* non-fatal */
     }
   }
 
-  if (!agentCode && opts.agencyId) {
-    try {
-      const { allocateAgentCode } = await import("../lib/agent-codes.js");
-      agentCode = await allocateAgentCode(opts.agencyId);
-    } catch {
-      /* non-fatal */
-    }
-  }
-
+  // Never allocate an orphan code that is not stored on a user.
   return { agencyCode, agentCode, agentId, agentName };
 }
 
