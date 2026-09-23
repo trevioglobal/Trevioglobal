@@ -31,6 +31,7 @@ import { Separator } from "@/components/ui/separator";
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
 import { useToast } from "@/hooks/use-toast";
 import { cn } from "@/lib/utils";
+import { todayYmd } from "@/lib/travel-dates";
 import { formatFullINR, formatPrettyDate, PageShell } from "@/components/shared/ui-helpers";
 import { CitySearchField, type CityOption } from "@/components/shared/city-search-field";
 import { api } from "@/lib/api";
@@ -942,7 +943,7 @@ function HotelSearchPanel(props: {
   onSearch: () => void;
   loading: boolean;
 }) {
-  const today = new Date().toISOString().slice(0, 10);
+  const today = todayYmd();
   const guestLabel = `${props.rooms} room${props.rooms > 1 ? "s" : ""} · ${props.adults + props.childrenCount} guest${props.adults + props.childrenCount > 1 ? "s" : ""}`;
   const nightCount = (() => {
     if (!props.checkIn || !props.checkOut) return 0;

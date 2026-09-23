@@ -13,21 +13,33 @@ export interface DestinationOption {
   name: string;
   country?: string;
   region?: string | null;
+  city?: string | null;
 }
 
-export function destinationOptionLabel(opt: { name?: string; country?: string; region?: string | null }): string {
+export function destinationOptionLabel(opt: {
+  name?: string;
+  country?: string;
+  region?: string | null;
+  city?: string | null;
+}): string {
   const name = (opt.name || "").trim();
   const country = (opt.country || "").trim();
   const region = (opt.region || "").trim();
+  const cityField = (opt.city || "").trim();
   const same = (a: string, b: string) => a.toLowerCase() === b.toLowerCase();
-  const city = region && !same(region, country) ? region : name;
+  const city = cityField || (region && !same(region, country) ? region : name);
   if (country && city && !same(city, country)) return `${city}, ${country}`;
   return city || country || "Destination";
 }
 
+/** Prefer city name for trip-plan rows; fall back to destination name. */
+export function destinationCityName(opt: DestinationOption): string {
+  return (opt.city || opt.name || "").trim();
+}
+
 interface DestinationSelectProps {
   value: string;
-  onChange: (destinationId: string) => void;
+  onChange: (destinationId: string, dest?: DestinationOption) => void;
   required?: boolean;
   disabled?: boolean;
   placeholder?: string;
@@ -104,7 +116,7 @@ export function DestinationSelect({
           onKeyDown={(e) => {
             if (e.key !== "Enter" || loading || !options[0]) return;
             e.preventDefault();
-            onChange(options[0].id);
+            onChange(options[0].id, options[0]);
             setOpen(false);
           }}
           className="h-8 mb-2"
@@ -125,7 +137,7 @@ export function DestinationSelect({
                 value === opt.id && "bg-muted"
               )}
               onClick={() => {
-                onChange(opt.id);
+                onChange(opt.id, opt);
                 setOpen(false);
               }}
             >

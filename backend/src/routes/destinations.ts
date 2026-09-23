@@ -195,7 +195,7 @@ export function mountDestinationRoutes(app: Express, agencyScope: ScopeFn) {
         res.status(404).json({ error: "Not found" });
         return;
       }
-      const [hotels, activities, transfers] = await Promise.all([
+      const [hotels, activities, transfers, sightseeingPlaces] = await Promise.all([
         db.hotelProduct.findMany({
           where: { destinationId: id, ...agencyScope(req) },
           include: LINKED_PRODUCT_INCLUDE,
@@ -211,8 +211,12 @@ export function mountDestinationRoutes(app: Express, agencyScope: ScopeFn) {
           include: LINKED_PRODUCT_INCLUDE,
           orderBy: { updatedAt: "desc" },
         }),
+        db.sightseeingPlace.findMany({
+          where: { destinationId: id, ...(agencyScope(req) as object) },
+          orderBy: [{ sortOrder: "asc" }, { name: "asc" }],
+        }),
       ]);
-      res.json({ hotels, activities, transfers });
+      res.json({ hotels, activities, transfers, sightseeingPlaces });
     } catch (e) {
       logger.error(e);
       res.status(500).json({ error: "Server error" });
@@ -224,7 +228,14 @@ export function mountDestinationRoutes(app: Express, agencyScope: ScopeFn) {
       const item = await db.destination.findFirst({
         where: { id: paramId(req), ...agencyScope(req), deletedAt: null },
         include: {
-          _count: { select: { hotelProducts: true, activityProducts: true, transferProducts: true } },
+          _count: {
+            select: {
+              hotelProducts: true,
+              activityProducts: true,
+              transferProducts: true,
+              sightseeingPlaces: true,
+            },
+          },
         },
       });
       if (!item) {

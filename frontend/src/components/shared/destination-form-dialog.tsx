@@ -14,6 +14,7 @@ import {
   Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
 } from "@/components/ui/select";
 import type { DestinationRecord } from "@/types";
+import { ImageUrlListField } from "@/components/shared/image-url-list-field";
 
 interface DestinationFormDialogProps {
   open: boolean;
@@ -93,7 +94,9 @@ function recordToForm(initial: DestinationRecord): FormState {
     coupleFriendly: String(initial.coupleFriendly ?? true),
     seniorFriendly: String(initial.seniorFriendly ?? false),
     heroImage: String(initial.heroImage ?? ""),
-    galleryImages: joinList(initial.galleryImages),
+    galleryImages: Array.isArray(initial.galleryImages)
+      ? (initial.galleryImages as string[]).join("\n")
+      : String(initial.galleryImages ?? ""),
     bannerImage: String(initial.bannerImage ?? ""),
     thumbnail: String(initial.thumbnail ?? ""),
     videoUrl: String(initial.videoUrl ?? ""),
@@ -132,10 +135,10 @@ function formToPayload(form: Record<string, string>): Record<string, unknown> {
     familyFriendly: form.familyFriendly === "true",
     coupleFriendly: form.coupleFriendly === "true",
     seniorFriendly: form.seniorFriendly === "true",
-    heroImage: form.heroImage || null,
-    galleryImages: splitList(form.galleryImages),
-    bannerImage: form.bannerImage || null,
-    thumbnail: form.thumbnail || null,
+    heroImage: form.heroImage.split(/\r?\n/).map((s) => s.trim()).filter(Boolean)[0] || null,
+    galleryImages: form.galleryImages.split(/\r?\n/).map((s) => s.trim()).filter(Boolean),
+    bannerImage: form.bannerImage.split(/\r?\n/).map((s) => s.trim()).filter(Boolean)[0] || null,
+    thumbnail: form.thumbnail.split(/\r?\n/).map((s) => s.trim()).filter(Boolean)[0] || null,
     videoUrl: form.videoUrl || null,
     imageAltText: form.imageAltText || null,
     seoTitle: form.seoTitle || null,
@@ -239,11 +242,39 @@ export function DestinationFormDialog({ open, onOpenChange, initial, onSubmit }:
             </Section>
 
             <Section title="Media">
-              <Field label="Hero Image URL"><Input value={form.heroImage} onChange={(e) => set("heroImage", e.target.value)} placeholder="https://..." /></Field>
-              <Field label="Thumbnail URL"><Input value={form.thumbnail} onChange={(e) => set("thumbnail", e.target.value)} /></Field>
-              <Field label="Banner Image URL"><Input value={form.bannerImage} onChange={(e) => set("bannerImage", e.target.value)} /></Field>
-              <Field label="Video URL"><Input value={form.videoUrl} onChange={(e) => set("videoUrl", e.target.value)} /></Field>
-              <Field label="Gallery Images"><Input value={form.galleryImages} onChange={(e) => set("galleryImages", e.target.value)} placeholder="Comma-separated URLs" /></Field>
+              <div className="md:col-span-2">
+                <ImageUrlListField
+                  label="Hero image"
+                  value={form.heroImage}
+                  onChange={(v) => set("heroImage", v)}
+                  maxImages={1}
+                />
+              </div>
+              <div className="md:col-span-2">
+                <ImageUrlListField
+                  label="Thumbnail"
+                  value={form.thumbnail}
+                  onChange={(v) => set("thumbnail", v)}
+                  maxImages={1}
+                />
+              </div>
+              <div className="md:col-span-2">
+                <ImageUrlListField
+                  label="Banner image"
+                  value={form.bannerImage}
+                  onChange={(v) => set("bannerImage", v)}
+                  maxImages={1}
+                />
+              </div>
+              <Field label="Video URL"><Input value={form.videoUrl} onChange={(e) => set("videoUrl", e.target.value)} placeholder="https://..." /></Field>
+              <div className="md:col-span-2">
+                <ImageUrlListField
+                  label="Gallery images"
+                  value={form.galleryImages}
+                  onChange={(v) => set("galleryImages", v)}
+                  maxImages={12}
+                />
+              </div>
               <Field label="Image Alt Text"><Input value={form.imageAltText} onChange={(e) => set("imageAltText", e.target.value)} /></Field>
             </Section>
 

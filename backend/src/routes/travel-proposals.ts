@@ -18,6 +18,7 @@ import {
 } from "../lib/proposal-snapshot.js";
 import { compareSnapshots, snapshotToPreviewData } from "../lib/proposal-preview.js";
 import { defaultGroupsFromOptions } from "../lib/package-matching.js";
+import { travelDatesBlockReason } from "../lib/travel-dates.js";
 import {
   buildEmptyItinerarySnapshot,
   computeEndDate,
@@ -325,6 +326,11 @@ export function mountTravelProposalRoutes(app: Express, agencyScope: ScopeFn) {
       const startDate = String(body.startDate || "").slice(0, 10);
       if (!/^\d{4}-\d{2}-\d{2}$/.test(startDate)) {
         res.status(400).json({ error: "startDate is required (YYYY-MM-DD)" });
+        return;
+      }
+      const startBlock = travelDatesBlockReason({ travelStartDate: startDate, requireStart: true });
+      if (startBlock) {
+        res.status(400).json({ error: startBlock });
         return;
       }
       const rawCities = Array.isArray(body.cities) ? body.cities : [];

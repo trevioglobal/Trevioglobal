@@ -451,8 +451,13 @@ export async function submitCustomerResponse(opts: {
   await notifyQuote({
     agencyId: quote.agencyId,
     title: `Customer ${opts.responseType === "RevisionRequested" ? "requested revision" : `${opts.responseType.toLowerCase()}ed`}`,
-    message: `${quote.quoteNo} v${currentVersion}: ${opts.responseType}${opts.comment ? ` — ${opts.comment.slice(0, 120)}` : ""}`,
+    message: `${quote.quoteNo} v${currentVersion}: ${opts.responseType}${opts.comment ? ` — ${opts.comment.slice(0, 120)}` : ""}${
+      opts.responseType === "Accept"
+        ? " — Ops / agency admin: proceed to booking and arrange hotels, flights & transfers."
+        : ""
+    }`,
     priority: "high",
+    notifyOpsRoles: opts.responseType === "Accept" || opts.responseType === "RevisionRequested",
   });
 
   return {

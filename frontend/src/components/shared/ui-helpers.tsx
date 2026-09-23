@@ -159,16 +159,16 @@ export function PageHeader({
   eyebrow?: string;
 }) {
   return (
-    <div className="flex flex-col sm:flex-row sm:items-end sm:justify-between gap-4 sm:gap-6">
-      <div className="min-w-0 space-y-1.5">
+    <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 sm:gap-6">
+      <div className="min-w-0 space-y-1">
         {eyebrow && (
           <p className="text-helper font-semibold uppercase tracking-[0.12em] text-muted-foreground">
             {eyebrow}
           </p>
         )}
-        <h1 className="text-2xl sm:text-[length:var(--text-page-title)] font-semibold tracking-tight text-foreground">{title}</h1>
+        <h1 className="text-page-title text-foreground">{title}</h1>
         {subtitle && (
-          <p className="hidden sm:block text-body text-muted-foreground leading-relaxed max-w-2xl">{subtitle}</p>
+          <p className="text-body text-muted-foreground leading-relaxed max-w-2xl">{subtitle}</p>
         )}
       </div>
       {action && <div className="flex flex-wrap items-center gap-2 shrink-0">{action}</div>}
@@ -205,6 +205,7 @@ export function MetricCard({
   color,
   subtitle,
   index = 0,
+  variant = "default",
 }: {
   icon: React.ElementType;
   label: string;
@@ -214,7 +215,24 @@ export function MetricCard({
   color: string;
   subtitle?: string;
   index?: number;
+  /** `inline` = horizontal catalog strip (full-width friendly). */
+  variant?: "default" | "inline";
 }) {
+  const changeBadge =
+    change !== undefined && trend ? (
+      <span
+        className={cn(
+          "inline-flex items-center gap-0.5 rounded-md px-1.5 py-0.5 text-helper font-semibold tabular-nums",
+          trend === "up"
+            ? "bg-emerald-50 text-emerald-700 dark:bg-emerald-500/10 dark:text-emerald-400"
+            : "bg-rose-50 text-rose-700 dark:bg-rose-500/10 dark:text-rose-400"
+        )}
+      >
+        {trend === "up" ? <ArrowUpRight className="w-3 h-3" /> : <TrendingDown className="w-3 h-3" />}
+        {Math.abs(change)}%
+      </span>
+    ) : null;
+
   return (
     <motion.div
       initial={{ opacity: 0, y: 8 }}
@@ -224,32 +242,43 @@ export function MetricCard({
     >
       <Card className="group relative h-full overflow-hidden border-border shadow-[var(--shadow-card)] hover:border-primary/20 hover:shadow-sm transition-enterprise">
         <div className="absolute inset-y-0 left-0 w-[3px] bg-brand-gradient opacity-0 group-hover:opacity-100 transition-enterprise" aria-hidden />
-        <CardContent className="p-6">
-          <div className="flex items-start justify-between gap-3">
-            <div className={cn("w-10 h-10 rounded-lg flex items-center justify-center shrink-0", color)}>
-              <Icon className="w-4 h-4" aria-hidden />
+        {variant === "inline" ? (
+          <CardContent className="p-4 sm:p-5 flex items-center gap-4">
+            <div className={cn("w-11 h-11 rounded-xl flex items-center justify-center shrink-0", color)}>
+              <Icon className="w-5 h-5" aria-hidden />
             </div>
-            {change !== undefined && trend && (
-              <span
-                className={cn(
-                  "inline-flex items-center gap-0.5 rounded-md px-1.5 py-0.5 text-helper font-semibold tabular-nums",
-                  trend === "up"
-                    ? "bg-emerald-50 text-emerald-700 dark:bg-emerald-500/10 dark:text-emerald-400"
-                    : "bg-rose-50 text-rose-700 dark:bg-rose-500/10 dark:text-rose-400"
-                )}
-              >
-                {trend === "up" ? <ArrowUpRight className="w-3 h-3" /> : <TrendingDown className="w-3 h-3" />}
-                {Math.abs(change)}%
-              </span>
-            )}
-          </div>
-          <p className="text-[1.375rem] font-semibold mt-4 tracking-tight tabular-nums leading-none text-foreground">{value}</p>
-          <p className="text-label text-foreground/80 mt-2.5">{label}</p>
-          {subtitle && <p className="text-helper text-muted-foreground mt-1">{subtitle}</p>}
-        </CardContent>
+            <div className="min-w-0 flex-1">
+              <div className="flex items-start justify-between gap-2">
+                <p className="text-[1.5rem] font-semibold tracking-tight tabular-nums leading-none text-foreground">
+                  {value}
+                </p>
+                {changeBadge}
+              </div>
+              <p className="text-label text-foreground/80 mt-1.5 truncate">{label}</p>
+              {subtitle && <p className="text-helper text-muted-foreground mt-0.5">{subtitle}</p>}
+            </div>
+          </CardContent>
+        ) : (
+          <CardContent className="p-6">
+            <div className="flex items-start justify-between gap-3">
+              <div className={cn("w-10 h-10 rounded-lg flex items-center justify-center shrink-0", color)}>
+                <Icon className="w-4 h-4" aria-hidden />
+              </div>
+              {changeBadge}
+            </div>
+            <p className="text-[1.375rem] font-semibold mt-4 tracking-tight tabular-nums leading-none text-foreground">{value}</p>
+            <p className="text-label text-foreground/80 mt-2.5">{label}</p>
+            {subtitle && <p className="text-helper text-muted-foreground mt-1">{subtitle}</p>}
+          </CardContent>
+        )}
       </Card>
     </motion.div>
   );
+}
+
+/** Full-width 2–4 column strip for catalog page stats. */
+export function CatalogStatGrid({ children }: { children: React.ReactNode }) {
+  return <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 lg:gap-4">{children}</div>;
 }
 
 export function BrandHero({

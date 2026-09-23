@@ -4,14 +4,14 @@ import { useEffect, useMemo, useState } from "react";
 import {
   FileText, Send, FileDown, Plus, Trash2, CheckCircle2, Clock,
   Mail, MessageCircle, Eye, TrendingUp, Wallet, Percent, Ticket, Loader2, Copy, Archive,
-  ChevronDown, Sparkles, Globe, ListOrdered, XCircle,
+  XCircle,
 } from "lucide-react";
 import { useDemoDataStore } from "@/store/demo-data-store";
 import { useAuthStore, useAppStore } from "@/store/app-store";
 import { api, ApiError, apiFetchBlob } from "@/lib/api";
 import type { Quotation } from "@/types";
 import { mapApiQuotation } from "@/lib/api-mappers";
-import { pickActiveTaxRule, taxFromConfiguredRule, type ClientTaxRule } from "@/lib/tax-config";
+import { todayYmd } from "@/lib/travel-dates";
 import {
   formatINR, formatFullINR, StatusBadge, PageHeader, PageShell, MetricCard,
 } from "@/components/shared/ui-helpers";
@@ -32,18 +32,10 @@ import {
 } from "@/components/ui/dialog";
 import { Textarea } from "@/components/ui/textarea";
 import {
-  DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuLabel,
-  DropdownMenuSeparator, DropdownMenuTrigger,
-} from "@/components/ui/dropdown-menu";
-import {
   Select, SelectTrigger, SelectValue, SelectContent, SelectItem,
 } from "@/components/ui/select";
 import { useToast } from "@/hooks/use-toast";
 import { cn } from "@/lib/utils";
-import { InternationalQuotationDialog } from "@/components/views/international-quotation";
-import { ProductQuoteBuilderDialog } from "@/components/shared/product-quote-builder";
-import { AgentQuotationDialog } from "@/components/views/agent-quotation-dialog";
-import { AgentTripComposerDialog } from "@/components/views/agent-trip-composer";
 import {
   downloadQuotationPdf,
   getQuotationLineItems,
@@ -54,7 +46,6 @@ import { resolveQuotationCosting, toCalendarDate } from "@/lib/quote-costing";
 import { canApproveDiscount, latestDiscountApproval } from "@/lib/quote-discount";
 import { isQuoteReadyToSend, quoteDisplayStatus } from "@/lib/quote-status";
 import { QuotePriceBreakdown } from "@/components/shared/quote-price-breakdown";
-import type { Lead } from "@/types";
 
 const SERVICE_COLORS: Record<string, string> = {
   Flight: "bg-teal-100 text-teal-700 dark:bg-teal-500/15 dark:text-teal-400",
@@ -64,8 +55,6 @@ const SERVICE_COLORS: Record<string, string> = {
   Activity: "bg-cyan-100 text-cyan-700 dark:bg-cyan-500/15 dark:text-cyan-400",
   Transfer: "bg-violet-100 text-violet-700 dark:bg-violet-500/15 dark:text-violet-400",
 };
-
-interface QuoteItem { id: string; description: string; qty: number; price: number; }
 
 function useProceedToBooking() {
   const { toast } = useToast();
@@ -241,343 +230,6 @@ function useQuoteActions() {
   }
 
   return { pdf, email, whatsapp, markSent };
-}
-
-function CreateQuotationDialog({ open, onOpenChange }: { open: boolean; onOpenChange: (open: boolean) => void }) {
-  const { toast } = useToast();
-  const { pdf, email, whatsapp } = useQuoteActions();
-  const customers = useDemoDataStore((s) => s.customers);
-  const leads = useDemoDataStore((s) => s.leads);
-  const addQuotation = useDemoDataStore((s) => s.addQuotation);
-  const setView = useAppStore((s) => s.setView);
-  const user = useAuthStore((s) => s.user);
-  const setOpen = onOpenChange;
-  const [customer, setCustomer] = useState("");
-  const [service, setService] = useState("Flight");
-  const [items, setItems] = useState<QuoteItem[]>([
-    { id: "1", description: "Flight - DEL → DXB (Return)", qty: 1, price: 28000 },
-  ]);
-  const [discount, setDiscount] = useState(0);
-  const [couponCode, setCouponCode] = useState("");
-  const [appliedCoupon, setAppliedCoupon] = useState<{ code: string; discountAmount: number } | null>(null);
-  const [couponBusy, setCouponBusy] = useState(false);
-  const [shareQuote, setShareQuote] = useState<Quotation | null>(null);
-
-  const selectedCustomer = customers.find((c) => c.name === customer);
-  const subtotal = items.reduce((s, i) => s + i.qty * i.price, 0);
-  const couponDiscountAmount = Math.min(subtotal, appliedCoupon?.discountAmount ?? 0);
-  const afterCoupon = Math.max(0, subtotal - couponDiscountAmount);
-  const manualDiscountAmount = Math.round((afterCoupon * discount) / 100);
-  const taxableAmount = Math.max(0, afterCoupon - manualDiscountAmount);
-  const [taxRule, setTaxRule] = useState<ClientTaxRule | null>(null);
-  useEffect(() => {
-    api.getTaxRules()
-      .then((res) => {
-        const mapped = (res.rules || []).map((r) => ({
-          id: r.id,
-          name: r.name,
-          rate: r.rate,
-          method: (r.method === "INCLUSIVE" ? "INCLUSIVE" : "EXCLUSIVE") as "EXCLUSIVE" | "INCLUSIVE",
-          active: r.active,
-          effectiveFrom: r.effectiveFrom,
-          effectiveTo: r.effectiveTo,
-        }));
-        setTaxRule(pickActiveTaxRule(mapped));
-      })
-      .catch(() => setTaxRule(null));
-  }, []);
-  const tax = taxFromConfiguredRule(taxableAmount, taxRule);
-  const gst = tax.amount ?? 0;
-  const total = tax.configured ? (tax.total ?? taxableAmount) : taxableAmount;
-
-  async function applyCoupon() {
-    const code = couponCode.trim().toUpperCase();
-    if (!code) {
-      toast({ title: "Enter a coupon code", variant: "destructive" });
-      return;
-    }
-    if (subtotal <= 0) {
-      toast({ title: "Add line items first", description: "Coupon needs an order amount.", variant: "destructive" });
-      return;
-    }
-    setCouponBusy(true);
-    try {
-      const res = await api.validateCoupon({
-        code,
-        orderAmount: subtotal,
-        agencyId: user?.agencyId || undefined,
-      });
-      setAppliedCoupon({ code: res.coupon.code, discountAmount: res.discountAmount });
-      setCouponCode(res.coupon.code);
-      toast({ title: "Coupon applied", description: `${res.coupon.code} · −₹${res.discountAmount.toLocaleString("en-IN")}` });
-    } catch (e) {
-      setAppliedCoupon(null);
-      toast({
-        title: "Coupon not valid",
-        description: e instanceof ApiError || e instanceof Error ? e.message : "Try another code",
-        variant: "destructive",
-      });
-    } finally {
-      setCouponBusy(false);
-    }
-  }
-
-  function addRow() {
-    setItems([...items, { id: Date.now().toString(), description: "", qty: 1, price: 0 }]);
-  }
-  function removeRow(id: string) {
-    setItems(items.filter((i) => i.id !== id));
-  }
-  function updateRow(id: string, field: keyof QuoteItem, value: string | number) {
-    setItems(items.map((i) => (i.id === id ? { ...i, [field]: value } : i)));
-  }
-
-  function save(asDraft: boolean) {
-    if (!customer) {
-      toast({ title: "Select customer", description: "Please choose a customer first", variant: "destructive" });
-      return;
-    }
-    if (items.length === 0 || subtotal === 0) {
-      toast({ title: "Add line items", description: "Add at least one item with a price", variant: "destructive" });
-      return;
-    }
-    const quote = addQuotation({
-      customerName: customer,
-      service: service as Quotation["service"],
-      items: items.length,
-      amount: taxableAmount,
-      gst,
-      total,
-      validTill: new Date(Date.now() + 14 * 86400000).toISOString().slice(0, 10),
-      createdBy: user?.name || "Team",
-      contactEmail: selectedCustomer?.email,
-      contactPhone: selectedCustomer?.phone,
-      status: asDraft ? "Draft" : "Sent",
-      couponCode: appliedCoupon?.code,
-      couponDiscount: appliedCoupon?.discountAmount ?? 0,
-      lineItems: items.map((i) => ({
-        description: i.description || `${service} item`,
-        qty: i.qty,
-        price: i.price,
-      })),
-    });
-    toast({
-      title: asDraft ? "Quotation saved as draft" : "Quotation created",
-      description: `${customer} · Total ${formatINR(total)}${appliedCoupon ? ` · ${appliedCoupon.code}` : ""}`,
-    });
-    setOpen(false);
-    setCustomer("");
-    setService("Flight");
-    setItems([{ id: "1", description: "", qty: 1, price: 0 }]);
-    setDiscount(0);
-    setCouponCode("");
-    setAppliedCoupon(null);
-    if (!asDraft) setShareQuote(quote);
-  }
-
-  return (
-    <>
-      <Dialog open={open} onOpenChange={setOpen}>
-        <DialogContent className="sm:max-w-2xl">
-          <DialogHeader>
-            <DialogTitle>Quick line-item quote</DialogTitle>
-            <DialogDescription>
-              Simple quote with customer, service type, and priced line items — then PDF, email, or WhatsApp.
-            </DialogDescription>
-          </DialogHeader>
-
-          <div className="grid grid-cols-2 gap-3">
-            <div>
-              <Label>Customer</Label>
-              <Select value={customer} onValueChange={setCustomer}>
-                <SelectTrigger><SelectValue placeholder="Select customer" /></SelectTrigger>
-                <SelectContent>
-                  {customers.length === 0 && leads.length === 0 ? (
-                    <div className="px-3 py-2 text-xs text-muted-foreground max-w-[240px] space-y-2">
-                      <p>No customers yet. Add one, then return here.</p>
-                      <Button
-                        type="button"
-                        size="sm"
-                        variant="outline"
-                        className="h-7 text-xs"
-                        onClick={() => {
-                          setOpen(false);
-                          setView("customers");
-                        }}
-                      >
-                        <Plus className="w-3 h-3 mr-1" /> Add customer
-                      </Button>
-                    </div>
-                  ) : (
-                    <>
-                      {customers.map((c) => <SelectItem key={c.id} value={c.name}>{c.name}</SelectItem>)}
-                      {leads.filter((l) => !customers.some((c) => c.name === l.customerName)).map((l) => (
-                        <SelectItem key={l.id} value={l.customerName}>{l.customerName} (lead)</SelectItem>
-                      ))}
-                    </>
-                  )}
-                </SelectContent>
-              </Select>
-            </div>
-            <div>
-              <Label>Service Type</Label>
-              <Select value={service} onValueChange={setService}>
-                <SelectTrigger><SelectValue /></SelectTrigger>
-                <SelectContent>
-                  {["Flight", "Hotel", "Holiday"].map((s) => (
-                    <SelectItem key={s} value={s}>{s}</SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-            </div>
-          </div>
-
-          <div className="space-y-2">
-            <div className="flex items-center justify-between">
-              <Label className="text-xs uppercase tracking-wide text-muted-foreground">Line Items</Label>
-              <Button variant="outline" size="sm" className="h-7 text-xs" onClick={addRow}>
-                <Plus className="w-3 h-3 mr-1" /> Add Row
-              </Button>
-            </div>
-            <div className="rounded-lg border max-h-48 overflow-y-auto scroll-thin">
-              {items.map((item) => (
-                <div key={item.id} className="grid grid-cols-12 gap-2 p-2 border-b last:border-0 items-center">
-                  <Input
-                    className="col-span-6 h-8 text-xs"
-                    placeholder="Description"
-                    value={item.description}
-                    onChange={(e) => updateRow(item.id, "description", e.target.value)}
-                  />
-                  <Input
-                    className="col-span-2 h-8 text-xs"
-                    type="number"
-                    placeholder="Qty"
-                    value={item.qty}
-                    onChange={(e) => updateRow(item.id, "qty", Number(e.target.value))}
-                  />
-                  <Input
-                    className="col-span-3 h-8 text-xs"
-                    type="number"
-                    placeholder="Price ₹"
-                    value={item.price}
-                    onChange={(e) => updateRow(item.id, "price", Number(e.target.value))}
-                  />
-                  <Button variant="ghost" size="sm" className="col-span-1 h-8 text-rose-500" onClick={() => removeRow(item.id)}>
-                    <Trash2 className="w-3.5 h-3.5" />
-                  </Button>
-                </div>
-              ))}
-            </div>
-          </div>
-
-          <div className="space-y-2">
-            <Label>Coupon code</Label>
-            <div className="flex gap-2">
-              <div className="relative flex-1">
-                <Ticket className="absolute left-2.5 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-muted-foreground" />
-                <Input
-                  className="pl-8 uppercase"
-                  placeholder="e.g. FLY500"
-                  value={couponCode}
-                  onChange={(e) => {
-                    setCouponCode(e.target.value);
-                    if (appliedCoupon) setAppliedCoupon(null);
-                  }}
-                />
-              </div>
-              <Button type="button" variant="outline" onClick={() => void applyCoupon()} disabled={couponBusy}>
-                {couponBusy ? <Loader2 className="w-4 h-4 animate-spin" /> : "Apply"}
-              </Button>
-              {appliedCoupon && (
-                <Button type="button" variant="ghost" onClick={() => { setAppliedCoupon(null); setCouponCode(""); }}>
-                  Clear
-                </Button>
-              )}
-            </div>
-            {appliedCoupon && (
-              <p className="text-xs text-emerald-600">
-                {appliedCoupon.code} applied (−{formatFullINR(appliedCoupon.discountAmount)})
-              </p>
-            )}
-          </div>
-
-          <div className="grid grid-cols-2 gap-3">
-            <div>
-              <Label>Extra discount (%)</Label>
-              <div className="relative">
-                <Percent className="absolute left-2.5 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-muted-foreground" />
-                <Input type="number" min={0} max={100} value={discount} onChange={(e) => setDiscount(Number(e.target.value))} className="pl-8" />
-              </div>
-            </div>
-            <div className="rounded-lg bg-muted/40 p-3 text-xs space-y-1">
-              <div className="flex justify-between"><span className="text-muted-foreground">Subtotal</span><span>{formatFullINR(subtotal)}</span></div>
-              {couponDiscountAmount > 0 && (
-                <div className="flex justify-between text-emerald-600">
-                  <span>Coupon ({appliedCoupon?.code})</span>
-                  <span>-{formatFullINR(couponDiscountAmount)}</span>
-                </div>
-              )}
-              {manualDiscountAmount > 0 && (
-                <div className="flex justify-between text-emerald-600">
-                  <span>Extra ({discount}%)</span>
-                  <span>-{formatFullINR(manualDiscountAmount)}</span>
-                </div>
-              )}
-              <div className="flex justify-between"><span className="text-muted-foreground">{tax.label}</span><span>{tax.configured ? formatFullINR(gst) : "—"}</span></div>
-              {!tax.configured && (
-                <p className="text-[10px] text-amber-700">Configure an active TaxRule before finalizing. No default rate is applied.</p>
-              )}
-              <Separator className="my-1" />
-              <div className="flex justify-between font-semibold text-sm"><span>Total</span><span className="text-teal-600">{formatFullINR(total)}</span></div>
-            </div>
-          </div>
-
-          <DialogFooter className="gap-2">
-            <Button variant="outline" onClick={() => save(true)}>Save as Draft</Button>
-            <Button onClick={() => save(false)} className="bg-primary hover:bg-primary/90">
-              <Send className="w-4 h-4 mr-1" /> Save & Share
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
-
-      <Dialog open={!!shareQuote} onOpenChange={(v) => { if (!v) setShareQuote(null); }}>
-        <DialogContent className="sm:max-w-md">
-          <DialogHeader>
-            <DialogTitle>Share with client</DialogTitle>
-            <DialogDescription>
-              {shareQuote?.quoteNo} · {shareQuote?.customerName} · {shareQuote ? formatFullINR(shareQuote.total) : ""}
-            </DialogDescription>
-          </DialogHeader>
-          <div className="grid gap-2">
-            <Button
-              variant="outline"
-              onClick={() => shareQuote && pdf(shareQuote)}
-            >
-              <FileDown className="w-4 h-4 mr-2" /> Download PDF
-            </Button>
-            <Button
-              variant="outline"
-              disabled={shareQuote?.status === "Expired"}
-              onClick={() => shareQuote && email(shareQuote)}
-            >
-              <Mail className="w-4 h-4 mr-2" /> Email PDF
-            </Button>
-            <Button
-              variant="outline"
-              disabled={shareQuote?.status === "Expired"}
-              onClick={() => shareQuote && whatsapp(shareQuote)}
-            >
-              <MessageCircle className="w-4 h-4 mr-2" /> WhatsApp PDF
-            </Button>
-          </div>
-          <DialogFooter>
-            <Button onClick={() => setShareQuote(null)}>Done</Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
-    </>
-  );
 }
 
 const APPROVAL_STEPS = [
@@ -1028,7 +680,7 @@ function QuoteDetailDialog({ quote, open, onOpenChange }: { quote: Quotation | n
                 <>
                   <div>
                     <Label className="text-[10px]">Extend valid until</Label>
-                    <Input className="h-8 w-40 text-xs" type="date" value={extendDate} onChange={(e) => setExtendDate(e.target.value)} />
+                    <Input className="h-8 w-40 text-xs" type="date" value={extendDate} min={todayYmd()} onChange={(e) => setExtendDate(e.target.value)} />
                   </div>
                   <Button size="sm" variant="outline" onClick={async () => {
                     try {
@@ -1323,50 +975,22 @@ export function QuotationsView() {
   const { pdf, markSent } = useQuoteActions();
   const user = useAuthStore((s) => s.user);
   const quotePrefill = useAppStore((s) => s.quotePrefill);
-  const setQuotePrefill = useAppStore((s) => s.setQuotePrefill);
   const openQuotationWizard = useAppStore((s) => s.openQuotationWizard);
-  const setView = useAppStore((s) => s.setView);
   const quotations = useDemoDataStore((s) => s.quotations);
-  const leads = useDemoDataStore((s) => s.leads);
   const upsertQuotation = useDemoDataStore((s) => s.upsertQuotation);
   const hydrateFromApi = useDemoDataStore((s) => s.hydrateFromApi);
   const [selected, setSelected] = useState<Quotation | null>(null);
   const [detailOpen, setDetailOpen] = useState(false);
-  const [productQuoteOpen, setProductQuoteOpen] = useState(false);
-  const [intlQuoteOpen, setIntlQuoteOpen] = useState(false);
-  const [quickQuoteOpen, setQuickQuoteOpen] = useState(false);
-  const [agentQuoteOpen, setAgentQuoteOpen] = useState(false);
-  const [tripComposerOpen, setTripComposerOpen] = useState(false);
-  const [fromEnquiryOpen, setFromEnquiryOpen] = useState(false);
-  const [enquiryLeadId, setEnquiryLeadId] = useState("");
   const [search, setSearch] = useState("");
   const [statusFilter, setStatusFilter] = useState("All");
   const [sort, setSort] = useState("latest");
   const [travelFrom, setTravelFrom] = useState("");
   const [travelTo, setTravelTo] = useState("");
+  const [destinationFilter, setDestinationFilter] = useState("");
+  const [agentFilter, setAgentFilter] = useState("");
+  const [salesFilter, setSalesFilter] = useState("");
   const [analytics, setAnalytics] = useState<Record<string, number | undefined>>({});
   const isAgent = user?.role === "travel_agent";
-
-  const enquiryLeads = useMemo(
-    () => leads.filter((l) => !["Won", "Lost"].includes(l.stage)).slice().sort((a, b) => b.createdAt.localeCompare(a.createdAt)),
-    [leads],
-  );
-
-  function openFromEnquiry(lead: Lead) {
-    setQuotePrefill({
-      leadId: lead.id,
-      customerName: lead.customerName,
-      contactEmail: lead.email,
-      contactPhone: lead.phone,
-      service: lead.service,
-      budget: lead.value,
-      enquiryRef: `LEAD-${lead.id.slice(-6)}`,
-    });
-    setFromEnquiryOpen(false);
-    setEnquiryLeadId("");
-    openQuotationWizard(null);
-    toast({ title: "Opening quotation wizard", description: `Prefilling from ${lead.customerName}` });
-  }
 
   useEffect(() => {
     if (!quotePrefill || isAgent) return;
@@ -1382,16 +1006,31 @@ export function QuotationsView() {
     if (search.trim()) params.q = search.trim();
     if (travelFrom) params.travelFrom = travelFrom;
     if (travelTo) params.travelTo = travelTo;
+    if (destinationFilter.trim()) params.destination = destinationFilter.trim();
+    if (agentFilter.trim()) params.agent = agentFilter.trim();
+    if (salesFilter.trim()) params.salesExecutive = salesFilter.trim();
     api.getQuotationsManage(params)
       .then((res) => {
         res.quotations.forEach((q) => upsertQuotation(mapApiQuotation(q)));
       })
       .catch(() => undefined);
-  }, [sort, statusFilter, search, travelFrom, travelTo, upsertQuotation]);
+  }, [sort, statusFilter, search, travelFrom, travelTo, destinationFilter, agentFilter, salesFilter, upsertQuotation]);
 
   const filtered = useMemo(() => {
     let list = quotations;
     if (statusFilter !== "All") list = list.filter((q) => q.status === statusFilter);
+    if (destinationFilter.trim()) {
+      const d = destinationFilter.trim().toLowerCase();
+      list = list.filter((q) => (q.destination || "").toLowerCase().includes(d));
+    }
+    if (agentFilter.trim()) {
+      const a = agentFilter.trim().toLowerCase();
+      list = list.filter((q) => (q.agentName || "").toLowerCase().includes(a));
+    }
+    if (salesFilter.trim()) {
+      const s = salesFilter.trim().toLowerCase();
+      list = list.filter((q) => (q.salesExecutiveName || "").toLowerCase().includes(s));
+    }
     if (search) {
       const q = search.toLowerCase();
       list = list.filter((qt) =>
@@ -1404,7 +1043,7 @@ export function QuotationsView() {
       );
     }
     return list;
-  }, [search, quotations, statusFilter]);
+  }, [search, quotations, statusFilter, destinationFilter, agentFilter, salesFilter]);
 
   const stats = [
     { icon: FileText, label: "Total Quotes", value: String(analytics.total ?? quotations.length), color: "bg-teal-100 text-teal-600 dark:bg-teal-500/15 dark:text-teal-400" },
@@ -1440,155 +1079,14 @@ export function QuotationsView() {
     <PageShell>
       <PageHeader
         title="Quotation Management"
-        subtitle={isAgent ? "Browse packages, add markup, and send branded PDFs to customers instantly" : "Enquiry → draft → approval → send → revise → accept → convert to booking"}
+        subtitle="Create itinerary quotes → approval → send → accept → convert to booking"
         action={
-          isAgent ? (
-            <div className="flex flex-wrap gap-2">
-              <Button className="bg-teal-600 hover:bg-teal-700" onClick={() => setAgentQuoteOpen(true)}>
-                <Plus className="w-4 h-4 mr-1" /> Create quotation
-              </Button>
-              <Button variant="outline" onClick={() => setTripComposerOpen(true)}>
-                <Sparkles className="w-4 h-4 mr-1" /> Compose trip
-              </Button>
-              <Button variant="outline" onClick={() => setView("crm")}>
-                <FileText className="w-4 h-4 mr-1" /> Submit enquiry
-              </Button>
-            </div>
-          ) : !isAgent ? (
-            <div className="flex flex-wrap items-center gap-2">
-              <Button
-                className="bg-teal-600 hover:bg-teal-700"
-                onClick={() => openQuotationWizard(null)}
-              >
-                <Plus className="w-4 h-4 mr-1" /> Create quotation
-              </Button>
-              <DropdownMenu>
-                <DropdownMenuTrigger asChild>
-                  <Button variant="outline">
-                    Other quote types
-                    <ChevronDown className="w-4 h-4 ml-1 opacity-70" />
-                  </Button>
-                </DropdownMenuTrigger>
-                <DropdownMenuContent align="end" className="w-72">
-                  <DropdownMenuLabel>Choose how to build the quote</DropdownMenuLabel>
-                  <DropdownMenuSeparator />
-                  <DropdownMenuItem
-                    className="flex flex-col items-start gap-0.5 py-2.5 cursor-pointer"
-                    onClick={() => openQuotationWizard(null)}
-                  >
-                    <span className="font-medium flex items-center gap-1.5">
-                      <Plus className="w-3.5 h-3.5" /> Full itinerary (recommended)
-                    </span>
-                    <span className="text-xs text-muted-foreground pl-5">
-                      Packages, costing, and approval workflow
-                    </span>
-                  </DropdownMenuItem>
-                  <DropdownMenuItem
-                    className="flex flex-col items-start gap-0.5 py-2.5 cursor-pointer"
-                    onClick={() => setFromEnquiryOpen(true)}
-                  >
-                    <span className="font-medium flex items-center gap-1.5">
-                      <FileText className="w-3.5 h-3.5" /> From CRM enquiry
-                    </span>
-                    <span className="text-xs text-muted-foreground pl-5">
-                      Prefill customer, contact, budget from a lead
-                    </span>
-                  </DropdownMenuItem>
-                  <DropdownMenuItem
-                    className="flex flex-col items-start gap-0.5 py-2.5 cursor-pointer"
-                    onClick={() => setProductQuoteOpen(true)}
-                  >
-                    <span className="font-medium flex items-center gap-1.5">
-                      <Sparkles className="w-3.5 h-3.5" /> From product catalog
-                    </span>
-                    <span className="text-xs text-muted-foreground pl-5">
-                      Hotels & activities already approved in catalog
-                    </span>
-                  </DropdownMenuItem>
-                  <DropdownMenuItem
-                    className="flex flex-col items-start gap-0.5 py-2.5 cursor-pointer"
-                    onClick={() => setIntlQuoteOpen(true)}
-                  >
-                    <span className="font-medium flex items-center gap-1.5">
-                      <Globe className="w-3.5 h-3.5" /> International trip
-                    </span>
-                    <span className="text-xs text-muted-foreground pl-5">
-                      Overseas package with destination & budget
-                    </span>
-                  </DropdownMenuItem>
-                  <DropdownMenuItem
-                    className="flex flex-col items-start gap-0.5 py-2.5 cursor-pointer"
-                    onClick={() => setQuickQuoteOpen(true)}
-                  >
-                    <span className="font-medium flex items-center gap-1.5">
-                      <ListOrdered className="w-3.5 h-3.5" /> Quick line items
-                    </span>
-                    <span className="text-xs text-muted-foreground pl-5">
-                      Simple priced rows (flight / hotel / other)
-                    </span>
-                  </DropdownMenuItem>
-                </DropdownMenuContent>
-              </DropdownMenu>
-              <ProductQuoteBuilderDialog open={productQuoteOpen} onOpenChange={setProductQuoteOpen} />
-              <InternationalQuotationDialog open={intlQuoteOpen} onOpenChange={setIntlQuoteOpen} />
-              <CreateQuotationDialog open={quickQuoteOpen} onOpenChange={setQuickQuoteOpen} />
-              <Dialog open={fromEnquiryOpen} onOpenChange={setFromEnquiryOpen}>
-                <DialogContent className="sm:max-w-md">
-                  <DialogHeader>
-                    <DialogTitle>Create quote from enquiry</DialogTitle>
-                    <DialogDescription>
-                      Pick a CRM lead to prefill the quotation wizard.
-                    </DialogDescription>
-                  </DialogHeader>
-                  {enquiryLeads.length === 0 ? (
-                    <p className="text-sm text-muted-foreground">No open leads found. Add an enquiry in CRM first.</p>
-                  ) : (
-                    <div className="space-y-3">
-                      <div>
-                        <Label className="text-xs">Enquiry / lead</Label>
-                        <Select value={enquiryLeadId || "none"} onValueChange={(v) => setEnquiryLeadId(v === "none" ? "" : v)}>
-                          <SelectTrigger className="mt-1"><SelectValue placeholder="Select lead" /></SelectTrigger>
-                          <SelectContent>
-                            <SelectItem value="none">Select lead…</SelectItem>
-                            {enquiryLeads.map((l) => (
-                              <SelectItem key={l.id} value={l.id}>
-                                {l.customerName} · {l.service} · {l.stage} · {formatINR(l.value)}
-                              </SelectItem>
-                            ))}
-                          </SelectContent>
-                        </Select>
-                      </div>
-                      {enquiryLeadId && (() => {
-                        const lead = enquiryLeads.find((l) => l.id === enquiryLeadId);
-                        if (!lead) return null;
-                        return (
-                          <div className="rounded-lg border bg-muted/20 p-3 text-xs space-y-1">
-                            <p><span className="text-muted-foreground">Customer:</span> {lead.customerName}</p>
-                            <p><span className="text-muted-foreground">Contact:</span> {lead.email || "—"} · {lead.phone || "—"}</p>
-                            <p><span className="text-muted-foreground">Budget:</span> {formatINR(lead.value)}</p>
-                            <p><span className="text-muted-foreground">Enquiry ref:</span> LEAD-{lead.id.slice(-6)}</p>
-                          </div>
-                        );
-                      })()}
-                    </div>
-                  )}
-                  <DialogFooter>
-                    <Button variant="outline" onClick={() => setFromEnquiryOpen(false)}>Cancel</Button>
-                    <Button
-                      disabled={!enquiryLeadId}
-                      className="bg-teal-600 hover:bg-teal-700"
-                      onClick={() => {
-                        const lead = enquiryLeads.find((l) => l.id === enquiryLeadId);
-                        if (lead) openFromEnquiry(lead);
-                      }}
-                    >
-                      Open wizard
-                    </Button>
-                  </DialogFooter>
-                </DialogContent>
-              </Dialog>
-            </div>
-          ) : undefined
+          <Button
+            className="bg-teal-600 hover:bg-teal-700"
+            onClick={() => openQuotationWizard(null)}
+          >
+            <Plus className="w-4 h-4 mr-1" /> Create quotation
+          </Button>
         }
       />
 
@@ -1597,42 +1095,68 @@ export function QuotationsView() {
       </div>
 
       <Card>
-        <CardContent className="p-4">
-          <div className="flex flex-wrap gap-2 mb-3">
+        <CardContent className="p-4 md:p-5 space-y-3">
+          <div className="flex flex-col lg:flex-row lg:items-center gap-2.5">
             <Input
               placeholder="Search quote no, customer, agent, destination, enquiry…"
               value={search}
               onChange={(e) => setSearch(e.target.value)}
-              className="max-w-sm h-9"
+              className="h-9 flex-1 min-w-0 lg:max-w-md"
             />
-            <Select value={statusFilter} onValueChange={setStatusFilter}>
-              <SelectTrigger className="w-44 h-9"><SelectValue placeholder="Status" /></SelectTrigger>
-              <SelectContent>
-                {["All", "Draft", "In Progress", "Pending Approval", "Sent to Agent", "Customer Reviewing", "Revision Requested", "Accepted", "Rejected", "Expired", "Converted to Booking", "Archived"].map((s) => (
-                  <SelectItem key={s} value={s}>{s}</SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-            <Select value={sort} onValueChange={setSort}>
-              <SelectTrigger className="w-36 h-9"><SelectValue /></SelectTrigger>
-              <SelectContent>
-                <SelectItem value="latest">Latest</SelectItem>
-                <SelectItem value="oldest">Oldest</SelectItem>
-                <SelectItem value="value">Quote Value</SelectItem>
-                {!isAgent && <SelectItem value="profit">Profit</SelectItem>}
-                <SelectItem value="status">Status</SelectItem>
-                <SelectItem value="travel">Travel date</SelectItem>
-              </SelectContent>
-            </Select>
-            <div className="flex items-center gap-1">
-              <Label className="text-[10px] text-muted-foreground whitespace-nowrap">Travel from</Label>
-              <Input type="date" className="h-9 w-36" value={travelFrom} onChange={(e) => setTravelFrom(e.target.value)} />
-            </div>
-            <div className="flex items-center gap-1">
-              <Label className="text-[10px] text-muted-foreground whitespace-nowrap">to</Label>
-              <Input type="date" className="h-9 w-36" value={travelTo} onChange={(e) => setTravelTo(e.target.value)} />
+            <div className="flex flex-wrap items-center gap-2">
+              <Select value={statusFilter} onValueChange={setStatusFilter}>
+                <SelectTrigger className="w-[160px] h-9"><SelectValue placeholder="Status" /></SelectTrigger>
+                <SelectContent>
+                  {["All", "Draft", "In Progress", "Pending Approval", "Sent to Agent", "Customer Reviewing", "Revision Requested", "Accepted", "Rejected", "Expired", "Converted to Booking", "Archived"].map((s) => (
+                    <SelectItem key={s} value={s}>{s}</SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+              <Select value={sort} onValueChange={setSort}>
+                <SelectTrigger className="w-[140px] h-9"><SelectValue /></SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="latest">Latest</SelectItem>
+                  <SelectItem value="oldest">Oldest</SelectItem>
+                  <SelectItem value="value">Quote Value</SelectItem>
+                  {!isAgent && <SelectItem value="profit">Profit</SelectItem>}
+                  <SelectItem value="status">Status</SelectItem>
+                  <SelectItem value="travel">Travel date</SelectItem>
+                </SelectContent>
+              </Select>
             </div>
           </div>
+
+          <div className="flex flex-wrap items-center gap-2">
+            <div className="flex items-center gap-1.5 rounded-md border border-border bg-muted/30 px-2 h-9">
+              <Label className="text-[11px] text-muted-foreground whitespace-nowrap">Travel</Label>
+              <Input type="date" className="h-7 w-[132px] border-0 bg-transparent shadow-none focus-visible:ring-0 px-1" value={travelFrom} onChange={(e) => setTravelFrom(e.target.value)} />
+              <span className="text-[11px] text-muted-foreground">to</span>
+              <Input type="date" className="h-7 w-[132px] border-0 bg-transparent shadow-none focus-visible:ring-0 px-1" value={travelTo} onChange={(e) => setTravelTo(e.target.value)} />
+            </div>
+            <Input
+              placeholder="Destination"
+              value={destinationFilter}
+              onChange={(e) => setDestinationFilter(e.target.value)}
+              className="w-[140px] h-9"
+            />
+            {!isAgent && (
+              <Input
+                placeholder="Agent name"
+                value={agentFilter}
+                onChange={(e) => setAgentFilter(e.target.value)}
+                className="w-[140px] h-9"
+              />
+            )}
+            {!isAgent && (
+              <Input
+                placeholder="Sales executive"
+                value={salesFilter}
+                onChange={(e) => setSalesFilter(e.target.value)}
+                className="w-[150px] h-9"
+              />
+            )}
+          </div>
+
           <div className="rounded-lg border border-border max-h-[60vh] overflow-y-auto scroll-thin">
             <Table>
               <TableHeader className="sticky top-0 bg-card z-10">
@@ -1727,7 +1251,7 @@ export function QuotationsView() {
                   </TableRow>
                 ))}
                 {filtered.length === 0 && (
-                  <TableRow><TableCell colSpan={11} className="text-center text-sm text-muted-foreground py-8">{isAgent ? "No quotations yet. Create one from a published package." : "No quotations found. Create a quote with the wizard to start."}</TableCell></TableRow>
+                  <TableRow><TableCell colSpan={11} className="text-center text-sm text-muted-foreground py-8">No quotations found. Create a quote to start.</TableCell></TableRow>
                 )}
               </TableBody>
             </Table>
@@ -1736,16 +1260,6 @@ export function QuotationsView() {
       </Card>
 
       <QuoteDetailDialog quote={selected} open={detailOpen} onOpenChange={setDetailOpen} />
-      <AgentQuotationDialog
-        open={agentQuoteOpen}
-        onOpenChange={setAgentQuoteOpen}
-        onCreated={(q) => upsertQuotation(q)}
-      />
-      <AgentTripComposerDialog
-        open={tripComposerOpen}
-        onOpenChange={setTripComposerOpen}
-        onCreated={(q) => upsertQuotation(q)}
-      />
     </PageShell>
   );
 }

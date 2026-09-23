@@ -16,6 +16,7 @@ import { PackageMatchCard } from "@/components/shared/package-match-card";
 import { TripCustomizePanel } from "@/components/shared/trip-customize-panel";
 import { apiFetch } from "@/lib/api";
 import { useToast } from "@/hooks/use-toast";
+import { todayYmd } from "@/lib/travel-dates";
 import type { Customer, Lead, PackageMatchRecord, TravelRequirementRecord } from "@/types";
 
 const HOTEL_CATEGORIES = ["Standard", "Premium", "Luxury", "3-star", "4-star", "5-star", "Budget"];
@@ -263,11 +264,11 @@ export function TripPlannerWorkspace({ requirementId, onBack, onSaved }: TripPla
               </div>
               <div className="space-y-1">
                 <Label className="text-xs">Start Date *</Label>
-                <Input type="date" value={form.travelStartDate} onChange={(e) => set("travelStartDate", e.target.value)} />
+                <Input type="date" value={form.travelStartDate} min={todayYmd()} onChange={(e) => set("travelStartDate", e.target.value)} />
               </div>
               <div className="space-y-1">
                 <Label className="text-xs">End Date *</Label>
-                <Input type="date" value={form.travelEndDate} onChange={(e) => set("travelEndDate", e.target.value)} />
+                <Input type="date" value={form.travelEndDate} min={form.travelStartDate || todayYmd()} onChange={(e) => set("travelEndDate", e.target.value)} />
               </div>
               <div className="space-y-1">
                 <Label className="text-xs">Adults *</Label>

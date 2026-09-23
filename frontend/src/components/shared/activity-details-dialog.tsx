@@ -181,7 +181,10 @@ export function ActivityDetailsDialog({
                     <p>Meeting point: {String(activity.meetingPoint)}</p>
                   ) : null}
                   {activity.passengerInfo ? (
-                    <p>{String(activity.passengerInfo)}</p>
+                    <p>
+                      <span className="font-medium text-slate-800">Guest instructions: </span>
+                      {String(activity.passengerInfo)}
+                    </p>
                   ) : null}
                   {activity.ticketType || activity.activityCategory ? (
                     <p className="text-slate-500">

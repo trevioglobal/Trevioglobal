@@ -32,6 +32,7 @@ import { Separator } from "@/components/ui/separator";
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
 import { useToast } from "@/hooks/use-toast";
 import { cn } from "@/lib/utils";
+import { todayYmd } from "@/lib/travel-dates";
 import { formatFullINR, formatPrettyDate, PageShell } from "@/components/shared/ui-helpers";
 import { api } from "@/lib/api";
 import { mapApiFlight } from "@/lib/api-mappers";
@@ -1135,7 +1136,7 @@ function SearchPanel(props: {
   onSearch: () => void;
   loading: boolean;
 }) {
-  const today = new Date().toISOString().slice(0, 10);
+  const today = todayYmd();
   const travelerCount = props.adults + props.childrenCount;
   const paxLabel = `${travelerCount} traveler${travelerCount === 1 ? "" : "s"}`;
   const isRound = props.tripType === "round";

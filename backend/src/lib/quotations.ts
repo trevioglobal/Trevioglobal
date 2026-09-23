@@ -386,6 +386,8 @@ export async function notifyQuote(opts: {
   title: string;
   message: string;
   priority?: string;
+  /** When true, also create per-user alerts for agency admin / ops / branch managers. */
+  notifyOpsRoles?: boolean;
 }) {
   await db.notification.create({
     data: {
@@ -395,6 +397,31 @@ export async function notifyQuote(opts: {
       priority: opts.priority || "medium",
       agencyId: opts.agencyId ?? undefined,
     },
+  });
+
+  if (!opts.notifyOpsRoles || !opts.agencyId) return;
+
+  const opsUsers = await db.user.findMany({
+    where: {
+      agencyId: opts.agencyId,
+      status: "Active",
+      role: { in: ["agency_admin", "branch_manager", "operations", "super_admin"] },
+    },
+    select: { id: true },
+    take: 40,
+  });
+
+  if (!opsUsers.length) return;
+
+  await db.notification.createMany({
+    data: opsUsers.map((u) => ({
+      type: "internal",
+      title: opts.title,
+      message: opts.message,
+      priority: opts.priority || "high",
+      agencyId: opts.agencyId!,
+      userId: u.id,
+    })),
   });
 }
 

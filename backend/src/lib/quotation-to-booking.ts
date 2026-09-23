@@ -16,6 +16,7 @@ import { TAX_CONFIGURATION_REQUIRED, pricingBlockReason } from "./pricing.js";
 import { resolveCommissionAmount } from "./commission.js";
 import { copyQuoteDocumentsToBooking } from "../routes/documents.js";
 import { seedTravelDetailsFromServices } from "./travel-details.js";
+import { travelDatesBlockReason } from "./travel-dates.js";
 import type { AuthRequest } from "../middleware/auth.js";
 
 export class ConversionError extends Error {
@@ -435,6 +436,14 @@ export async function convertQuotationToBooking(input: ConvertQuotationInput): P
   if (!travelStartDate) {
     throw new ConversionError("Travel dates are required before conversion", 400, { code: "DATES_REQUIRED" });
   }
+  const dateBlock = travelDatesBlockReason({
+    travelStartDate,
+    travelEndDate,
+    requireStart: true,
+  });
+  if (dateBlock) {
+    throw new ConversionError(dateBlock, 400, { code: "DATES_INVALID" });
+  }
 
   // Authoritative commercial totals from DB quotation — ignore any client-supplied amounts.
   const packageValue = quote.total;
@@ -525,8 +534,8 @@ export async function convertQuotationToBooking(input: ConvertQuotationInput): P
           commission,
           status: "Awaiting Passenger Details",
           paymentStatus: "Pending",
-          agentId: input.userId,
-          agentName: salesName,
+          agentId: quote.agentId || input.userId,
+          agentName: quote.agentName || salesName,
           agencyId: input.ownAgencyId ?? quote.agencyId ?? undefined,
           agencyName: "",
           branchId: input.ownBranchId ?? quote.branchId ?? undefined,
@@ -546,7 +555,7 @@ export async function convertQuotationToBooking(input: ConvertQuotationInput): P
           grossProfit,
           netProfit: Math.round(grossProfit * 0.9),
           salesExecutiveId: quote.createdById ?? input.userId,
-          salesExecutiveName: salesName,
+          salesExecutiveName: quote.salesExecutiveName || salesName,
           operationsExecutiveId: opsId,
           operationsExecutiveName: opsName,
           isInternational: quote.isInternational,

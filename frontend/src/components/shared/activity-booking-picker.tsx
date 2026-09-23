@@ -15,6 +15,7 @@ import { Badge } from "@/components/ui/badge";
 import { Checkbox } from "@/components/ui/checkbox";
 import { useToast } from "@/hooks/use-toast";
 import { apiFetch } from "@/lib/api";
+import { todayYmd } from "@/lib/travel-dates";
 import { formatProductPrice } from "@/lib/currency";
 import type { ProductRecord } from "@/types";
 
@@ -239,7 +240,7 @@ export function ActivityBookingPicker() {
                     </div>
                     <div className="space-y-1">
                       <Label className="text-xs flex items-center gap-1"><Calendar className="w-3 h-3" />Date</Label>
-                      <Input type="date" className="h-9 bg-white dark:bg-background" value={dates[activity.id] || ""} onChange={(e) => setDates((d) => ({ ...d, [activity.id]: e.target.value }))} />
+                      <Input type="date" className="h-9 bg-white dark:bg-background" value={dates[activity.id] || ""} min={todayYmd()} onChange={(e) => setDates((d) => ({ ...d, [activity.id]: e.target.value }))} />
                     </div>
                     <div className="space-y-1">
                       <Label className="text-xs flex items-center gap-1"><Car className="w-3 h-3" />Transfer (optional)</Label>

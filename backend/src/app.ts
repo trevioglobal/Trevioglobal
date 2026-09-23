@@ -769,6 +769,7 @@ app.get("/api/bookings", requireAuth, requireAnyPermission("flights", "hotels", 
 app.post("/api/bookings", requireAuth, requireAnyPermission("flights", "hotels", "holiday", "bookings"), validate(bookingSchema), async (req: AuthRequest, res) => {
   try {
     const body = req.body;
+    // Never trust client Paid/Confirmed — payment must go through verified payment paths.
     const booking = await db.booking.create({
       data: {
         bookingRef: `BK-${Math.floor(10000 + Math.random() * 90000)}`,
@@ -778,8 +779,8 @@ app.post("/api/bookings", requireAuth, requireAnyPermission("flights", "hotels",
         travelDate: body.travelDate,
         amount: body.amount,
         commission: body.commission || 0,
-        status: body.status || "Confirmed",
-        paymentStatus: body.paymentStatus || "Paid",
+        status: "Pending",
+        paymentStatus: "Pending",
         paymentMethod: body.paymentMethod || "Razorpay",
         agentId: req.auth?.userId,
         agentName: body.agentName || "System",
@@ -787,8 +788,8 @@ app.post("/api/bookings", requireAuth, requireAnyPermission("flights", "hotels",
         agencyName: body.agencyName || "",
         branchId: ownBranchId(req),
         packageValue: body.amount,
-        amountPaid: body.paymentStatus === "Paid" || !body.paymentStatus ? body.amount : 0,
-        balanceAmount: body.paymentStatus === "Paid" || !body.paymentStatus ? 0 : body.amount,
+        amountPaid: 0,
+        balanceAmount: body.amount,
         salesExecutiveName: body.agentName || "System",
       },
     });
@@ -835,7 +836,16 @@ app.patch("/api/bookings/:id", requireAuth, requirePermission("bookings"), async
       }
       data.status = String(status);
     }
-    if (paymentStatus) data.paymentStatus = String(paymentStatus);
+    if (paymentStatus) {
+      const role = req.auth?.role || "";
+      const canSetPayment = ["super_admin", "agency_admin", "accountant", "management", "branch_manager"].includes(role);
+      const cancelRefund = String(status || data.status || "") === "Cancelled" && String(paymentStatus) === "Refunded";
+      if (!canSetPayment && !cancelRefund) {
+        res.status(403).json({ error: "Only finance/admin roles can change payment status directly" });
+        return;
+      }
+      data.paymentStatus = String(paymentStatus);
+    }
     if (typeof operationsExecutiveName === "string") data.operationsExecutiveName = operationsExecutiveName;
     if (typeof operationsExecutiveId === "string") data.operationsExecutiveId = operationsExecutiveId;
     const booking = await db.booking.update({ where: { id: existing.id }, data });
@@ -989,6 +999,19 @@ app.get("/api/quotations", requireAuth, requirePermission("quotations"), async (
 app.post("/api/quotations", requireAuth, requirePermission("quotations"), validate(quotationSchema), async (req: AuthRequest, res) => {
   try {
     const body = req.body;
+    const { travelDatesBlockReason, todayYmd, defaultValidTill } = await import("./lib/travel-dates.js");
+    const dateBlock = travelDatesBlockReason({
+      travelDates: body.travelDates,
+      travelStartDate: body.travelStartDate,
+      travelEndDate: body.travelEndDate,
+      returnDate: body.returnDate,
+      validTill: body.validTill,
+      estimatedBookingDate: body.estimatedBookingDate,
+    });
+    if (dateBlock) {
+      res.status(400).json({ error: dateBlock });
+      return;
+    }
     const agencyId = ownAgencyId(req);
     const count = await db.quotation.count();
     const quoteNo = body.quoteNo || `QT-2025-${String(count + 1).padStart(3, "0")}`;
@@ -1032,7 +1055,8 @@ app.post("/api/quotations", requireAuth, requirePermission("quotations"), valida
           gst: body.gst,
           total: body.total,
           status: body.status || "Draft",
-          validTill: body.validTill,
+          validTill: body.validTill || defaultValidTill(),
+          quoteDate: todayYmd(),
           createdBy: body.createdBy || req.auth?.email || "System",
           createdById: req.auth?.userId,
           agencyId,
@@ -1955,6 +1979,15 @@ app.post("/api/wallet", requireAuth, requirePermission("wallet"), validate(walle
     if (req.auth?.role !== "super_admin" && id !== req.auth?.agencyId) {
       res.status(403).json({ error: "Forbidden" });
       return;
+    }
+    if (type === "Debit") {
+      const role = req.auth?.role || "";
+      if (!["super_admin", "agency_admin", "accountant", "management", "branch_manager"].includes(role)) {
+        res.status(403).json({
+          error: "Only finance/admin roles can debit the agency wallet. Use booking payment settlement for trip charges.",
+        });
+        return;
+      }
     }
 
     let paymentRef: string | undefined;
@@ -3010,88 +3043,20 @@ app.post("/api/marketing/coupons/validate", requireAuth, requireAnyPermission("m
   }
 });
 
-app.get("/api/cms/pages", requireAuth, requirePermission("cms"), async (req: AuthRequest, res) => {
-  try {
-    const pages = await db.contentPage.findMany({
-      where: agencyScope(req),
-      orderBy: { createdAt: "desc" },
-    });
-    res.json({ pages });
-  } catch (e) {
-    logger.error(e);
-    res.status(500).json({ error: "Server error" });
-  }
+app.get("/api/cms/pages", requireAuth, requirePermission("cms"), async (_req: AuthRequest, res) => {
+  res.status(410).json({ error: "CMS module removed" });
 });
 
-app.post("/api/cms/pages", requireAuth, requireRole("super_admin", "agency_admin"), async (req: AuthRequest, res) => {
-  try {
-    const agencyId = ownAgencyId(req, req.body?.agencyId);
-    if (!agencyId) {
-      res.status(400).json({ error: "Agency context required" });
-      return;
-    }
-    const { title, slug, content, status, author } = req.body ?? {};
-    if (!title || !slug || !content) {
-      res.status(400).json({ error: "title, slug, and content are required" });
-      return;
-    }
-    const page = await db.contentPage.create({
-      data: {
-        agencyId,
-        title: String(title),
-        slug: String(slug),
-        content: String(content),
-        status: status ? String(status) : "Draft",
-        author: author ? String(author) : (req.auth?.email ?? "Unknown"),
-      },
-    });
-    res.status(201).json(page);
-  } catch (e) {
-    logger.error(e);
-    res.status(500).json({ error: "Server error" });
-  }
+app.post("/api/cms/pages", requireAuth, requireRole("super_admin", "agency_admin"), async (_req: AuthRequest, res) => {
+  res.status(410).json({ error: "CMS module removed" });
 });
 
-app.get("/api/management/keys", requireAuth, requirePermission("api-management"), async (req: AuthRequest, res) => {
-  try {
-    const keys = await db.apiKey.findMany({
-      where: agencyScope(req),
-      orderBy: { createdAt: "desc" },
-    });
-    res.json({ keys: keys.map((k) => ({ ...k, key: maskSecret(k.key) })) });
-  } catch (e) {
-    logger.error(e);
-    res.status(500).json({ error: "Server error" });
-  }
+app.get("/api/management/keys", requireAuth, requirePermission("api-management"), async (_req: AuthRequest, res) => {
+  res.status(410).json({ error: "API Management module removed" });
 });
 
-app.post("/api/management/keys", requireAuth, requireRole("super_admin", "agency_admin"), async (req: AuthRequest, res) => {
-  try {
-    const agencyId = ownAgencyId(req, req.body?.agencyId);
-    if (!agencyId) {
-      res.status(400).json({ error: "Agency context required" });
-      return;
-    }
-    const { name, environment, limit } = req.body ?? {};
-    if (!name) {
-      res.status(400).json({ error: "name is required" });
-      return;
-    }
-    const keyValue = `tv_${crypto.randomBytes(24).toString("hex")}`;
-    const key = await db.apiKey.create({
-      data: {
-        agencyId,
-        name: String(name),
-        key: keyValue,
-        environment: environment ? String(environment) : "Test",
-        limit: typeof limit === "number" ? limit : 1000,
-      },
-    });
-    res.status(201).json(key);
-  } catch (e) {
-    logger.error(e);
-    res.status(500).json({ error: "Server error" });
-  }
+app.post("/api/management/keys", requireAuth, requireRole("super_admin", "agency_admin"), async (_req: AuthRequest, res) => {
+  res.status(410).json({ error: "API Management module removed" });
 });
 
 app.get("/api/support/tickets", requireAuth, requirePermission("support"), async (req: AuthRequest, res) => {

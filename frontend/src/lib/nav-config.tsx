@@ -1,11 +1,12 @@
 "use client";
 
 import {
-  LayoutDashboard, Plane, Hotel, Palmtree, MapPin, Car, Package, Globe, Layers,
+  LayoutDashboard, Plane, Hotel, MapPin, Package, Globe, Layers,
   Users, Target, FileSpreadsheet, Ticket, CreditCard, Wallet, Percent,
-  BarChart3, UserCog, CheckSquare, LifeBuoy, Bell, Megaphone, LayoutGrid,
-  Receipt, KeyRound, Settings, History, Building2, GitBranch, Store,
-  Activity, LineChart, CalendarCheck, CheckCircle, Palette, FileText, type LucideIcon,
+  BarChart3, UserCog, CheckSquare, LifeBuoy, Bell, Megaphone,
+  Receipt, Settings, History, Building2, GitBranch,
+  Activity, LineChart, CalendarCheck, CheckCircle, Palette, FileText,
+  Landmark, Car, type LucideIcon,
 } from "lucide-react";
 import type { Module, Role, User, ViewKey } from "@/types";
 import { hasPermission } from "@/lib/permissions";
@@ -44,7 +45,6 @@ export const NAV_SECTIONS: NavSection[] = [
     items: [
       { key: "flights", label: "Flights", icon: Plane, module: "flights" },
       { key: "hotels", label: "Hotels", icon: Hotel, module: "hotels" },
-      { key: "holiday", label: "Holiday Packages", icon: Palmtree, module: "holiday", stubOnly: true },
       { key: "bookings", label: "Booking Management", icon: Ticket, module: "bookings" },
     ],
   },
@@ -52,8 +52,10 @@ export const NAV_SECTIONS: NavSection[] = [
     title: "Products",
     items: [
       { key: "destinations", label: "Destinations", icon: Globe, module: "destinations" },
+      { key: "itinerary-places", label: "Sightseeing Places", icon: Landmark, module: "destinations", internalOnly: true },
       { key: "hotel-products", label: "Hotels", icon: Hotel, module: "hotels", internalOnly: true },
-      { key: "activity-packages", label: "Activities", icon: MapPin, module: "activities", internalOnly: true },
+      { key: "transfer-products", label: "Cars & Transfers", icon: Car, module: "activities", internalOnly: true },
+      { key: "activity-packages", label: "Tours & Activities", icon: Ticket, module: "activities", internalOnly: true },
       { key: "contracted-rates", label: "Contracted Rates", icon: Receipt, module: "hotels", internalOnly: true },
       { key: "packages", label: "Packages", icon: Layers, module: "packages" },
       { key: "product-approvals", label: "Rate Approvals", icon: CheckCircle, module: "activities", roles: ["super_admin", "agency_admin"] },
@@ -108,11 +110,8 @@ export const NAV_SECTIONS: NavSection[] = [
     items: [
       { key: "agencies", label: "Agency Management", icon: Building2, module: "agencies" },
       { key: "branches", label: "Branches", icon: GitBranch, module: "branches" },
-      { key: "api-marketplace", label: "API Marketplace", icon: Store, module: "api-marketplace", stubOnly: true },
-      { key: "api-management", label: "API Management", icon: KeyRound, module: "api-management", stubOnly: true },
       { key: "monitoring", label: "Monitoring", icon: Activity, module: "monitoring", roles: ["super_admin"] },
       { key: "marketing", label: "Coupons", icon: Megaphone, module: "marketing" },
-      { key: "cms", label: "CMS", icon: LayoutGrid, module: "cms", stubOnly: true },
       { key: "audit-logs", label: "Audit Logs", icon: History, module: "audit-logs" },
       { key: "settings", label: "Settings", icon: Settings, module: "settings" },
     ],
@@ -132,7 +131,7 @@ export function getNavForUser(user: Pick<User, "role" | "permissions" | "product
       if (user.role === "travel_agent") {
         if (item.key === "flights" && !canBookProduct(user, "flights")) return false;
         if (item.key === "hotels" && !canBookProduct(user, "hotels")) return false;
-        if ((item.key === "holiday" || item.key === "packages") && !canBookProduct(user, "packages")) return false;
+        if (item.key === "packages" && !canBookProduct(user, "packages")) return false;
       }
       return !item.module || hasPermission(user, item.module);
     }).map((item) => (
@@ -160,7 +159,7 @@ export function canAccessView(user: Pick<User, "role" | "permissions" | "product
       if (user.role === "travel_agent") {
         if (item.key === "flights" && !canBookProduct(user, "flights")) return false;
         if (item.key === "hotels" && !canBookProduct(user, "hotels")) return false;
-        if ((item.key === "holiday" || item.key === "packages") && !canBookProduct(user, "packages")) return false;
+        if (item.key === "packages" && !canBookProduct(user, "packages")) return false;
       }
       return !item.module || hasPermission(user, item.module);
     })

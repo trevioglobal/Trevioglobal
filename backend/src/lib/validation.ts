@@ -68,6 +68,25 @@ export const bookingSchema = z.object({
   paymentStatus: z.enum(["Paid", "Pending", "Partial", "Refunded"]).optional(),
   agentName: z.string().min(1),
   agencyName: z.string().min(1),
+}).superRefine((data, ctx) => {
+  const today = new Intl.DateTimeFormat("en-CA", {
+    timeZone: "Asia/Kolkata",
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+  }).format(new Date());
+  const d = String(data.travelDate || "").trim().slice(0, 10);
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(d)) {
+    ctx.addIssue({ code: z.ZodIssueCode.custom, message: "Travel date must be YYYY-MM-DD", path: ["travelDate"] });
+    return;
+  }
+  if (d < today) {
+    ctx.addIssue({
+      code: z.ZodIssueCode.custom,
+      message: "Travel date cannot be in the past. Choose today or a future date.",
+      path: ["travelDate"],
+    });
+  }
 });
 
 export const customerSchema = z.object({

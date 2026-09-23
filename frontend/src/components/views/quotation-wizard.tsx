@@ -46,11 +46,12 @@ import {
   maxDiscountPercent,
 } from "@/lib/quote-discount";
 import { QuotePriceBreakdown } from "@/components/shared/quote-price-breakdown";
+import { AgencyQuoteStepper, AGENCY_QUOTE_STEPS } from "@/components/shared/agency-quote-stepper";
 import { DESTINATION_QUOTE_PLANS, getDestinationQuotePlan } from "@/lib/destination-quote-plans";
 import { downloadQuotationPdf, deliverQuotationEmail, deliverQuotationWhatsApp } from "@/lib/quotation-actions";
 import { downloadClientQuotationBrochure } from "@/lib/client-quotation-brochure";
 import { AirportSelect } from "@/components/shared/airport-select";
-import { CitySelect } from "@/components/shared/city-select";
+import { DestinationSelect, destinationCityName } from "@/components/shared/destination-select";
 import { departureIata } from "@/lib/world-airports";
 import { preloadWorldCities } from "@/lib/world-cities";
 import { COUNTRIES_MASTER } from "@/lib/location-options";
@@ -128,6 +129,7 @@ import {
 } from "@/lib/transfer-catalog";
 import { QuoteTripBuilder } from "@/components/views/quote-trip-builder";
 import { ActivityDetailsDialog } from "@/components/shared/activity-details-dialog";
+import { todayYmd, defaultValidTill, travelDatesBlockReason } from "@/lib/travel-dates";
 
 /** Client Create Quote uses demonyms (e.g. Indian), not country names. */
 const NATIONALITY_OPTIONS = [
@@ -177,12 +179,13 @@ const STEPS = [
   { label: "Review", hint: "Finish" },
 ] as const;
 
-const STEP_GROUPS: { title: string; from: number; to: number }[] = [
-  { title: "Start", from: 0, to: 0 },
-  { title: "Trip build", from: 1, to: 5 },
-  { title: "Extras", from: 6, to: 7 },
-  { title: "Finish", from: 8, to: 10 },
-];
+/** Agency-facing create flow (Personal → … → Preview & send). */
+const FLOW_PERSONAL = 0;
+const FLOW_TRAVEL = 1;
+const FLOW_SERVICES = 2;
+const FLOW_ITINERARY = 3;
+const FLOW_PRICING = 4;
+const FLOW_PREVIEW = 5;
 
 function FormSection({
   title,
@@ -311,6 +314,8 @@ export function QuotationWizardView() {
   };
   const [step, setStep] = useState(0);
   const [wizardPhase, setWizardPhase] = useState<"basics" | "trip">("basics");
+  /** 0 Personal → 1 Travel → 2 Services → 3 Itinerary → 4 Pricing → 5 Preview */
+  const [flowStep, setFlowStep] = useState(FLOW_PERSONAL);
   const [servicePicker, setServicePicker] = useState<{
     service: "Hotel" | "Transfers" | "Activities" | "Meals" | "Miscellaneous";
     dayNumber: number;
@@ -350,9 +355,11 @@ export function QuotationWizardView() {
     landOnly: false,
     estimatedBookingDate: "",
     currency: "INR",
-    validTill: new Date(Date.now() + 7 * 86400000).toISOString().slice(0, 10),
+    validTill: defaultValidTill(7),
     specialRequests: "",
     internalNotes: "",
+    passportNumber: "",
+    quoteDate: todayYmd(),
     enquiryRef: "",
     isInternational: false,
     discountType: "" as "" | "Fixed" | "Percentage",
@@ -421,6 +428,7 @@ export function QuotationWizardView() {
           setQuoteNo(q.quoteNo);
           setStep(0);
           setWizardPhase("trip");
+          setFlowStep(FLOW_SERVICES);
           setForm((f) => ({
             ...f,
             customerName: q.customerName || "",
@@ -447,7 +455,15 @@ export function QuotationWizardView() {
             estimatedBookingDate: q.estimatedBookingDate || "",
             currency: q.currency || "INR",
             validTill: q.validTill,
-            specialRequests: q.specialRequests || "",
+            specialRequests: (() => {
+              const raw = String(q.specialRequests || "");
+              return raw.replace(/^Passport:\s*.+$/im, "").replace(/^\n+/, "").trim();
+            })(),
+            passportNumber: (() => {
+              const m = String(q.specialRequests || "").match(/^Passport:\s*(.+)$/im);
+              return m?.[1]?.trim() || "";
+            })(),
+            quoteDate: String(q.quoteDate || todayYmd()),
             internalNotes: q.internalNotes || "",
             enquiryRef: q.enquiryRef || "",
             isInternational: Boolean(q.isInternational),
@@ -492,6 +508,7 @@ export function QuotationWizardView() {
       setQuoteNo("");
       setStep(0);
       setWizardPhase("basics");
+      setFlowStep(FLOW_PERSONAL);
       setPackages([emptyPackage("Standard", true)]);
       setTripCities([{ city: "", nights: 1, order: 1, destinationId: null }]);
       setDestinationId("");
@@ -506,6 +523,9 @@ export function QuotationWizardView() {
         contactPerson: prefill?.customerName || "",
         contactEmail: prefill?.contactEmail || "",
         contactPhone: prefill?.contactPhone || "",
+        passportNumber: "",
+        quoteDate: todayYmd(),
+        specialRequests: "",
         enquiryRef: prefill?.enquiryRef || "",
         budget: prefill?.budget || 0,
         service: prefill?.service || "Holiday",
@@ -712,6 +732,7 @@ export function QuotationWizardView() {
         activities: selected?.activities,
         meals: selected?.meals,
         addOns: selected?.addOns,
+        itinerary: selected?.itinerary,
         visa: selected?.visa as { enabled?: boolean; costPrice?: number; sellingPrice?: number } | null,
         insurance: selected?.insurance as {
           enabled?: boolean;
@@ -866,16 +887,10 @@ export function QuotationWizardView() {
 
   function onStartDateChange(v: string) {
     setForm((f) => {
-      let end = f.travelEndDate;
-      if (!v) end = "";
-      else if (end && end < v) end = "";
-      else {
-        const cityNights = tripCities.reduce((s, c) => s + Math.max(0, Number(c.nights) || 0), 0);
-        const nightsToUse = cityNights > 0 ? cityNights : (suggestedNights || 0);
-        if (v && !end && nightsToUse > 0) {
-          end = addDaysYmd(v, nightsToUse);
-        }
-      }
+      if (!v) return { ...f, travelStartDate: "", travelEndDate: "" };
+      const cityNights = tripCities.reduce((s, c) => s + Math.max(0, Number(c.nights) || 0), 0);
+      const nightsToUse = cityNights > 0 ? cityNights : (suggestedNights || nights || 1);
+      const end = nightsToUse > 0 ? addDaysYmd(v, nightsToUse) : "";
       return { ...f, travelStartDate: v, travelEndDate: end };
     });
   }
@@ -890,6 +905,8 @@ export function QuotationWizardView() {
     formOverride?: Partial<typeof form>;
     /** Trip-builder auto-save: skip busy spinner and success toast. */
     quiet?: boolean;
+    /** When false, keep Draft status (do not bump to In Progress). Default: advance on explicit saves. */
+    advanceStatus?: boolean;
     /** Ignore hydrating packages from response when a newer trip persist superseded this one. */
     hydrateEpoch?: number;
   }) {
@@ -905,6 +922,16 @@ export function QuotationWizardView() {
     }
     if (formSrc.travelEndDate && formSrc.travelStartDate && nights == null && !opts?.tripCitiesOverride) {
       toast({ title: "End date cannot be before start date", variant: "destructive" });
+      return null;
+    }
+    const dateBlock = travelDatesBlockReason({
+      travelStartDate: formSrc.travelStartDate,
+      travelEndDate: formSrc.travelEndDate,
+      validTill: formSrc.validTill,
+      estimatedBookingDate: formSrc.estimatedBookingDate,
+    });
+    if (dateBlock) {
+      if (!opts?.quiet) toast({ title: dateBlock, variant: "destructive" });
       return null;
     }
     const submitApproval = Boolean(opts?.submitApproval || opts?.approveNow);
@@ -926,6 +953,12 @@ export function QuotationWizardView() {
         adults: Number(formSrc.adults) || 2,
         children: Number(formSrc.children) || 0,
         infants: Number(formSrc.infants) || 0,
+        specialRequests: [
+          formSrc.passportNumber?.trim() ? `Passport: ${formSrc.passportNumber.trim()}` : "",
+          formSrc.specialRequests?.trim() || "",
+        ].filter(Boolean).join("\n") || null,
+        // UI-only — not a Quotation column
+        passportNumber: undefined,
         rooms: Math.max(1, Number(formSrc.rooms) || 1),
         hotelStarPreference: formSrc.hotelStarPreference || undefined,
         nationality: formSrc.nationality || undefined,
@@ -951,6 +984,8 @@ export function QuotationWizardView() {
         agentCode: formSrc.agentCode || user?.agentCode || undefined,
         agencyCode: formSrc.agencyCode || user?.agencyCode || undefined,
         agentId: formSrc.agentId || user?.id || undefined,
+        /** Quiet trip edits stay Draft; explicit Save / send may advance. */
+        advanceStatus: opts?.advanceStatus ?? !quiet,
       };
       let quotation: Quotation;
       if (!id) {
@@ -1038,12 +1073,19 @@ export function QuotationWizardView() {
     return packages.map((p, j) => (j === i ? { ...p, ...patch } : p));
   }
 
-  /** Persist trip-builder package lines via existing PUT /wizard (avoids stale React packages). */
+  /** Persist trip-builder package lines via existing PUT /wizard (avoids stale React packages).
+   *  New quotes (no id yet) stay local until the user clicks Save draft / Send. */
   async function persistTripPackage(nextPackages: QuotationPackage[]) {
-    const epoch = ++tripPersistEpoch.current;
     setPackages(nextPackages);
+    if (!id) return null;
+    const epoch = ++tripPersistEpoch.current;
     const run = tripPersistChain.current.then(() =>
-      persist(step, { packagesOverride: nextPackages, quiet: true, hydrateEpoch: epoch }),
+      persist(step, {
+        packagesOverride: nextPackages,
+        quiet: true,
+        advanceStatus: false,
+        hydrateEpoch: epoch,
+      }),
     );
     tripPersistChain.current = run.then(
       () => null,
@@ -1053,19 +1095,55 @@ export function QuotationWizardView() {
   }
 
   async function next() {
-    // Basic Details Create → trip builder shell (replaces old multi-step continuation).
-    if (step === 0 || wizardPhase === "basics") {
-      const q = await persist(0);
-      if (q) {
-        setStep(0);
-        setWizardPhase("trip");
+    if (wizardPhase === "basics" && flowStep === FLOW_PERSONAL) {
+      if (!form.customerName.trim()) {
+        toast({ title: "Customer name is required", variant: "destructive" });
+        return;
       }
+      setFlowStep(FLOW_TRAVEL);
+      return;
+    }
+    if (wizardPhase === "basics" && flowStep === FLOW_TRAVEL) {
+      const hasTrip = tripCities.some((c) => c.city.trim()) || form.destination.trim();
+      if (!form.customerName.trim() || !hasTrip || !form.travelStartDate) {
+        toast({
+          title: "Complete travel details",
+          description: "Customer, destination city, and travel start date are required.",
+          variant: "destructive",
+        });
+        return;
+      }
+      // Stay local until Save draft / Send — closing without save leaves no DB row.
+      setStep(0);
+      setWizardPhase("trip");
+      setFlowStep(FLOW_SERVICES);
+      return;
+    }
+    if (wizardPhase === "trip") {
+      setFlowStep((s) => Math.min(s + 1, FLOW_PREVIEW));
       return;
     }
     let target = Math.min(step + 1, STEPS.length - 1);
     if (form.landOnly && target === 2) target = 3;
     const q = await persist(target);
     if (q) setStep(target);
+  }
+
+  async function backFlow() {
+    if (wizardPhase === "basics" && flowStep === FLOW_TRAVEL) {
+      setFlowStep(FLOW_PERSONAL);
+      return;
+    }
+    if (wizardPhase === "trip" && flowStep > FLOW_SERVICES) {
+      setFlowStep((s) => s - 1);
+      return;
+    }
+    if (wizardPhase === "trip" && flowStep === FLOW_SERVICES) {
+      setWizardPhase("basics");
+      setFlowStep(FLOW_TRAVEL);
+      return;
+    }
+    onClose();
   }
 
   async function createTripPdf() {
@@ -1129,7 +1207,7 @@ export function QuotationWizardView() {
   async function back() {
     let target = Math.max(step - 1, 0);
     if (form.landOnly && target === 2) target = 1;
-    await persist(target);
+    if (id) await persist(target, { advanceStatus: false, quiet: true });
     setStep(target);
   }
 
@@ -1201,46 +1279,65 @@ export function QuotationWizardView() {
     [tripCities],
   );
 
-  const progressPct = Math.round(((step + 1) / STEPS.length) * 100);
+  const progressPct = Math.round(((flowStep + 1) / AGENCY_QUOTE_STEPS.length) * 100);
 
   function appendTripHotel(
     item: ProductRecord,
-    rate: { rateId: string; validFrom: string; validTo: string; contractedCost?: number; displayPrice?: number | null },
+    rate: {
+      rateId: string;
+      validFrom: string;
+      validTo: string;
+      contractedCost?: number;
+      displayPrice?: number | null;
+      source?: "CONTRACTED_PRODUCT" | "MANUAL";
+    },
     stayCity?: string,
     room?: Record<string, unknown> | null,
   ) {
     const preferredCity = (stayCity || servicePicker?.city || "").trim();
     const stay = findStayWindowForCity(stayWindows, preferredCity) || stayWindows[0] || null;
     const base = hotelFromCatalog(item, Math.max(1, form.rooms || 1), room);
-    const selling = Number(base.sellingPrice || rate.displayPrice || 0);
-    const hasInternalCost = rate.contractedCost != null && Number.isFinite(Number(rate.contractedCost));
-    const cost = hasInternalCost ? Number(rate.contractedCost) : undefined;
     const cin = stay?.checkIn || form.travelStartDate || "";
     const cout = stay?.checkOut || form.travelEndDate || "";
     const tripCity = stay?.city || preferredCity || String(base.city || "");
+    const roomsCount = Math.max(1, Number(base.rooms || form.rooms || 1));
+    const n = stay?.nights ?? stayNights(cin, cout) ?? 1;
+    const unitSell = Number(base.sellingPrice || 0);
+    const catalogueStay = unitSell > 0 && n > 0 ? unitSell * roomsCount * n : 0;
+    const selling = Number(rate.displayPrice || 0) || catalogueStay || unitSell;
+    const manual = rate.source === "MANUAL" || !rate.rateId;
+    const hasInternalCost = !manual && rate.contractedCost != null && Number.isFinite(Number(rate.contractedCost));
+    const cost = hasInternalCost ? Number(rate.contractedCost) : undefined;
     const row: Record<string, unknown> = {
       ...base,
       lineId: newHotelLineId(),
       checkIn: cin,
       checkOut: cout,
       nights: stay?.nights ?? stayNights(cin, cout) ?? "",
-      rooms: Math.max(1, Number(base.rooms || form.rooms || 1)),
+      rooms: roomsCount,
       city: tripCity,
       tripCity,
       stayDatesLocked: false,
       selfBooked: false,
-      source: "CONTRACTED_PRODUCT",
+      source: manual ? "MANUAL" : "CONTRACTED_PRODUCT",
       productType: "HOTEL",
-      rateId: rate.rateId,
+      rateId: rate.rateId || undefined,
       rateValidFrom: rate.validFrom,
       rateValidTo: rate.validTo,
       rateSelectedAt: new Date().toISOString(),
       rateTravelDate: cin || form.travelStartDate,
-      rateUnresolved: false,
+      rateUnresolved: manual,
+      rateUnresolvedReason: manual
+        ? "No contracted rate for travel dates — catalogue selling price used"
+        : null,
       sellingPrice: selling || (cost ?? 0),
       markup: hasInternalCost ? Math.round((selling || cost || 0) - (cost || 0)) : undefined,
     };
     if (hasInternalCost) row.costPrice = cost;
+    else {
+      delete row.costPrice;
+      delete row.markup;
+    }
 
     const prevHotels = (selected?.hotels || []) as Record<string, unknown>[];
     const hotels = [...prevHotels, row];
@@ -1262,7 +1359,15 @@ export function QuotationWizardView() {
 
   function addTripSelfBookedHotel(
     preferredCity?: string,
-    details?: { hotelName: string; address: string },
+    details?: {
+      hotelName: string;
+      address: string;
+      starCategory?: string;
+      roomType?: string;
+      mealPlan?: string;
+      confirmationNo?: string;
+      remarks?: string;
+    },
   ) {
     const city = (preferredCity || servicePicker?.city || "").trim();
     const stay = findStayWindowForCity(stayWindows, city) || stayWindows[0] || null;
@@ -1278,9 +1383,9 @@ export function QuotationWizardView() {
     const row: Record<string, unknown> = {
       lineId: newHotelLineId(),
       hotelName,
-      starCategory: form.hotelStarPreference || "",
-      roomType: "Deluxe",
-      mealPlan: "Breakfast",
+      starCategory: String(details?.starCategory || form.hotelStarPreference || ""),
+      roomType: String(details?.roomType || "Deluxe"),
+      mealPlan: String(details?.mealPlan || "Breakfast"),
       address,
       city: tripCity,
       tripCity,
@@ -1295,8 +1400,8 @@ export function QuotationWizardView() {
       productType: "HOTEL",
       hotelDocuments: [],
       stayDatesLocked: false,
-      confirmationNo: "",
-      remarks: "",
+      confirmationNo: String(details?.confirmationNo || ""),
+      remarks: String(details?.remarks || ""),
     };
     const prevHotels = (selected?.hotels || []) as Record<string, unknown>[];
     const hotels = [...prevHotels, row];
@@ -1437,14 +1542,19 @@ export function QuotationWizardView() {
       children,
       adultRate,
       childRate,
-      currency: form.currency || "INR",
+      currency: String(item.currency || form.currency || "INR"),
       voucher: "",
-      remarks: "",
+      remarks: String(item.passengerInfo || "").trim(),
       sellingPrice: selling,
       supplier: item.supplier?.name || "",
       imageUrl: Array.isArray(item.images) && item.images[0] ? String(item.images[0]) : "",
       inclusions: item.inclusions,
       exclusions: item.exclusions,
+      passengerInfo: String(item.passengerInfo || ""),
+      guestInstructions: String(item.passengerInfo || ""),
+      startTime: startTime,
+      closingTime: String(item.closingTime || ""),
+      meetingPoint: String(item.meetingPoint || ""),
       rateId: rate.rateId,
       rateValidFrom: rate.validFrom,
       rateValidTo: rate.validTo,
@@ -1672,25 +1782,130 @@ export function QuotationWizardView() {
           itinerary={selected?.itinerary}
           hotels={(selected?.hotels || []) as Record<string, unknown>[]}
           busy={busy}
-          onBack={onClose}
+          stage={
+            flowStep === FLOW_ITINERARY
+              ? "itinerary"
+              : flowStep === FLOW_PRICING
+                ? "pricing"
+                : flowStep === FLOW_PREVIEW
+                  ? "preview"
+                  : "services"
+          }
+          flowStep={flowStep}
+          costing={resolveQuotationCosting({
+            amount: liveCosting.taxableAmount,
+            gst: liveCosting.gst,
+            total: liveCosting.total,
+            taxRate: form.taxRate,
+            totalNetCost: liveCosting.totalNetCost,
+            grossProfit: liveCosting.grossProfit,
+            profitMargin: liveCosting.profitMargin,
+            perPersonCost: liveCosting.perPersonCost,
+            discountAmount: liveCosting.discountAmount,
+            discountType: form.discountType || null,
+            discountValue: form.discountValue,
+            trevioMarkupValue: form.trevioMarkupValue,
+            adults: form.adults,
+            children: form.children,
+            infants: form.infants,
+            travelStartDate: form.travelStartDate,
+            travelEndDate: form.travelEndDate,
+            packages: packages as unknown as Array<Record<string, unknown>>,
+          })}
+          serviceRows={liveCosting.services}
+          discountType={form.discountType || ""}
+          discountValue={form.discountValue}
+          trevioMarkupValue={form.trevioMarkupValue}
+          lineItems={[
+            ...((selected?.hotels || []) as Record<string, unknown>[]).map((h, i) => ({
+              kind: "hotel" as const,
+              lineId: String(h.lineId || h.productId || `hotel-${i}`),
+              label: String(h.hotelName || h.name || `Hotel ${i + 1}`),
+              sellingPrice: Number(h.sellingPrice || 0),
+              costPrice: h.costPrice != null ? Number(h.costPrice) : undefined,
+            })),
+            ...((selected?.flights || []) as Record<string, unknown>[]).map((f, i) => ({
+              kind: "flight" as const,
+              lineId: String(f.lineId || f.productId || `flight-${i}`),
+              label: String(f.airline || f.flightNumber || `Flight ${i + 1}`),
+              sellingPrice: Number(f.sellingPrice || f.fare || 0),
+              costPrice: f.costPrice != null ? Number(f.costPrice) : undefined,
+            })),
+            ...((selected?.transfers || []) as Record<string, unknown>[]).map((t, i) => ({
+              kind: "transfer" as const,
+              lineId: String(t.lineId || t.productId || `transfer-${i}`),
+              label: String(t.name || t.transferType || `Transfer ${i + 1}`),
+              sellingPrice: Number(t.sellingPrice || 0),
+              costPrice: t.costPrice != null ? Number(t.costPrice) : undefined,
+            })),
+            ...((selected?.activities || []) as Record<string, unknown>[]).map((a, i) => ({
+              kind: "activity" as const,
+              lineId: String(a.lineId || a.productId || `activity-${i}`),
+              label: String(a.name || a.activityName || `Activity ${i + 1}`),
+              sellingPrice: Number(a.sellingPrice || 0),
+              costPrice: a.costPrice != null ? Number(a.costPrice) : undefined,
+            })),
+          ]}
+          onPricingChange={(patch) => {
+            setForm((f) => ({
+              ...f,
+              ...(patch.discountType !== undefined ? { discountType: patch.discountType } : {}),
+              ...(patch.discountValue !== undefined ? { discountValue: patch.discountValue } : {}),
+              ...(patch.trevioMarkupValue !== undefined
+                ? { trevioMarkupValue: patch.trevioMarkupValue, trevioMarkupType: "Percentage" as const }
+                : {}),
+            }));
+          }}
+          onUpdateLineSelling={(kind, lineId, sellingPrice) => {
+            const key =
+              kind === "hotel" ? "hotels"
+                : kind === "flight" ? "flights"
+                  : kind === "transfer" ? "transfers"
+                    : kind === "activity" ? "activities"
+                      : kind === "meal" ? "meals"
+                        : "addOns";
+            const rows = [...((selected?.[key] || []) as Record<string, unknown>[])];
+            const idx = rows.findIndex((r, i) => String(r.lineId || r.productId || `${kind}-${i}`) === lineId);
+            if (idx < 0) return;
+            rows[idx] = { ...rows[idx], sellingPrice };
+            void persistTripPackage(buildSelectedPackagePatch({ [key]: rows }));
+          }}
+          onFlowStepChange={setFlowStep}
+          onBack={() => void backFlow()}
           onUpdateTripDetails={() => {
             setStep(0);
             setWizardPhase("basics");
+            setFlowStep(FLOW_TRAVEL);
+          }}
+          onEditPersonalDetails={() => {
+            setStep(0);
+            setWizardPhase("basics");
+            setFlowStep(FLOW_PERSONAL);
           }}
           onCreatePdf={createTripPdf}
           onSendQuotation={sendTripQuotation}
-          onBookNow={() =>
-            toast({
-              title: "Book Now",
-              description: "Booking from the trip builder will be available in a later step.",
-            })
-          }
-          onServiceCharge={() =>
-            toast({
-              title: "Service Charge",
-              description: "Service charge editing will be available in a later step.",
-            })
-          }
+          onSaveDraft={() => void persist(step)}
+          onUpdateItineraryDay={(date, patch) => {
+            const days = [...((selected?.itinerary || []) as Array<Record<string, unknown>>)];
+            const idx = days.findIndex((d) => String(d.date || "") === date);
+            if (idx >= 0) {
+              days[idx] = { ...days[idx], ...patch };
+            } else {
+              days.push({
+                day: days.length + 1,
+                date,
+                title: patch.title || `Day ${days.length + 1}`,
+                description: patch.description || "",
+                coverImage: patch.coverImage || "",
+                city: patch.city || "",
+                destinationId: patch.destinationId || "",
+                places: patch.places || [],
+                items: [],
+                manualDay: true,
+              });
+            }
+            void persistTripPackage(buildSelectedPackagePatch({ itinerary: days }));
+          }}
           onRemoveHotel={(lineId) => {
             const prev = (selected?.hotels || []) as Record<string, unknown>[];
             const hotels = prev.filter((h) => String(h.lineId || h.productId || "") !== lineId);
@@ -1873,7 +2088,13 @@ export function QuotationWizardView() {
                 kind={pickerKind}
                 travelDate={form.travelStartDate}
                 travelEndDate={form.travelEndDate}
-                destinationId={destinationId || undefined}
+                destinationId={
+                  (pickerCity
+                    ? tripCities.find((c) => c.city === pickerCity)?.destinationId
+                    : null)
+                  || destinationId
+                  || undefined
+                }
                 destination={pickerCity || form.destination}
                 country={form.country || undefined}
                 tripCities={pickerCity ? [pickerCity] : hotelTripCities}
@@ -1942,9 +2163,9 @@ export function QuotationWizardView() {
                   {quoteNo || "New quotation"}
                 </h1>
                 <p className="text-sm text-muted-foreground mt-0.5">
-                  Basic Details
+                  {AGENCY_QUOTE_STEPS[Math.min(flowStep, AGENCY_QUOTE_STEPS.length - 1)]?.label || "Quotation"}
                   {nights != null ? ` · ${nights}N / ${tripDays}D` : ""}
-                  {id ? " · Update trip details" : " · Create quote"}
+                  {id ? " · Editing" : " · New quote"}
                 </p>
               </div>
             </div>
@@ -1956,131 +2177,356 @@ export function QuotationWizardView() {
           <div className="h-1.5 rounded-full bg-muted overflow-hidden">
             <div
               className="h-full rounded-full bg-teal-600 transition-all duration-300"
-              style={{ width: id ? "100%" : `${Math.max(progressPct, 9)}%` }}
+              style={{ width: `${Math.max(progressPct, 8)}%` }}
             />
           </div>
+          <AgencyQuoteStepper
+            activeIndex={flowStep}
+            onSelect={(index) => {
+              if (index > flowStep) return;
+              if (index <= FLOW_TRAVEL) {
+                setWizardPhase("basics");
+                setFlowStep(index);
+                return;
+              }
+              // Trip steps allowed without save — quote stays local until Save draft.
+              setWizardPhase("trip");
+              setFlowStep(index);
+            }}
+          />
         </header>
 
         <div className="flex flex-1 min-h-0 overflow-hidden">
           <div className="flex-1 min-w-0 flex flex-col min-h-0 relative">
             <div
-              className="flex-1 min-h-0 px-4 sm:px-6 lg:px-8 overflow-y-auto py-5 space-y-4"
+              className="flex-1 min-h-0 px-4 sm:px-6 lg:px-8 overflow-y-auto py-5 pb-8 space-y-4"
             >
         {step === 0 && (
-          <div className="space-y-4 max-w-3xl">
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                <Field label="Name" value={form.customerName} onChange={(v) => setForm({ ...form, customerName: v, contactPerson: form.contactPerson || v })} />
-                <Field label="Email" value={form.contactEmail} onChange={(v) => setForm({ ...form, contactEmail: v })} />
-
+          <div className="space-y-5 max-w-3xl">
+            {flowStep === FLOW_PERSONAL && (
+              <>
+              <div className="rounded-xl border bg-teal-50/50 border-teal-100 px-4 py-3">
+                <p className="text-sm font-semibold text-teal-900">Step 1 · Personal details</p>
+                <p className="text-xs text-teal-800/80 mt-0.5">
+                  Guest contact, quote date / validity, and ID proofs (passport / Aadhaar) after Save draft.
+                </p>
+              </div>
+              {/* Quote meta */}
+              <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
                 <div className="space-y-1.5 min-w-0">
-                  <Label className="text-sm font-medium">Leaving Airport</Label>
-                  <AirportSelect
-                    value={form.departureCity}
-                    onChange={(v) => {
-                      setDepartureDestinationId("");
-                      setForm((f) => ({ ...f, departureCity: v }));
-                    }}
-                    placeholder="Select leaving airport…"
-                    className="h-10 w-full"
-                  />
+                  <Label className="text-sm font-medium">Quote date</Label>
+                  <Input className="h-10 w-full bg-muted/40" value={form.quoteDate || todayYmd()} readOnly />
                 </div>
-                <Field label="Travel Date" type="date" value={form.travelStartDate} onChange={onStartDateChange} />
-
+                <Field
+                  label="Valid till"
+                  type="date"
+                  value={form.validTill}
+                  onChange={(v) => setForm({ ...form, validTill: v })}
+                  min={todayYmd()}
+                />
                 <div className="space-y-1.5 min-w-0">
-                  <Label className="text-sm font-medium">Rooms / travellers</Label>
-                  <Popover>
-                    <PopoverTrigger asChild>
-                      <Button type="button" variant="outline" className="h-10 w-full justify-between font-normal">
-                        <span className="truncate uppercase tracking-wide text-xs sm:text-sm">
-                          {form.rooms} ROOM{form.rooms === 1 ? "" : "S"}, {form.adults} ADULT{form.adults === 1 ? "" : "S"}, {form.children} CHILD{form.children === 1 ? "" : "REN"}
-                        </span>
-                        <ChevronDown className="w-4 h-4 opacity-50 shrink-0" />
-                      </Button>
-                    </PopoverTrigger>
-                    <PopoverContent className="w-72 space-y-3" align="start" side="bottom" avoidCollisions={false}>
-                      {[
-                        { key: "rooms" as const, label: "Rooms", min: 1 },
-                        { key: "adults" as const, label: "Adults", min: 1 },
-                        { key: "children" as const, label: "Children", min: 0 },
-                      ].map((row) => (
-                        <div key={row.key} className="flex items-center justify-between gap-3">
-                          <span className="text-sm">{row.label}</span>
-                          <div className="flex items-center gap-2">
-                            <Button
-                              type="button"
-                              size="icon"
-                              variant="outline"
-                              className="h-8 w-8"
-                              onClick={() => setForm((f) => ({
-                                ...f,
-                                [row.key]: Math.max(row.min, Number(f[row.key]) - 1),
-                              }))}
-                            >
-                              −
-                            </Button>
-                            <span className="w-6 text-center text-sm font-medium">{form[row.key]}</span>
-                            <Button
-                              type="button"
-                              size="icon"
-                              variant="outline"
-                              className="h-8 w-8"
-                              onClick={() => setForm((f) => ({
-                                ...f,
-                                [row.key]: Math.max(row.min, Number(f[row.key]) + 1),
-                              }))}
-                            >
-                              +
-                            </Button>
-                          </div>
-                        </div>
-                      ))}
-                    </PopoverContent>
-                  </Popover>
-                </div>
-
-                <div className="space-y-1.5 min-w-0">
-                  <Label className="text-sm font-medium">Hotel Star Rating</Label>
+                  <Label className="text-sm font-medium">Currency</Label>
                   <Select
-                    value={form.hotelStarPreference || "all"}
-                    onValueChange={(v) => setForm({ ...form, hotelStarPreference: v === "all" ? "" : v })}
+                    value={form.currency || "INR"}
+                    onValueChange={(v) => setForm({ ...form, currency: v })}
                   >
-                    <SelectTrigger className="h-10 w-full"><SelectValue placeholder="---Select All---" /></SelectTrigger>
+                    <SelectTrigger className="h-10 w-full"><SelectValue /></SelectTrigger>
                     <SelectContent side="bottom" avoidCollisions={false}>
-                      <SelectItem value="all">---Select All---</SelectItem>
-                      <SelectItem value="3">3</SelectItem>
-                      <SelectItem value="4">4</SelectItem>
-                      <SelectItem value="5">5</SelectItem>
-                      <SelectItem value="7">7</SelectItem>
+                      {["INR", "USD", "EUR", "GBP", "AED", "SGD", "MYR", "THB"].map((c) => (
+                        <SelectItem key={c} value={c}>{c}</SelectItem>
+                      ))}
                     </SelectContent>
                   </Select>
                 </div>
               </div>
 
+              {/* Customer — FRD basic fields first (above the fold) */}
+              <div className="space-y-3 pt-1">
+                <p className="text-sm font-semibold">Customer details</p>
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                  <Field label="Customer name" value={form.customerName} onChange={(v) => setForm({ ...form, customerName: v, contactPerson: form.contactPerson || v })} />
+                  <Field label="Email" value={form.contactEmail} onChange={(v) => setForm({ ...form, contactEmail: v })} />
+                  <Field label="Phone" value={form.contactPhone} onChange={(v) => setForm({ ...form, contactPhone: v })} />
+                  <div className="space-y-1.5 min-w-0">
+                    <Label className="text-sm font-medium">Nationality</Label>
+                    <Select
+                      value={nationalityDisplay(form.nationality)}
+                      onValueChange={(v) => setForm({ ...form, nationality: v })}
+                    >
+                      <SelectTrigger className="h-10 w-full"><SelectValue placeholder="Nationality" /></SelectTrigger>
+                      <SelectContent side="bottom" avoidCollisions={false}>
+                        {NATIONALITY_OPTIONS.map((n) => (
+                          <SelectItem key={n.value} value={n.value}>{n.label}</SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  </div>
+                  <Field
+                    label="Passport number (optional)"
+                    value={form.passportNumber}
+                    onChange={(v) => setForm({ ...form, passportNumber: v })}
+                  />
+                  <div className="space-y-1.5 min-w-0 sm:col-span-2">
+                    <Label className="text-sm font-medium">Guest documents (passport / Aadhaar / ID)</Label>
+                    <GuestDocumentsAttach quotationId={id} />
+                  </div>
+                  <div className="space-y-1.5 min-w-0 sm:col-span-2">
+                    <Label className="text-sm font-medium">Special requests</Label>
+                    <Textarea
+                      className="min-h-[72px] resize-y"
+                      value={form.specialRequests}
+                      onChange={(e) => setForm({ ...form, specialRequests: e.target.value })}
+                      placeholder="Dietary needs, room preference, celebration notes…"
+                    />
+                  </div>
+                  {!isTravelAgentUser && (
+                    <div className="space-y-1.5 min-w-0 sm:col-span-2">
+                      <Label className="text-sm font-medium">Internal notes (staff only)</Label>
+                      <Textarea
+                        className="min-h-[72px] resize-y"
+                        value={form.internalNotes}
+                        onChange={(e) => setForm({ ...form, internalNotes: e.target.value })}
+                        placeholder="Supplier rate, pending confirmations, discount notes…"
+                      />
+                      <p className="text-[11px] text-muted-foreground">Hidden from travel agents and customers.</p>
+                    </div>
+                  )}
+                </div>
+              </div>
+              </>
+            )}
+
+            {flowStep === FLOW_TRAVEL && (
+              <>
+              <div className="rounded-xl border bg-sky-50/60 border-sky-100 px-4 py-3">
+                <p className="text-sm font-semibold text-sky-900">Step 2 · Travel details</p>
+                <p className="text-xs text-sky-800/80 mt-0.5">
+                  Pick <strong>destination cities</strong> (not country only) — e.g. Malacca, then Mainland Penang.
+                  Hotels, cars, activities and itinerary places all follow these cities from Products.
+                </p>
+              </div>
+
+              <div className="space-y-4">
+                <p className="text-sm font-semibold">Trip search</p>
+                {/* Row 1: From | To — booking-app order */}
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                  <div className="space-y-1.5 min-w-0">
+                    <Label className="text-sm font-medium">From (leaving airport)</Label>
+                    <AirportSelect
+                      value={form.departureCity}
+                      onChange={(v) => {
+                        setDepartureDestinationId("");
+                        setForm((f) => ({ ...f, departureCity: v }));
+                      }}
+                      placeholder="Select leaving airport…"
+                      className="h-10 w-full"
+                    />
+                  </div>
+                  <div className="space-y-1.5 min-w-0">
+                    <Label className="text-sm font-medium">To (destination)</Label>
+                    <DestinationSelect
+                      value={tripCities[0]?.destinationId || destinationId || ""}
+                      placeholder="Select destination (Products → Destinations)"
+                      onChange={(destId, dest) => {
+                        const cityName = dest ? destinationCityName(dest) : "";
+                        const nextCities = tripCities.length
+                          ? tripCities.map((c, i) => (
+                            i === 0 ? { ...c, city: cityName, destinationId: destId || null } : c
+                          ))
+                          : [{ city: cityName, nights: 1, order: 1, destinationId: destId || null }];
+                        const label = nextCities.map((c) => c.city.trim()).filter(Boolean).join(" · ");
+                        const nextCountry = dest?.country || form.country;
+                        setTripCities(nextCities);
+                        setDestinationId(destId || "");
+                        setForm((f) => ({
+                          ...f,
+                          destination: label || f.destination,
+                          country: nextCountry || f.country,
+                          isInternational: nextCountry
+                            ? !["india"].includes(nextCountry.trim().toLowerCase())
+                            : f.isInternational,
+                        }));
+                      }}
+                    />
+                  </div>
+                </div>
+
+                {/* Row 2: Check-in | Duration | Check-out */}
+                <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+                  <Field
+                    label="Check-in"
+                    type="date"
+                    value={form.travelStartDate}
+                    onChange={onStartDateChange}
+                    min={todayYmd()}
+                  />
+                  <div className="space-y-1.5 min-w-0">
+                    <Label className="text-sm font-medium">Trip duration</Label>
+                    <Select
+                      value={nights != null && nights >= 1 && nights <= 21 ? String(nights) : "custom"}
+                      onValueChange={(v) => {
+                        if (v === "custom") return;
+                        const n = Math.max(1, Number(v) || 1);
+                        setTripCities((prev) => {
+                          if (!prev.length) {
+                            return [{ city: form.destination || "", nights: n, order: 1, destinationId: destinationId || null }];
+                          }
+                          if (prev.length === 1) return [{ ...prev[0], nights: n }];
+                          const rest = prev.slice(1).reduce((s, c) => s + Math.max(1, Number(c.nights) || 1), 0);
+                          const firstN = Math.max(1, n - rest);
+                          return prev.map((c, i) => (i === 0 ? { ...c, nights: firstN } : c));
+                        });
+                        if (form.travelStartDate) {
+                          setForm((f) => ({ ...f, travelEndDate: addDaysYmd(f.travelStartDate, n) }));
+                        }
+                      }}
+                    >
+                      <SelectTrigger className="h-10 w-full"><SelectValue placeholder="Select nights" /></SelectTrigger>
+                      <SelectContent side="bottom" avoidCollisions={false}>
+                        {[1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 12, 14, 21].map((n) => (
+                          <SelectItem key={n} value={String(n)}>
+                            {n} night{n === 1 ? "" : "s"} / {n + 1} day{n + 1 === 1 ? "" : "s"}
+                          </SelectItem>
+                        ))}
+                        {nights != null && (nights < 1 || nights > 21 || ![1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 12, 14, 21].includes(nights)) && (
+                          <SelectItem value="custom">{nights}N / {(nights || 0) + 1}D (from cities)</SelectItem>
+                        )}
+                      </SelectContent>
+                    </Select>
+                  </div>
+                  <div className="space-y-1.5 min-w-0">
+                    <Label className="text-sm font-medium">Check-out</Label>
+                    <Input
+                      className="h-10 w-full"
+                      type="date"
+                      value={form.travelEndDate || ""}
+                      min={form.travelStartDate || todayYmd()}
+                      onChange={(e) => {
+                        const end = e.target.value;
+                        setForm((f) => ({ ...f, travelEndDate: end }));
+                        if (!form.travelStartDate || !end || end <= form.travelStartDate) return;
+                        const a = new Date(`${form.travelStartDate}T12:00:00`);
+                        const b = new Date(`${end}T12:00:00`);
+                        const n = Math.max(1, Math.round((b.getTime() - a.getTime()) / 86400000));
+                        setTripCities((prev) => {
+                          if (!prev.length) {
+                            return [{ city: form.destination || "", nights: n, order: 1, destinationId: destinationId || null }];
+                          }
+                          if (prev.length === 1) return [{ ...prev[0], nights: n }];
+                          const rest = prev.slice(1).reduce((s, c) => s + Math.max(1, Number(c.nights) || 1), 0);
+                          const firstN = Math.max(1, n - rest);
+                          return prev.map((c, i) => (i === 0 ? { ...c, nights: firstN } : c));
+                        });
+                      }}
+                    />
+                    {nights != null && nights > 0 && (
+                      <p className="text-[11px] text-muted-foreground">
+                        {nights} night{nights === 1 ? "" : "s"} · {tripDays} day{tripDays === 1 ? "" : "s"}
+                      </p>
+                    )}
+                  </div>
+                </div>
+
+                {/* Row 3: Guests | Hotel star */}
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                  <div className="space-y-1.5 min-w-0">
+                    <Label className="text-sm font-medium">Rooms / travellers</Label>
+                    <Popover>
+                      <PopoverTrigger asChild>
+                        <Button type="button" variant="outline" className="h-10 w-full justify-between font-normal">
+                          <span className="truncate text-sm">
+                            {form.rooms} room{form.rooms === 1 ? "" : "s"}, {form.adults} adult{form.adults === 1 ? "" : "s"}
+                            {form.children > 0 ? `, ${form.children} child${form.children === 1 ? "" : "ren"}` : ""}
+                            {form.infants > 0 ? `, ${form.infants} infant${form.infants === 1 ? "" : "s"}` : ""}
+                          </span>
+                          <ChevronDown className="w-4 h-4 opacity-50 shrink-0" />
+                        </Button>
+                      </PopoverTrigger>
+                      <PopoverContent className="w-72 space-y-3" align="start" side="bottom" avoidCollisions={false}>
+                        {[
+                          { key: "rooms" as const, label: "Rooms", min: 1 },
+                          { key: "adults" as const, label: "Adults", min: 1 },
+                          { key: "children" as const, label: "Children", min: 0 },
+                          { key: "infants" as const, label: "Infants", min: 0 },
+                        ].map((row) => (
+                          <div key={row.key} className="flex items-center justify-between gap-3">
+                            <span className="text-sm">{row.label}</span>
+                            <div className="flex items-center gap-2">
+                              <Button
+                                type="button"
+                                size="icon"
+                                variant="outline"
+                                className="h-8 w-8"
+                                onClick={() => setForm((f) => ({
+                                  ...f,
+                                  [row.key]: Math.max(row.min, Number(f[row.key]) - 1),
+                                }))}
+                              >
+                                −
+                              </Button>
+                              <span className="w-6 text-center text-sm font-medium">{form[row.key]}</span>
+                              <Button
+                                type="button"
+                                size="icon"
+                                variant="outline"
+                                className="h-8 w-8"
+                                onClick={() => setForm((f) => ({
+                                  ...f,
+                                  [row.key]: Math.max(row.min, Number(f[row.key]) + 1),
+                                }))}
+                              >
+                                +
+                              </Button>
+                            </div>
+                          </div>
+                        ))}
+                      </PopoverContent>
+                    </Popover>
+                  </div>
+                  <div className="space-y-1.5 min-w-0">
+                    <Label className="text-sm font-medium">Hotel star preference</Label>
+                    <Select
+                      value={form.hotelStarPreference || "all"}
+                      onValueChange={(v) => setForm({ ...form, hotelStarPreference: v === "all" ? "" : v })}
+                    >
+                      <SelectTrigger className="h-10 w-full"><SelectValue placeholder="Any star" /></SelectTrigger>
+                      <SelectContent side="bottom" avoidCollisions={false}>
+                        <SelectItem value="all">Any star</SelectItem>
+                        <SelectItem value="3">3★</SelectItem>
+                        <SelectItem value="4">4★</SelectItem>
+                        <SelectItem value="5">5★</SelectItem>
+                        <SelectItem value="7">7★</SelectItem>
+                      </SelectContent>
+                    </Select>
+                  </div>
+                </div>
+              </div>
+
               <div className="space-y-2 pt-1">
-                <p className="text-sm font-semibold">Trip Plan City Wise</p>
-                <div className="grid grid-cols-[1fr_100px_36px] gap-2 text-xs text-muted-foreground px-0.5">
-                  <span>City</span>
-                  <span>Night</span>
+                <p className="text-sm font-semibold">Stay plan — cities & nights</p>
+                <p className="text-xs text-muted-foreground">
+                  Each city must exist under Products → Destinations. Split nights (e.g. 2N Malacca + 2N Penang).
+                  Step 3 hotels & Step 4 sightseeing places load from these cities.
+                </p>
+                <div className="grid grid-cols-[1fr_120px_36px] gap-2 text-xs text-muted-foreground px-0.5">
+                  <span>City / place</span>
+                  <span>Nights</span>
                   <span />
                 </div>
                 {tripCities.map((row, idx) => (
-                  <div key={idx} className="grid grid-cols-[1fr_100px_36px] gap-2 items-start">
-                    <CitySelect
-                      value={row.city}
-                      allowedCities={
-                        looksLikeMalaysiaPlace(form.country)
-                          ? [...MALAYSIA_HOTEL_CITIES]
-                          : undefined
-                      }
-                      preferredCountry={looksLikeMalaysiaPlace(form.country) ? "Malaysia" : undefined}
-                      onChange={(cityName, city) => {
+                  <div key={idx} className="grid grid-cols-[1fr_120px_36px] gap-2 items-start">
+                    <DestinationSelect
+                      value={row.destinationId || ""}
+                      placeholder="Select city (Products → Destinations)"
+                      onChange={(destId, dest) => {
+                        const cityName = dest ? destinationCityName(dest) : "";
                         const nextCities = tripCities.map((c, i) => (
                           i === idx
-                            ? { ...c, city: cityName, destinationId: null }
+                            ? { ...c, city: cityName, destinationId: destId || null }
                             : c
                         ));
                         const label = nextCities.map((c) => c.city.trim()).filter(Boolean).join(" · ");
-                        const nextCountry = city?.country || form.country;
+                        const nextCountry = dest?.country || form.country;
                         const formPatch = {
                           destination: label || form.destination,
                           country: nextCountry || form.country,
@@ -2090,6 +2536,7 @@ export function QuotationWizardView() {
                         };
                         setTripCities(nextCities);
                         setForm((f) => ({ ...f, ...formPatch }));
+                        if (idx === 0 && destId) setDestinationId(destId);
                         // City change: drop hotels/transfers that no longer match the trip cities.
                         const cityKey = cityName.trim().toLowerCase();
                         const prevHotels = (selected?.hotels || []) as Record<string, unknown>[];
@@ -2141,7 +2588,6 @@ export function QuotationWizardView() {
                           () => null,
                         );
                       }}
-                      placeholder="Select City"
                     />
                     <Input
                       className="h-10"
@@ -2175,20 +2621,6 @@ export function QuotationWizardView() {
 
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 pt-1">
                 <div className="space-y-1.5 min-w-0">
-                  <Label className="text-sm font-medium">Nationality</Label>
-                  <Select
-                    value={nationalityDisplay(form.nationality)}
-                    onValueChange={(v) => setForm({ ...form, nationality: v })}
-                  >
-                    <SelectTrigger className="h-10 w-full"><SelectValue placeholder="Nationality" /></SelectTrigger>
-                    <SelectContent side="bottom" avoidCollisions={false}>
-                      {NATIONALITY_OPTIONS.map((n) => (
-                        <SelectItem key={n.value} value={n.value}>{n.label}</SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
-                </div>
-                <div className="space-y-1.5 min-w-0">
                   <Label className="text-sm font-medium">Land Only</Label>
                   <div className="flex items-center gap-5 h-10">
                     <label className="flex items-center gap-2 text-sm cursor-pointer">
@@ -2216,6 +2648,8 @@ export function QuotationWizardView() {
                   type="date"
                   value={form.estimatedBookingDate}
                   onChange={(v) => setForm({ ...form, estimatedBookingDate: v })}
+                  min={todayYmd()}
+                  max={form.travelStartDate || undefined}
                 />
 
                 {canAssignTravelAgent ? (
@@ -2323,6 +2757,8 @@ export function QuotationWizardView() {
                   <Input className="h-10 w-full bg-muted/40 font-mono" value={form.agentCode || "—"} readOnly />
                 </div>
               </div>
+              </>
+            )}
           </div>
         )}
 
@@ -2549,6 +2985,22 @@ export function QuotationWizardView() {
                   patchSelected({ itinerary: days });
                 }}>
                   <Copy className="w-3.5 h-3.5 mr-1" /> Copy previous day
+                </Button>
+                <Button size="sm" variant="outline" disabled={!selected?.itinerary?.length} onClick={() => {
+                  const days = [...(selected?.itinerary || [])] as Array<Record<string, unknown>>;
+                  if (!days.length) return;
+                  const src = JSON.parse(JSON.stringify(days[days.length - 1])) as Record<string, unknown>;
+                  days.push({
+                    ...src,
+                    day: days.length + 1,
+                    title: `Day ${days.length + 1} (duplicate)`,
+                    manualDay: true,
+                    titleLocked: true,
+                  });
+                  patchSelected({ itinerary: days });
+                  toast({ title: "Day duplicated" });
+                }}>
+                  <Copy className="w-3.5 h-3.5 mr-1" /> Duplicate day
                 </Button>
                 <Button size="sm" variant="outline" onClick={() => {
                   const days = [...(selected?.itinerary || [])] as Array<Record<string, unknown>>;
@@ -3682,7 +4134,7 @@ export function QuotationWizardView() {
               )}
               <div className="flex flex-wrap gap-2 justify-between">
                 <div className="flex gap-2">
-                  <Button variant="outline" disabled={busy} onClick={onClose}>
+                  <Button variant="outline" disabled={busy} onClick={() => void backFlow()}>
                     <ChevronLeft className="w-4 h-4 mr-0.5" /> Back
                   </Button>
                   <Button variant="outline" disabled={busy} onClick={() => persist(0)}>
@@ -3690,8 +4142,11 @@ export function QuotationWizardView() {
                   </Button>
                 </div>
                 <div className="flex gap-2">
-                  <Button disabled={busy} onClick={next} className="bg-teal-600 hover:bg-teal-700">
-                    {id ? "Save & open trip" : "Create"} <ChevronRight className="w-4 h-4 ml-0.5" />
+                  <Button disabled={busy} onClick={() => void next()} className="bg-teal-600 hover:bg-teal-700">
+                    {flowStep === FLOW_PERSONAL
+                      ? "Next · Travel details"
+                      : "Continue · Hotels & trip"}
+                    <ChevronRight className="w-4 h-4 ml-0.5" />
                   </Button>
                 </div>
               </div>
@@ -3703,14 +4158,14 @@ export function QuotationWizardView() {
 }
 
 function Field({
-  label, value, onChange, type = "text",
+  label, value, onChange, type = "text", min, max,
 }: {
-  label: string; value: string; onChange: (v: string) => void; type?: string;
+  label: string; value: string; onChange: (v: string) => void; type?: string; min?: string; max?: string;
 }) {
   return (
     <div className="space-y-1.5 min-w-0">
       <Label className="text-sm font-medium">{label}</Label>
-      <Input className="h-10 w-full" type={type} value={value} onChange={(e) => onChange(e.target.value)} />
+      <Input className="h-10 w-full" type={type} value={value} min={min} max={max} onChange={(e) => onChange(e.target.value)} />
     </div>
   );
 }
@@ -3820,65 +4275,6 @@ function GalleryUrlsField({
   );
 }
 
-function QuoteTemplateApplyButton({
-  quotationId,
-  disabled,
-  onApplied,
-}: {
-  quotationId: string | null;
-  disabled?: boolean;
-  onApplied: (q: Quotation) => void;
-}) {
-  const { toast } = useToast();
-  const [templates, setTemplates] = useState<Array<{ id: string; templateName: string }>>([]);
-  const [templateId, setTemplateId] = useState("");
-  const [busy, setBusy] = useState(false);
-
-  useEffect(() => {
-    apiFetch<{ items: Array<{ id: string; templateName: string }> }>("/api/quote-templates?status=Active&pageSize=50")
-      .then((r) => setTemplates(r.items || []))
-      .catch(() => setTemplates([]));
-  }, []);
-
-  if (!quotationId) {
-    return <p className="text-xs text-muted-foreground">Save the draft once to enable Quote Template merge.</p>;
-  }
-
-  return (
-    <div className="flex flex-col sm:flex-row gap-2">
-      <Select value={templateId || undefined} onValueChange={setTemplateId}>
-        <SelectTrigger className="h-10 flex-1"><SelectValue placeholder="Choose an Active quote template…" /></SelectTrigger>
-        <SelectContent>
-          {templates.map((t) => (
-            <SelectItem key={t.id} value={t.id}>{t.templateName}</SelectItem>
-          ))}
-        </SelectContent>
-      </Select>
-      <Button
-        type="button"
-        variant="outline"
-        className="h-10 shrink-0"
-        disabled={disabled || busy || !templateId}
-        onClick={() => {
-          setBusy(true);
-          api.applyQuotationTemplate(quotationId, { templateId, mode: "fill-empty", packageIndex: 0 })
-            .then((res) => {
-              onApplied(mapApiQuotation(res.quotation));
-              toast({
-                title: res.appliedFields?.length ? "Template applied" : "Nothing to fill",
-                description: res.message || (res.appliedFields?.length ? `Updated: ${res.appliedFields.slice(0, 6).join(", ")}` : undefined),
-              });
-            })
-            .catch((e) => toast({ title: e instanceof Error ? e.message : "Template apply failed", variant: "destructive" }))
-            .finally(() => setBusy(false));
-        }}
-      >
-        Apply (fill empty only)
-      </Button>
-    </div>
-  );
-}
-
 function hotelFromCatalog(
   item: ProductRecord,
   defaultRooms = 1,
@@ -3911,6 +4307,7 @@ function hotelFromCatalog(
     contactPerson: String(item.contactPerson || ""),
     contactPhone: String(item.contactPhone || ""),
     contactEmail: String(item.contactEmail || ""),
+    currency: String(item.currency || "INR"),
     imageUrl: roomImage || placeholderHotelImage({
       name: item.name,
       city: String(item.city || item.destination?.name || ""),
@@ -4540,7 +4937,15 @@ function ServiceEditor({
 
   function addSelfBooked(
     preferredCity?: string,
-    details?: { hotelName: string; address: string },
+    details?: {
+      hotelName: string;
+      address: string;
+      starCategory?: string;
+      roomType?: string;
+      mealPlan?: string;
+      confirmationNo?: string;
+      remarks?: string;
+    },
   ) {
     setCatalogOpen(false);
     const row = { ...template };
@@ -4552,6 +4957,11 @@ function ServiceEditor({
       row.productType = "HOTEL";
       if (details?.hotelName) row.hotelName = details.hotelName;
       if (details?.address != null) row.address = details.address;
+      if (details?.starCategory) row.starCategory = details.starCategory;
+      if (details?.roomType) row.roomType = details.roomType;
+      if (details?.mealPlan) row.mealPlan = details.mealPlan;
+      if (details?.confirmationNo) row.confirmationNo = details.confirmationNo;
+      if (details?.remarks) row.remarks = details.remarks;
       if (stay) {
         row.checkIn = stay.checkIn;
         row.checkOut = stay.checkOut;
@@ -4680,10 +5090,10 @@ function ServiceEditor({
           <p className="text-sm font-semibold">{title}</p>
           <p className="text-xs text-muted-foreground mt-0.5">
             {catalogKind === "hotels"
-              ? "Pick a catalogue hotel (room options) or add a self-booked stay with name and address."
+              ? "Pick a hotel from Products → Hotels (live catalogue only)."
               : destination
-                ? `Add from ${destination} catalog or enter self-booked details.`
-                : "Add from catalog or enter self-booked details."}
+                ? `Add from ${destination} catalog.`
+                : "Add from the live product catalog."}
           </p>
         </div>
         <div className="flex gap-2">
@@ -4701,7 +5111,11 @@ function ServiceEditor({
               defaultRooms={catalogKind === "hotels" ? defaultRooms : undefined}
               open={catalogOpen}
               onOpenChange={setCatalogOpen}
-              onAddSelfBooked={(city, details) => addSelfBooked(city, details)}
+              onAddSelfBooked={
+                catalogKind === "hotels"
+                  ? (city, details) => addSelfBooked(city, details)
+                  : undefined
+              }
               onPick={(item, rate, stayCity, room) => {
                 if (catalogKind === "hotels") {
                   appendHotelPick(item, rate, stayCity, room);
@@ -4741,36 +5155,44 @@ function ServiceEditor({
             />
           )}
           {catalogKind === "flights" && (
-            <FlightApiSearch
-              travelDate={travelDate}
-              travelEndDate={travelEndDate}
-              defaultFrom={defaultFlightFrom}
-              defaultTo={defaultFlightTo}
-              adults={flightAdults ?? 1}
-              children={flightChildren ?? 0}
-              infants={flightInfants ?? 0}
-              destinationLabel={destination}
-              tripCities={tripCities}
-              onPick={(row) => {
-                const next = {
-                  ...row,
-                  segmentIndex: row.segmentIndex != null ? row.segmentIndex : rows.length,
-                  adults: row.adults != null ? row.adults : flightAdults,
-                  children: row.children != null ? row.children : flightChildren,
-                  infants: row.infants != null ? row.infants : flightInfants,
-                };
-                onChange([...rows, next]);
-              }}
-            />
+            <>
+              <Button
+                type="button"
+                size="sm"
+                variant="outline"
+                onClick={() => addSelfBooked()}
+              >
+                <Home className="w-3.5 h-3.5 mr-1.5" />
+                Add self-booked flight
+              </Button>
+              <FlightApiSearch
+                travelDate={travelDate}
+                travelEndDate={travelEndDate}
+                defaultFrom={defaultFlightFrom}
+                defaultTo={defaultFlightTo}
+                adults={flightAdults ?? 1}
+                children={flightChildren ?? 0}
+                infants={flightInfants ?? 0}
+                destinationLabel={destination}
+                tripCities={tripCities}
+                onPick={(row) => {
+                  const next = {
+                    ...row,
+                    segmentIndex: row.segmentIndex != null ? row.segmentIndex : rows.length,
+                    adults: row.adults != null ? row.adults : flightAdults,
+                    children: row.children != null ? row.children : flightChildren,
+                    infants: row.infants != null ? row.infants : flightInfants,
+                  };
+                  onChange([...rows, next]);
+                }}
+              />
+            </>
           )}
-          <Button size="sm" variant="outline" type="button" onClick={() => addSelfBooked()}>
-            <Plus className="w-3.5 h-3.5 mr-1" /> {catalogKind === "hotels" ? "Add self-booked (name & address)" : "Add self-booked"}
-          </Button>
         </div>
       </div>
       {rows.length === 0 && (
         <div className="rounded-xl border border-dashed bg-muted/20 px-4 py-8 text-center text-sm text-muted-foreground">
-          No {title.toLowerCase()} yet — pick from catalog or enter self-booked details.
+          No {title.toLowerCase()} yet — pick from the live product catalog.
         </div>
       )}
       {rows.map((row, i) => {
@@ -5146,6 +5568,96 @@ function ServiceEditor({
   );
 }
 
+
+function GuestDocumentsAttach({ quotationId }: { quotationId?: string | null }) {
+  const { toast } = useToast();
+  const [docs, setDocs] = useState<Array<{ id: string; fileName: string; docType: string }>>([]);
+  const kinds: Array<{ docType: string; label: string }> = [
+    { docType: "PASSPORT", label: "Passport" },
+    { docType: "AADHAAR", label: "Aadhaar" },
+    { docType: "ID_PROOF", label: "Other ID" },
+  ];
+  const guestTypes = new Set(kinds.map((k) => k.docType));
+
+  useEffect(() => {
+    if (!quotationId) {
+      setDocs([]);
+      return;
+    }
+    let cancelled = false;
+    void api.listQuotationDocuments(quotationId)
+      .then((res) => {
+        if (cancelled) return;
+        const rows = (res.documents || []).filter((d) => guestTypes.has(String(d.docType || "").toUpperCase()));
+        setDocs(rows.map((d) => ({ id: d.id, fileName: d.fileName, docType: d.docType })));
+      })
+      .catch(() => {
+        if (!cancelled) setDocs([]);
+      });
+    return () => { cancelled = true; };
+  }, [quotationId]);
+
+  if (!quotationId) {
+    return (
+      <p className="text-[11px] text-muted-foreground rounded-lg border bg-muted/20 px-3 py-2">
+        Click <strong>Save draft</strong> once, then upload passport / Aadhaar / ID here. Files stay on the quotation for booking.
+      </p>
+    );
+  }
+
+  return (
+    <div className="space-y-2 rounded-lg border bg-muted/10 p-3">
+      <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
+        {kinds.map((kind) => (
+          <div key={kind.docType} className="space-y-1">
+            <Label className="text-[11px] text-muted-foreground">{kind.label}</Label>
+            <Input
+              type="file"
+              accept=".pdf,image/jpeg,image/png,image/webp"
+              className="h-9 text-xs"
+              onChange={(e) => {
+                const file = e.target.files?.[0];
+                if (!file) return;
+                void api.uploadQuotationDocument(quotationId, file, {
+                  docType: kind.docType,
+                  visibility: "INTERNAL",
+                  relatedEntity: "guest",
+                  description: kind.label,
+                })
+                  .then((res) => {
+                    setDocs((prev) => [
+                      ...prev.filter((d) => d.id !== res.document.id),
+                      {
+                        id: res.document.id,
+                        fileName: res.document.fileName,
+                        docType: res.document.docType || kind.docType,
+                      },
+                    ]);
+                    toast({ title: `${kind.label} uploaded` });
+                  })
+                  .catch((err) => {
+                    toast({ title: err instanceof Error ? err.message : "Upload failed", variant: "destructive" });
+                  })
+                  .finally(() => {
+                    e.target.value = "";
+                  });
+              }}
+            />
+          </div>
+        ))}
+      </div>
+      {docs.length > 0 && (
+        <ul className="space-y-1">
+          {docs.map((doc) => (
+            <li key={doc.id} className="text-[11px] text-muted-foreground truncate">
+              {doc.docType} · {doc.fileName}
+            </li>
+          ))}
+        </ul>
+      )}
+    </div>
+  );
+}
 
 function HotelDocumentsAttach({
   quotationId,
@@ -5955,6 +6467,13 @@ function hotelMatchesTripCity(item: ProductRecord, city: string): boolean {
   if (!needle) return false;
   const normalized = normalizeMalaysiaHotelCity(city);
   const needles = [needle, normalized?.toLowerCase()].filter(Boolean) as string[];
+  // Spelling aliases (inventory may use either form).
+  if (needle.includes("malacca") || needle.includes("melaka")) {
+    needles.push("malacca", "melaka", "malacca city");
+  }
+  if (needle.includes("penang") || needle.includes("george")) {
+    needles.push("penang", "mainland penang", "george town", "georgetown", "penang island");
+  }
   const hay = [
     item.city,
     item.address,
@@ -6042,7 +6561,14 @@ function formatStayLabel(checkIn?: string, checkOut?: string, nights?: number | 
 
 type RoomSelectConfirm = {
   room: Record<string, unknown>;
-  rate: { rateId: string; validFrom: string; validTo: string; contractedCost?: number; displayPrice?: number | null };
+  rate: {
+    rateId: string;
+    validFrom: string;
+    validTo: string;
+    contractedCost?: number;
+    displayPrice?: number | null;
+    source?: "CONTRACTED_PRODUCT" | "MANUAL";
+  };
   stayCity?: string;
 };
 
@@ -6078,7 +6604,7 @@ function HotelRoomSelectionPanel({
   const address = String(hotel.address || hotel.location || `${hotel.city || ""}, ${hotel.country || "Malaysia"}`.replace(/^, |, $/g, ""));
   const description = String(
     hotel.description
-    || `${hotel.name} is a contracted stay in ${hotel.city || "Malaysia"}. Choose a room category below to add it to your trip.`,
+    || `${hotel.name} in ${hotel.city || "this destination"}. Choose a room category below to add it to your trip.`,
   );
   const nights = stay.nights && stay.nights > 0
     ? stay.nights
@@ -6154,29 +6680,54 @@ function HotelRoomSelectionPanel({
         contractedCost?: number;
         displayPrice?: number | null;
       }>(`/api/contracted-rates/applicable?${params.toString()}`);
-      if (!rate.applicable || !rate.rateId) {
+      if (rate.applicable && rate.rateId) {
+        await onConfirm({
+          room: chosen,
+          rate: {
+            rateId: rate.rateId,
+            validFrom: rate.validFrom || "",
+            validTo: rate.validTo || "",
+            contractedCost: rate.contractedCost,
+            displayPrice: rate.displayPrice,
+            source: "CONTRACTED_PRODUCT",
+          },
+          stayCity: stay.city,
+        });
+        return;
+      }
+
+      // Quotation fallback: use hotel room catalogue price as selling (no contracted cost).
+      const unit = roomNightUnitPrice(chosen);
+      const n = nights && nights > 0 ? nights : 1;
+      const stayTotal = unit > 0 ? unit * Math.max(1, quoteRooms) * n : 0;
+      if (stayTotal <= 0) {
         toast({
           title: rate.message || NO_VALID_RATE,
-          description: `${hotel.name} needs an active contracted rate covering ${stay.checkIn}.`,
+          description: `${hotel.name} needs an active contracted rate covering ${stay.checkIn}, or set a room price on the hotel product.`,
           variant: "destructive",
         });
         submitLock.current = false;
         setSubmitting(false);
         return;
       }
+      toast({
+        title: "Catalogue room price used",
+        description: "No contracted rate for these dates — selling price taken from the hotel room catalogue. Add a contracted rate later for accurate cost/margin.",
+      });
       await onConfirm({
         room: chosen,
         rate: {
-          rateId: rate.rateId,
-          validFrom: rate.validFrom || "",
-          validTo: rate.validTo || "",
-          contractedCost: rate.contractedCost,
-          displayPrice: rate.displayPrice,
+          rateId: "",
+          validFrom: stay.checkIn,
+          validTo: stay.checkOut || stay.checkIn,
+          displayPrice: stayTotal,
+          source: "MANUAL",
         },
         stayCity: stay.city,
       });
     } catch {
       toast({ title: NO_VALID_RATE, variant: "destructive" });
+    } finally {
       submitLock.current = false;
       setSubmitting(false);
     }
@@ -6422,7 +6973,15 @@ function CatalogPicker({
   onOpenChange: (open: boolean) => void;
   onAddSelfBooked?: (
     preferredCity?: string,
-    details?: { hotelName: string; address: string },
+    details?: {
+      hotelName: string;
+      address: string;
+      starCategory?: string;
+      roomType?: string;
+      mealPlan?: string;
+      confirmationNo?: string;
+      remarks?: string;
+    },
   ) => void;
   onPick: (
     item: ProductRecord,
@@ -6444,6 +7003,13 @@ function CatalogPicker({
   const [availableOnly, setAvailableOnly] = useState(false);
   const [priceSort, setPriceSort] = useState<"low" | "high">("low");
   const [hotelTab, setHotelTab] = useState<"recommended" | "all" | "self">("recommended");
+  const [selfHotelName, setSelfHotelName] = useState("");
+  const [selfHotelAddress, setSelfHotelAddress] = useState("");
+  const [selfHotelStar, setSelfHotelStar] = useState("");
+  const [selfHotelRoom, setSelfHotelRoom] = useState("Deluxe");
+  const [selfHotelMeal, setSelfHotelMeal] = useState("Breakfast");
+  const [selfHotelConfirm, setSelfHotelConfirm] = useState("");
+  const [selfHotelRemarks, setSelfHotelRemarks] = useState("");
   const [cityFilter, setCityFilter] = useState<string>("all");
   const [catalogCityFilter, setCatalogCityFilter] = useState<string>("all");
   const [countryFallback, setCountryFallback] = useState<string | null>(null);
@@ -6465,8 +7031,6 @@ function CatalogPicker({
   const [mealVehicleQty, setMealVehicleQty] = useState<Record<string, number>>(() => defaultMealVehicleQty());
   const [roomSelectHotel, setRoomSelectHotel] = useState<ProductRecord | null>(null);
   const [confirmingRoom, setConfirmingRoom] = useState(false);
-  const [selfHotelName, setSelfHotelName] = useState("");
-  const [selfHotelAddress, setSelfHotelAddress] = useState("");
   const [suppliers, setSuppliers] = useState<Array<{ id: string; name: string }>>([]);
   const [items, setItems] = useState<ProductRecord[]>([]);
   const [loading, setLoading] = useState(false);
@@ -6581,8 +7145,6 @@ function CatalogPicker({
     setMealTimeSlot("12:00 - 13:00");
     setMealVehicleQty(defaultMealVehicleQty());
     setRoomSelectHotel(null);
-    setSelfHotelName("");
-    setSelfHotelAddress("");
     setAvailableOnly(false);
   }, [open, initialStar, tripCities, destLabel, transferKind, dayHotelCity]);
 
@@ -6607,7 +7169,10 @@ function CatalogPicker({
             const malaysiaExact = malaysiaContext
               || activeCities.some((c) => isMalaysiaHotelCity(c))
               || looksLikeMalaysiaPlace(countryLabel);
-            if (catalogCityFilter !== "all" && isMalaysiaHotelCity(catalogCityFilter)) {
+            // Explicit browse of contracted Malaysia inventory (KL / Genting / Langkawi).
+            if (catalogCityFilter === "malaysia-all") {
+              params.set("cities", MALAYSIA_HOTEL_CITIES.join(","));
+            } else if (catalogCityFilter !== "all" && isMalaysiaHotelCity(catalogCityFilter)) {
               params.set("city", normalizeMalaysiaHotelCity(catalogCityFilter) || catalogCityFilter);
             } else if (malaysiaExact && activeCities.length === 1 && isMalaysiaHotelCity(activeCities[0])) {
               params.set("city", normalizeMalaysiaHotelCity(activeCities[0]) || activeCities[0]);
@@ -6652,6 +7217,7 @@ function CatalogPicker({
             const loc = activityCity
               || resolveActivityLocationCity(destLabel || tripCities[0] || "Kuala Lumpur");
             params.set("city", loc);
+            if (destinationId) params.set("destinationId", destinationId);
             if (travelDate) params.set("travelDate", travelDate);
           } else if (isMeals) {
             // Meal catalogue is destination-agnostic (Indian lunch/dinner options).
@@ -6662,6 +7228,23 @@ function CatalogPicker({
           }
           let res = await apiFetch<{ items: ProductRecord[] }>(`/api/products/${kind}?${params.toString()}`);
           let next = res.items || [];
+
+          // Hotels: Recommended empty → retry All (same city). Then destinationId if city misspelled.
+          if (isHotels && next.length === 0 && hotelTab === "recommended") {
+            const retry = new URLSearchParams(params);
+            retry.delete("recommendedOnly");
+            res = await apiFetch<{ items: ProductRecord[] }>(`/api/products/${kind}?${retry.toString()}`);
+            next = res.items || [];
+          }
+          if (isHotels && next.length === 0 && destinationId && params.has("city") && catalogCityFilter === "all") {
+            const byDest = new URLSearchParams(params);
+            byDest.delete("city");
+            byDest.delete("cities");
+            byDest.delete("recommendedOnly");
+            byDest.set("destinationId", destinationId);
+            res = await apiFetch<{ items: ProductRecord[] }>(`/api/products/${kind}?${byDest.toString()}`);
+            next = res.items || [];
+          }
 
           // Transfers: if hub city empty and Malaysia trip, broaden then re-filter client-side.
           if (isTransfers && next.length === 0 && looksLikeMalaysiaPlace(destLabel || tripCities[0] || countryLabel || dayHotelCity || "")) {
@@ -6737,8 +7320,10 @@ function CatalogPicker({
           setCountryFallback(broadenedCountry);
 
           if (isHotels) {
-            // Always post-filter to selected trip city for Malaysia (and generally).
-            if (catalogCityFilter !== "all") {
+            // Browse contracted Malaysia inventory without requiring trip city match.
+            if (catalogCityFilter === "malaysia-all") {
+              // keep KL / Genting / Langkawi results
+            } else if (catalogCityFilter !== "all") {
               next = next.filter((item) => hotelMatchesTripCity(item, catalogCityFilter));
             } else if (activeCities.length) {
               next = next.filter((item) => activeCities.some((c) => hotelMatchesTripCity(item, c)));
@@ -7334,10 +7919,14 @@ function CatalogPicker({
                         <>
                           <button
                             type="button"
-                            onClick={() => setCatalogCityFilter("all")}
+                            onClick={() => {
+                              setCityFilter("all");
+                              setCatalogCityFilter("malaysia-all");
+                              setHotelTab("all");
+                            }}
                             className={cn(
                               "rounded-full px-2.5 py-1 text-[11px] font-medium border transition-colors",
-                              catalogCityFilter === "all" && (countryFallback || useCountryHotelScope)
+                              catalogCityFilter === "malaysia-all"
                                 ? "bg-teal-600 text-white border-teal-600"
                                 : "bg-background border-border text-muted-foreground hover:bg-muted/50",
                             )}
@@ -7348,7 +7937,10 @@ function CatalogPicker({
                             <button
                               key={city}
                               type="button"
-                              onClick={() => setCatalogCityFilter(city)}
+                              onClick={() => {
+                                setCatalogCityFilter(city);
+                                setHotelTab("all");
+                              }}
                               className={cn(
                                 "rounded-full px-2.5 py-1 text-[11px] font-medium border transition-colors",
                                 catalogCityFilter === city
@@ -7521,31 +8113,42 @@ function CatalogPicker({
 
                 {hotelTab === "self" ? (
                   <div className="flex-1 min-h-0 overflow-y-auto px-4 pb-6">
-                    <div className="max-w-lg mx-auto mt-4 rounded-2xl border bg-background p-5 space-y-4 shadow-sm">
+                    <div className="max-w-lg mx-auto mt-4 rounded-2xl border bg-background p-5 space-y-3 shadow-sm">
                       <div>
-                        <p className="text-sm font-semibold text-foreground">Self Booked Hotel</p>
+                        <p className="text-sm font-semibold">Self-booked hotel</p>
                         <p className="text-xs text-muted-foreground mt-1">
-                          Enter hotel name and address only. Stay dates follow this city’s trip plan.
+                          External arrangement — enter hotel details. Stay dates follow this city’s trip plan. Upload vouchers after adding.
                         </p>
                       </div>
                       <div className="space-y-1.5">
-                        <Label className="text-sm">Hotel Name</Label>
-                        <Input
-                          className="h-10"
-                          value={selfHotelName}
-                          onChange={(e) => setSelfHotelName(e.target.value)}
-                          placeholder="e.g. Grand Livio Kuta Hotel"
-                          autoFocus
-                        />
+                        <Label className="text-sm">Hotel name *</Label>
+                        <Input className="h-10" value={selfHotelName} onChange={(e) => setSelfHotelName(e.target.value)} placeholder="Hotel name" autoFocus />
                       </div>
                       <div className="space-y-1.5">
                         <Label className="text-sm">Address</Label>
-                        <Textarea
-                          className="min-h-[88px] resize-y"
-                          value={selfHotelAddress}
-                          onChange={(e) => setSelfHotelAddress(e.target.value)}
-                          placeholder="Full hotel address"
-                        />
+                        <Textarea className="min-h-[72px]" value={selfHotelAddress} onChange={(e) => setSelfHotelAddress(e.target.value)} placeholder="Full address" />
+                      </div>
+                      <div className="grid grid-cols-2 gap-2">
+                        <div className="space-y-1.5">
+                          <Label className="text-sm">Star</Label>
+                          <Input className="h-10" value={selfHotelStar} onChange={(e) => setSelfHotelStar(e.target.value)} placeholder="5" />
+                        </div>
+                        <div className="space-y-1.5">
+                          <Label className="text-sm">Room type</Label>
+                          <Input className="h-10" value={selfHotelRoom} onChange={(e) => setSelfHotelRoom(e.target.value)} />
+                        </div>
+                        <div className="space-y-1.5">
+                          <Label className="text-sm">Meal plan</Label>
+                          <Input className="h-10" value={selfHotelMeal} onChange={(e) => setSelfHotelMeal(e.target.value)} />
+                        </div>
+                        <div className="space-y-1.5">
+                          <Label className="text-sm">Confirmation no.</Label>
+                          <Input className="h-10" value={selfHotelConfirm} onChange={(e) => setSelfHotelConfirm(e.target.value)} />
+                        </div>
+                      </div>
+                      <div className="space-y-1.5">
+                        <Label className="text-sm">Remarks</Label>
+                        <Input className="h-10" value={selfHotelRemarks} onChange={(e) => setSelfHotelRemarks(e.target.value)} />
                       </div>
                       <Button
                         type="button"
@@ -7553,18 +8156,27 @@ function CatalogPicker({
                         disabled={!selfHotelName.trim() || !onAddSelfBooked}
                         onClick={() => {
                           if (!onAddSelfBooked) return;
-                          onAddSelfBooked(
-                            cityFilter !== "all" ? cityFilter : destLabel || undefined,
-                            {
-                              hotelName: selfHotelName.trim(),
-                              address: selfHotelAddress.trim(),
-                            },
-                          );
+                          onAddSelfBooked(cityFilter !== "all" ? cityFilter : destLabel || undefined, {
+                            hotelName: selfHotelName.trim(),
+                            address: selfHotelAddress.trim(),
+                            starCategory: selfHotelStar.trim(),
+                            roomType: selfHotelRoom.trim() || "Deluxe",
+                            mealPlan: selfHotelMeal.trim() || "Breakfast",
+                            confirmationNo: selfHotelConfirm.trim(),
+                            remarks: selfHotelRemarks.trim(),
+                          });
+                          setSelfHotelName("");
+                          setSelfHotelAddress("");
+                          setSelfHotelStar("");
+                          setSelfHotelRoom("Deluxe");
+                          setSelfHotelMeal("Breakfast");
+                          setSelfHotelConfirm("");
+                          setSelfHotelRemarks("");
                           onOpenChange(false);
                         }}
                       >
                         <Check className="w-3.5 h-3.5 mr-1.5" />
-                        Add Self Booked Hotel
+                        Add self-booked hotel
                       </Button>
                     </div>
                   </div>
@@ -7589,19 +8201,61 @@ function CatalogPicker({
                     </div>
                   )}
                   {!loading && hotelList.length === 0 && (
-                    <div className="rounded-xl border bg-background p-8 text-center space-y-3">
+                    <div className="rounded-xl border bg-background p-8 text-center space-y-4">
                       <Hotel className="w-10 h-10 mx-auto text-muted-foreground/50" />
-                      <p className="text-sm text-muted-foreground">
-                        {destLabel ? `No hotels found for ${destLabel}.` : "No live hotels found."}
-                      </p>
-                      <p className="text-xs text-muted-foreground">
-                        Malaysia Excel hotels are under Kuala Lumpur, Genting Highlands, or Langkawi.
-                        Try{" "}
-                        <button type="button" className="underline text-teal-700" onClick={() => { setHotelTab("all"); setCatalogCityFilter("all"); }}>
-                          All Malaysia hotels
-                        </button>
-                        {" "}or Self Booked.
-                      </p>
+                      <div className="space-y-1">
+                        <p className="text-sm font-medium text-foreground">
+                          {destLabel || cityFilter !== "all" ? `No hotels in Products for ${cityFilter !== "all" ? cityFilter : destLabel}` : "No live hotels found"}
+                        </p>
+                        <p className="text-xs text-muted-foreground max-w-md mx-auto">
+                          Hotels come from <strong>Products → Hotels</strong> linked to that city.
+                          {malaysiaContext
+                            ? " Contracted Malaysia inventory today: Kuala Lumpur, Genting Highlands, Langkawi."
+                            : " Add hotels for this city in Products, or pick another stay city in Travel details."}
+                        </p>
+                      </div>
+                      {malaysiaContext && (
+                        <div className="flex flex-wrap justify-center gap-2">
+                          <Button
+                            type="button"
+                            size="sm"
+                            variant="outline"
+                            className="h-8"
+                            onClick={() => {
+                              setHotelTab("all");
+                              setCatalogCityFilter("malaysia-all");
+                            }}
+                          >
+                            Browse Malaysia inventory
+                          </Button>
+                          {MALAYSIA_HOTEL_CITY_OPTIONS.map((city) => (
+                            <Button
+                              key={city}
+                              type="button"
+                              size="sm"
+                              variant="outline"
+                              className="h-8"
+                              onClick={() => {
+                                setHotelTab("all");
+                                setCatalogCityFilter(city);
+                              }}
+                            >
+                              {city}
+                            </Button>
+                          ))}
+                        </div>
+                      )}
+                      {!malaysiaContext && (
+                        <Button
+                          type="button"
+                          size="sm"
+                          variant="outline"
+                          className="h-8"
+                          onClick={() => { setHotelTab("all"); setCatalogCityFilter("all"); }}
+                        >
+                          Show all hotels
+                        </Button>
+                      )}
                     </div>
                   )}
                   {!loading && hotelList.map((item) => {
@@ -9042,20 +9696,6 @@ function CatalogPicker({
                 <p className="text-[11px] text-muted-foreground">
                   {destLabel ? `No live ${kind} for ${destLabel}.` : "No live products."}
                 </p>
-                {onAddSelfBooked && (
-                  <Button
-                    type="button"
-                    size="sm"
-                    variant="outline"
-                    className="h-7 w-full text-xs"
-                    onClick={() => {
-                      onOpenChange(false);
-                            onAddSelfBooked(cityFilter !== "all" ? cityFilter : undefined);
-                    }}
-                  >
-                    <Plus className="w-3 h-3 mr-1" /> Add self-booked instead
-                  </Button>
-                )}
               </div>
             )}
             {items.map((item) => (

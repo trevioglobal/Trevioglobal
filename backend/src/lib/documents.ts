@@ -17,6 +17,9 @@ export const DOCUMENT_TYPES = [
   "ACTIVITY_VOUCHER",
   "TRANSFER_VOUCHER",
   "GST_VAT_PROOF",
+  "PASSPORT_FRONT",
+  "PASSPORT_BACK",
+  "PAN",
   "OTHER",
 ] as const;
 
@@ -28,9 +31,10 @@ const LEGACY_TYPES: Record<string, DocumentType> = {
   insurance: "INSURANCE_POLICY",
   other: "OTHER",
   "quote attachment": "QUOTE_ATTACHMENT",
-  "passport front": "OTHER",
-  "passport back": "OTHER",
-  "pan card": "OTHER",
+  "passport front": "PASSPORT_FRONT",
+  "passport back": "PASSPORT_BACK",
+  "pan card": "PAN",
+  pan: "PAN",
 };
 
 export const VISIBILITIES = ["INTERNAL", "AGENT", "CUSTOMER"] as const;

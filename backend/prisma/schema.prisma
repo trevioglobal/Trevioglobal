@@ -1289,6 +1289,7 @@ model Destination {
   transferProducts   TransferProduct[]
   mealProducts       MealProduct[]
   flightProducts     FlightProduct[]
+  sightseeingPlaces  SightseeingPlace[]
   travelPackages     TravelPackage[]
   travelRequirements TravelRequirement[]
 
@@ -1299,6 +1300,33 @@ model Destination {
   @@index([region])
   @@index([status])
   @@index([deletedAt])
+}
+
+/** Sightseeing / itinerary places under a Destination (e.g. Goa → Calangute Beach). */
+model SightseeingPlace {
+  id               String   @id @default(cuid())
+  agencyId         String?
+  destinationId    String
+  name             String
+  description      String?  @db.Text
+  imageUrl         String?
+  bestTimeToVisit  String?
+  famousFor        String?  @db.Text
+  suggestedDuration String?
+  sellingPrice     Int?
+  costPrice        Int?
+  currency         String   @default("INR")
+  status           String   @default("Active") // Active|Draft|Archived
+  sortOrder        Int      @default(0)
+  createdAt        DateTime @default(now())
+  updatedAt        DateTime @updatedAt
+
+  destination Destination @relation(fields: [destinationId], references: [id], onDelete: Cascade)
+
+  @@index([destinationId])
+  @@index([agencyId])
+  @@index([status])
+  @@index([name])
 }
 
 model TravelPackage {

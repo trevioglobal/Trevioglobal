@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { Plus, Trash2 } from "lucide-react";
+import { Plus, Trash2, Info } from "lucide-react";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -14,6 +14,7 @@ import {
   Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
 } from "@/components/ui/select";
 import { DestinationSelect } from "@/components/shared/destination-select";
+import { ImageUrlListField } from "@/components/shared/image-url-list-field";
 import { apiFetch } from "@/lib/api";
 import { normalizeCurrency } from "@/lib/currency";
 import { CurrencySelect } from "@/components/shared/currency-select";
@@ -535,30 +536,77 @@ export function ProductFormDialog({ open, onOpenChange, kind, initial, onSubmit 
               <div className="grid sm:grid-cols-2 gap-3">
                 <div className="sm:col-span-2">
                   <Field label="Destination *">
-                    <DestinationSelect value={form.destinationId || ""} onChange={(v) => set("destinationId", v)} required />
+                    <DestinationSelect
+                      value={form.destinationId || ""}
+                      onChange={(v, dest) => {
+                        set("destinationId", v);
+                        if (dest) {
+                          setForm((f) => ({
+                            ...f,
+                            destinationId: v,
+                            city: f.city?.trim() ? f.city : String(dest.city || dest.name || ""),
+                            country: f.country?.trim() && f.country !== "India"
+                              ? f.country
+                              : String(dest.country || f.country || "India"),
+                          }));
+                        }
+                      }}
+                      required
+                    />
                   </Field>
                 </div>
-                <Field label="Hotel Name *"><Input value={form.name || ""} onChange={(e) => set("name", e.target.value)} /></Field>
-                <Field label="Star Category">
+                <Field label="Hotel Name *">
+                  <Input value={form.name || ""} onChange={(e) => set("name", e.target.value)} placeholder="e.g. Ramada Encore" />
+                </Field>
+                <Field label="Star rating *">
                   <Select value={form.starCategory || "3"} onValueChange={(v) => set("starCategory", v)}>
                     <SelectTrigger><SelectValue /></SelectTrigger>
                     <SelectContent>{[1, 2, 3, 4, 5].map((s) => <SelectItem key={s} value={String(s)}>{s}★</SelectItem>)}</SelectContent>
                   </Select>
                 </Field>
-                <div className="sm:col-span-2"><Field label="Description"><Textarea rows={2} value={form.description || ""} onChange={(e) => set("description", e.target.value)} /></Field></div>
-                <div className="sm:col-span-2"><Field label="Hotel Images (one URL per line)"><Textarea rows={2} value={form.images || ""} onChange={(e) => set("images", e.target.value)} placeholder="https://..." /></Field></div>
-                <Field label="Address"><Input value={form.address || ""} onChange={(e) => set("address", e.target.value)} /></Field>
+                <div className="sm:col-span-2">
+                  <Field label="Address">
+                    <Input value={form.address || ""} onChange={(e) => set("address", e.target.value)} placeholder="Street / area" />
+                  </Field>
+                </div>
                 <Field label="City *"><Input value={form.city || ""} onChange={(e) => set("city", e.target.value)} /></Field>
                 <Field label="Country"><Input value={form.country || ""} onChange={(e) => set("country", e.target.value)} /></Field>
-                <Field label="Google Map Location"><Input value={form.mapsUrl || ""} onChange={(e) => set("mapsUrl", e.target.value)} /></Field>
-                <div className="sm:col-span-2"><Field label="Amenities (comma-separated)"><Input value={form.amenities || ""} onChange={(e) => set("amenities", e.target.value)} /></Field></div>
+                <Field label="Currency *">
+                  <CurrencySelect value={form.currency || "INR"} onChange={(v) => set("currency", v)} />
+                </Field>
+                <Field label="Google Map URL (optional)">
+                  <Input value={form.mapsUrl || ""} onChange={(e) => set("mapsUrl", e.target.value)} placeholder="https://maps.google.com/…" />
+                </Field>
+                <div className="sm:col-span-2">
+                  <Field label="Description">
+                    <Textarea rows={3} value={form.description || ""} onChange={(e) => set("description", e.target.value)} placeholder="Short hotel description for agents / quotes" />
+                  </Field>
+                </div>
+                <div className="sm:col-span-2">
+                  <ImageUrlListField
+                    label="Hotel images"
+                    value={form.images || ""}
+                    onChange={(v) => set("images", v)}
+                  />
+                </div>
+              </div>
+            </Section>
+
+            <Section title="Hotel contact (optional)">
+              <div className="grid sm:grid-cols-2 gap-3">
+                <Field label="Contact person"><Input value={form.contactPerson || ""} onChange={(e) => set("contactPerson", e.target.value)} /></Field>
+                <Field label="Contact phone"><Input value={form.contactPhone || ""} onChange={(e) => set("contactPhone", e.target.value)} /></Field>
+                <Field label="Email"><Input value={form.contactEmail || ""} onChange={(e) => set("contactEmail", e.target.value)} /></Field>
+                <Field label="Website"><Input value={form.website || ""} onChange={(e) => set("website", e.target.value)} /></Field>
+              </div>
+            </Section>
+
+            <Section title="Stay details">
+              <div className="grid sm:grid-cols-2 gap-3">
+                <div className="sm:col-span-2"><Field label="Amenities (comma-separated)"><Input value={form.amenities || ""} onChange={(e) => set("amenities", e.target.value)} placeholder="Wi-Fi, Pool, Breakfast" /></Field></div>
                 <div className="sm:col-span-2"><Field label="Hotel Policies"><Textarea rows={2} value={form.policies || ""} onChange={(e) => set("policies", e.target.value)} /></Field></div>
                 <Field label="Check-in Time"><Input value={form.checkInTime || ""} onChange={(e) => set("checkInTime", e.target.value)} /></Field>
                 <Field label="Check-out Time"><Input value={form.checkOutTime || ""} onChange={(e) => set("checkOutTime", e.target.value)} /></Field>
-                <Field label="Contact Person"><Input value={form.contactPerson || ""} onChange={(e) => set("contactPerson", e.target.value)} /></Field>
-                <Field label="Contact Number"><Input value={form.contactPhone || ""} onChange={(e) => set("contactPhone", e.target.value)} /></Field>
-                <Field label="Email ID"><Input value={form.contactEmail || ""} onChange={(e) => set("contactEmail", e.target.value)} /></Field>
-                <Field label="Website (Optional)"><Input value={form.website || ""} onChange={(e) => set("website", e.target.value)} /></Field>
               </div>
             </Section>
 
@@ -566,7 +614,6 @@ export function ProductFormDialog({ open, onOpenChange, kind, initial, onSubmit 
               <div className="grid sm:grid-cols-2 gap-3">
                 <Field label="Contract Start Date"><Input type="date" value={form.contractStart || ""} onChange={(e) => set("contractStart", e.target.value)} /></Field>
                 <Field label="Contract End Date"><Input type="date" value={form.contractEnd || ""} onChange={(e) => set("contractEnd", e.target.value)} /></Field>
-                <Field label="Currency"><CurrencySelect value={form.currency || "INR"} onChange={(v) => set("currency", v)} /></Field>
                 <Field label="Status">
                   <Select value={form.status || "Active"} onValueChange={(v) => set("status", v)}>
                     <SelectTrigger><SelectValue /></SelectTrigger>
@@ -577,11 +624,12 @@ export function ProductFormDialog({ open, onOpenChange, kind, initial, onSubmit 
                     </SelectContent>
                   </Select>
                 </Field>
+                <div className="sm:col-span-2" />
                 <Field label="Min child age with bed (yrs)"><Input type="number" value={form.childWithBedAge || ""} onChange={(e) => set("childWithBedAge", e.target.value)} placeholder="12" /></Field>
                 <Field label="Min child age without bed (yrs)"><Input type="number" value={form.childWithoutBedAge || ""} onChange={(e) => set("childWithoutBedAge", e.target.value)} placeholder="5 — below is complimentary" /></Field>
                 <Field label="Child with bed note"><Input value={form.childWithBed || ""} onChange={(e) => set("childWithBed", e.target.value)} /></Field>
                 <Field label="Child without bed note"><Input value={form.childWithoutBed || ""} onChange={(e) => set("childWithoutBed", e.target.value)} /></Field>
-                <div className="sm:col-span-2"><Field label="Cancellation Policy"><Textarea rows={2} value={form.cancellationPolicy || ""} onChange={(e) => set("cancellationPolicy", e.target.value)} /></Field></div>
+                <div className="sm:col-span-2"><Field label="Cancellation Policy / Terms"><Textarea rows={2} value={form.cancellationPolicy || ""} onChange={(e) => set("cancellationPolicy", e.target.value)} /></Field></div>
               </div>
             </Section>
 
@@ -611,7 +659,14 @@ export function ProductFormDialog({ open, onOpenChange, kind, initial, onSubmit 
                       </Field>
                       <Field label="Meal Plan"><Input value={room.mealPlan} onChange={(e) => updateRoom(index, "mealPlan", e.target.value)} /></Field>
                       <div className="sm:col-span-2"><Field label="Room Description"><Textarea rows={2} value={room.description} onChange={(e) => updateRoom(index, "description", e.target.value)} /></Field></div>
-                      <div className="sm:col-span-2"><Field label="Room Images (one URL per line)"><Textarea rows={2} value={room.images} onChange={(e) => updateRoom(index, "images", e.target.value)} /></Field></div>
+                      <div className="sm:col-span-2">
+                        <ImageUrlListField
+                          label="Room images"
+                          value={room.images}
+                          onChange={(v) => updateRoom(index, "images", v)}
+                          maxImages={6}
+                        />
+                      </div>
                       <Field label="Max Occupancy"><Input type="number" value={room.maxOccupancy} onChange={(e) => updateRoom(index, "maxOccupancy", e.target.value)} /></Field>
                       <Field label="Max Adults"><Input type="number" value={room.maxAdults} onChange={(e) => updateRoom(index, "maxAdults", e.target.value)} /></Field>
                       <Field label="Max Children"><Input type="number" value={room.maxChildren} onChange={(e) => updateRoom(index, "maxChildren", e.target.value)} /></Field>
@@ -708,33 +763,60 @@ export function ProductFormDialog({ open, onOpenChange, kind, initial, onSubmit 
 
         {kind === "activities" && (
           <div className="space-y-4">
+            <Alert>
+              <Info className="h-4 w-4" />
+              <AlertDescription className="text-sm">
+                <strong>Tours &amp; Activities</strong> = bookable experiences with price &amp; timing (e.g. Singapore rope course).
+                Sightseeing landmarks go under <strong>Products → Sightseeing Places</strong> (no ticket price) and appear on the day itinerary.
+              </AlertDescription>
+            </Alert>
             <Section title="Activity Details">
               <div className="grid sm:grid-cols-2 gap-3">
                 <div className="sm:col-span-2">
                   <Field label="Destination *">
-                    <DestinationSelect value={form.destinationId || ""} onChange={(v) => set("destinationId", v)} required />
+                    <DestinationSelect
+                      value={form.destinationId || ""}
+                      onChange={(v, dest) => {
+                        set("destinationId", v);
+                        if (dest && !form.location?.trim()) {
+                          set("location", String(dest.city || dest.name || ""));
+                        }
+                      }}
+                      required
+                    />
                   </Field>
                 </div>
-                <Field label="Activity Name *"><Input value={form.name || ""} onChange={(e) => set("name", e.target.value)} /></Field>
-                <Field label="Duration"><Input value={form.duration || ""} onChange={(e) => set("duration", e.target.value)} placeholder="6 hours" /></Field>
+                <Field label="Activity Name *"><Input value={form.name || ""} onChange={(e) => set("name", e.target.value)} placeholder="e.g. iFly Singapore / Rope course" /></Field>
+                <Field label="Duration"><Input value={form.duration || ""} onChange={(e) => set("duration", e.target.value)} placeholder="2 hours" /></Field>
                 <div className="sm:col-span-2"><Field label="Description"><Textarea rows={2} value={form.description || ""} onChange={(e) => set("description", e.target.value)} /></Field></div>
-                <div className="sm:col-span-2"><Field label="Activity Images (one URL per line)"><Textarea rows={2} value={form.images || ""} onChange={(e) => set("images", e.target.value)} /></Field></div>
-                <Field label="Location"><Input value={form.location || ""} onChange={(e) => set("location", e.target.value)} /></Field>
+                <div className="sm:col-span-2">
+                  <ImageUrlListField label="Activity images" value={form.images || ""} onChange={(v) => set("images", v)} />
+                </div>
+                <Field label="Location / city"><Input value={form.location || ""} onChange={(e) => set("location", e.target.value)} /></Field>
                 <Field label="Meeting Point"><Input value={form.meetingPoint || ""} onChange={(e) => set("meetingPoint", e.target.value)} /></Field>
                 <div className="sm:col-span-2"><Field label="Inclusions"><Input value={form.inclusions || ""} onChange={(e) => set("inclusions", e.target.value)} /></Field></div>
                 <div className="sm:col-span-2"><Field label="Exclusions"><Input value={form.exclusions || ""} onChange={(e) => set("exclusions", e.target.value)} /></Field></div>
                 <Field label="Start time"><Input value={form.startTime || ""} onChange={(e) => set("startTime", e.target.value)} placeholder="09:00" /></Field>
                 <Field label="Closing time"><Input value={form.closingTime || ""} onChange={(e) => set("closingTime", e.target.value)} placeholder="18:00" /></Field>
                 <Field label="Ticket type"><Input value={form.ticketType || ""} onChange={(e) => set("ticketType", e.target.value)} /></Field>
-                <Field label="Passenger information"><Input value={form.passengerInfo || ""} onChange={(e) => set("passengerInfo", e.target.value)} /></Field>
                 <Field label="Operating Hours"><Input value={form.operatingHours || ""} onChange={(e) => set("operatingHours", e.target.value)} /></Field>
+                <div className="sm:col-span-2">
+                  <Field label="Guest instructions (what to carry / dress code / pickup note)">
+                    <Textarea
+                      rows={2}
+                      value={form.passengerInfo || ""}
+                      onChange={(e) => set("passengerInfo", e.target.value)}
+                      placeholder="e.g. Wear closed shoes, carry ID, arrive 30 mins early"
+                    />
+                  </Field>
+                </div>
                 <Field label="Min Child Age"><Input type="number" value={form.minChildAge || ""} onChange={(e) => set("minChildAge", e.target.value)} /></Field>
                 <p className="sm:col-span-2 text-xs text-muted-foreground -mt-1">Below this age the activity cannot be booked (e.g. Sky Diving 18 yrs).</p>
-                <p className="sm:col-span-2 text-xs text-muted-foreground">Display price only. Contracted cost is set under Rates and is resolved by travel date.</p>
+                <p className="sm:col-span-2 text-xs text-muted-foreground">Display price is what agents see. Contracted cost is set under Rates and resolved by travel date.</p>
                 <Field label="Adult display price"><Input type="number" value={form.adultPrice || ""} onChange={(e) => set("adultPrice", e.target.value)} /></Field>
                 <Field label="Child Price"><Input type="number" value={form.childPrice || ""} onChange={(e) => set("childPrice", e.target.value)} /></Field>
                 <Field label="Infant Price (Optional)"><Input type="number" value={form.infantPrice || ""} onChange={(e) => set("infantPrice", e.target.value)} /></Field>
-                <Field label="Currency"><CurrencySelect value={form.currency || "INR"} onChange={(v) => set("currency", v)} /></Field>
+                <Field label="Currency *"><CurrencySelect value={form.currency || "INR"} onChange={(v) => set("currency", v)} /></Field>
                 <Field label="Rate Valid From"><Input type="date" value={form.rateValidFrom || ""} onChange={(e) => set("rateValidFrom", e.target.value)} /></Field>
                 <Field label="Rate Valid To"><Input type="date" value={form.rateValidTo || ""} onChange={(e) => set("rateValidTo", e.target.value)} /></Field>
                 <Field label="Status">
@@ -824,7 +906,9 @@ export function ProductFormDialog({ open, onOpenChange, kind, initial, onSubmit 
                 <Field label="City"><Input value={form.city || ""} onChange={(e) => set("city", e.target.value)} /></Field>
                 <Field label="Capacity (pax)"><Input type="number" value={form.capacity || ""} onChange={(e) => set("capacity", e.target.value)} /></Field>
                 <div className="sm:col-span-2"><Field label="Description"><Textarea rows={2} value={form.description || ""} onChange={(e) => set("description", e.target.value)} /></Field></div>
-                <div className="sm:col-span-2"><Field label="Image URL"><Input value={form.images || ""} onChange={(e) => set("images", e.target.value)} /></Field></div>
+                <div className="sm:col-span-2">
+                  <ImageUrlListField label="Transfer images" value={form.images || ""} onChange={(v) => set("images", v)} maxImages={4} />
+                </div>
                 <Field label="Transfer Type">
                   <Select value={form.transferType || "Private"} onValueChange={(v) => set("transferType", v)}>
                     <SelectTrigger><SelectValue /></SelectTrigger>

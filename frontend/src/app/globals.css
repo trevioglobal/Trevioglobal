@@ -73,7 +73,7 @@
   --space-inset: 1.5rem; /* 24 — card internal padding */
 
   /* ── Typography scale ── */
-  --text-page-title: 1.5rem;      /* 24 */
+  --text-page-title: 1.625rem;    /* 26 */
   --text-section-title: 0.9375rem; /* 15 */
   --text-card-title: 0.875rem;    /* 14 */
   --text-body: 0.875rem;          /* 14 */

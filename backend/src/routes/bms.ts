@@ -558,13 +558,21 @@ export function mountBmsRoutes(
           res.status(404).json({ error: "Not found" });
           return;
         }
-        const payAmount = Number(req.body?.amount) || pr.amount - pr.amountPaid;
+        const remaining = Math.max(0, Number(pr.amount) - Number(pr.amountPaid));
+        if (remaining <= 0) {
+          res.status(400).json({ error: "Payment request is already fully paid" });
+          return;
+        }
+        let payAmount = Number(req.body?.amount);
+        if (!Number.isFinite(payAmount) || payAmount <= 0) payAmount = remaining;
+        payAmount = Math.min(payAmount, remaining);
         if (payAmount <= 0) {
           res.status(400).json({ error: "Invalid payment amount" });
           return;
         }
         const method = String(req.body?.method || "Bank Transfer");
         let gateway = String(req.body?.gateway || "Manual");
+        let txnId = `TXN-BMS-${Date.now()}`;
         if (!isOfflinePaymentMethod(method)) {
           const keys = await razorpayKeysForAgency(pr.agencyId);
           const { orderId, paymentId, signature } = req.body ?? {};
@@ -587,6 +595,12 @@ export function mountBmsRoutes(
             return;
           }
           gateway = "Razorpay";
+          txnId = `RZP-${String(paymentId)}`;
+          const reused = await db.payment.findFirst({ where: { txnId } });
+          if (reused) {
+            res.status(409).json({ error: "This Razorpay payment was already recorded" });
+            return;
+          }
         }
         const newPaid = Math.min(pr.amount, pr.amountPaid + payAmount);
         const status = newPaid >= pr.amount ? "Paid" : "Partially Paid";
@@ -618,7 +632,7 @@ export function mountBmsRoutes(
         });
         await db.payment.create({
           data: {
-            txnId: `TXN-BMS-${Date.now()}`,
+            txnId,
             customerName: pr.booking.customerName,
             bookingRef: pr.booking.bookingRef,
             bookingId: pr.bookingId,

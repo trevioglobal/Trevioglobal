@@ -197,8 +197,22 @@ export function DestinationDetail({ destinationId, onBack, onRefreshList }: Dest
   const { user } = useAuthStore();
   const setView = useAppStore((s) => s.setView);
   const [item, setItem] = useState<DestinationRecord | null>(null);
-  const [linked, setLinked] = useState<{ hotels: ProductRecord[]; activities: ProductRecord[]; transfers: ProductRecord[] }>({
-    hotels: [], activities: [], transfers: [],
+  const [linked, setLinked] = useState<{
+    hotels: ProductRecord[];
+    activities: ProductRecord[];
+    transfers: ProductRecord[];
+    sightseeingPlaces: Array<{
+      id: string;
+      name: string;
+      imageUrl?: string | null;
+      bestTimeToVisit?: string | null;
+      famousFor?: string | null;
+      sellingPrice?: number | null;
+      currency?: string | null;
+      status?: string | null;
+    }>;
+  }>({
+    hotels: [], activities: [], transfers: [], sightseeingPlaces: [],
   });
   const [loading, setLoading] = useState(true);
   const [formOpen, setFormOpen] = useState(false);
@@ -213,10 +227,20 @@ export function DestinationDetail({ destinationId, onBack, onRefreshList }: Dest
     try {
       const [detail, products] = await Promise.all([
         apiFetch<{ item: DestinationRecord }>(`/api/destinations/${destinationId}`),
-        apiFetch<{ hotels: ProductRecord[]; activities: ProductRecord[]; transfers: ProductRecord[] }>(`/api/destinations/${destinationId}/products`),
+        apiFetch<{
+          hotels: ProductRecord[];
+          activities: ProductRecord[];
+          transfers: ProductRecord[];
+          sightseeingPlaces?: typeof linked.sightseeingPlaces;
+        }>(`/api/destinations/${destinationId}/products`),
       ]);
       setItem(detail.item);
-      setLinked(products);
+      setLinked({
+        hotels: products.hotels || [],
+        activities: products.activities || [],
+        transfers: products.transfers || [],
+        sightseeingPlaces: products.sightseeingPlaces || [],
+      });
     } catch {
       toast({ title: "Failed to load destination", variant: "destructive" });
     } finally {
@@ -359,6 +383,7 @@ export function DestinationDetail({ destinationId, onBack, onRefreshList }: Dest
         <TabsList className="flex flex-wrap h-auto gap-1">
           <TabsTrigger value="overview">Overview</TabsTrigger>
           <TabsTrigger value="gallery">Gallery</TabsTrigger>
+          <TabsTrigger value="sightseeing"><MapPin className="w-3.5 h-3.5 mr-1" />Itinerary Places</TabsTrigger>
           <TabsTrigger value="hotels"><Hotel className="w-3.5 h-3.5 mr-1" />Hotels</TabsTrigger>
           <TabsTrigger value="activities"><Activity className="w-3.5 h-3.5 mr-1" />Activities</TabsTrigger>
           <TabsTrigger value="transfers"><Car className="w-3.5 h-3.5 mr-1" />Transfers</TabsTrigger>
@@ -451,6 +476,52 @@ export function DestinationDetail({ destinationId, onBack, onRefreshList }: Dest
                 <a href={item.videoUrl} target="_blank" rel="noopener noreferrer" className="text-sm text-primary hover:underline">{item.videoUrl}</a>
               </CardContent>
             </Card>
+          )}
+        </TabsContent>
+
+        <TabsContent value="sightseeing" className="mt-4">
+          {linked.sightseeingPlaces.length === 0 ? (
+            <div className="flex flex-col items-center justify-center py-16 text-muted-foreground gap-3">
+              <MapPin className="w-10 h-10 opacity-40" />
+              <p className="text-sm font-medium">No itinerary places yet</p>
+              <p className="text-xs">Add sightseeing places under Products → Itinerary Places for this destination.</p>
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => openProduct("itinerary-places", destinationId)}
+              >
+                Open Itinerary Places
+              </Button>
+            </div>
+          ) : (
+            <div className="space-y-3">
+              <div className="flex justify-end">
+                <Button variant="outline" size="sm" onClick={() => openProduct("itinerary-places", destinationId)}>
+                  Manage places
+                </Button>
+              </div>
+              <div className="grid sm:grid-cols-2 lg:grid-cols-3 gap-3">
+                {linked.sightseeingPlaces.map((place) => (
+                  <Card key={place.id}>
+                    <CardContent className="p-3 space-y-2">
+                      {place.imageUrl ? (
+                        // eslint-disable-next-line @next/next/no-img-element
+                        <img src={place.imageUrl} alt="" className="h-28 w-full object-cover rounded-lg border" />
+                      ) : null}
+                      <p className="font-medium text-sm">{place.name}</p>
+                      <p className="text-xs text-muted-foreground line-clamp-2">
+                        {place.famousFor || place.bestTimeToVisit || "—"}
+                      </p>
+                      {place.sellingPrice != null && place.sellingPrice > 0 ? (
+                        <p className="text-xs tabular-nums">
+                          {place.currency || "INR"} {Number(place.sellingPrice).toLocaleString("en-IN")}
+                        </p>
+                      ) : null}
+                    </CardContent>
+                  </Card>
+                ))}
+              </div>
+            </div>
           )}
         </TabsContent>
 

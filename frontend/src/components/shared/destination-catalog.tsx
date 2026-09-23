@@ -5,7 +5,7 @@ import {
   Plus, Copy, Archive, Trash2, Pencil, Download, Upload,
   MapPin, CheckCircle, Globe,
 } from "lucide-react";
-import { PageShell, MetricCard, StatusBadge } from "@/components/shared/ui-helpers";
+import { PageShell, MetricCard, CatalogStatGrid, StatusBadge } from "@/components/shared/ui-helpers";
 import {
   CatalogToolbar, EnterprisePageHeader,
 } from "@/components/shared/enterprise";
@@ -321,7 +321,7 @@ export function DestinationCatalog({ onSelect }: DestinationCatalogProps) {
     <PageShell>
       <EnterprisePageHeader
         title="Destinations"
-        subtitle="Central master for destination information — referenced by hotels, activities, transfers, and packages."
+        subtitle="Master list for hotels, tours, transfers and packages."
         breadcrumbs={[{ label: "Products" }, { label: "Destinations" }]}
         actions={
           canAdd ? (
@@ -332,35 +332,51 @@ export function DestinationCatalog({ onSelect }: DestinationCatalogProps) {
         }
       />
 
-      <div className="grid grid-cols-2 md:grid-cols-3 gap-3 max-w-xl">
-        <MetricCard icon={MapPin} label="Total Destinations" value={total.toLocaleString("en-IN")} color="bg-sky-100 text-primary dark:bg-sky-500/15 dark:text-sky-400" index={0} />
-        <MetricCard icon={CheckCircle} label="Active" value={items.filter((i) => i.status === "Active").length.toLocaleString("en-IN")} color="bg-teal-100 text-brand-teal dark:bg-teal-500/15 dark:text-teal-400" subtitle="On this page" index={1} />
-      </div>
+      <CatalogStatGrid>
+        <MetricCard
+          variant="inline"
+          icon={MapPin}
+          label="Total Destinations"
+          value={total.toLocaleString("en-IN")}
+          color="bg-sky-100 text-primary dark:bg-sky-500/15 dark:text-sky-400"
+          index={0}
+        />
+        <MetricCard
+          variant="inline"
+          icon={CheckCircle}
+          label="Active"
+          value={items.filter((i) => i.status === "Active").length.toLocaleString("en-IN")}
+          color="bg-teal-100 text-brand-teal dark:bg-teal-500/15 dark:text-teal-400"
+          subtitle="On this page"
+          index={1}
+        />
+      </CatalogStatGrid>
 
       <Card>
-        <CardContent className="p-4 space-y-4">
+        <CardContent className="p-4 md:p-5 space-y-4">
           <CatalogToolbar
+            bordered={false}
             searchValue={q}
             onSearchChange={(v) => { setQ(v); setPage(1); }}
             searchPlaceholder="Search destinations..."
             filters={
               <>
                 <Select value={country} onValueChange={(v) => { setCountry(v); setPage(1); }}>
-                  <SelectTrigger className="w-[140px]" aria-label="Filter by country"><SelectValue placeholder="Country" /></SelectTrigger>
+                  <SelectTrigger className="h-9 w-[140px]" aria-label="Filter by country"><SelectValue placeholder="Country" /></SelectTrigger>
                   <SelectContent>
                     <SelectItem value="All">All Countries</SelectItem>
                     {countries.map((c) => <SelectItem key={c} value={c}>{c}</SelectItem>)}
                   </SelectContent>
                 </Select>
                 <Select value={region} onValueChange={(v) => { setRegion(v); setPage(1); }}>
-                  <SelectTrigger className="w-[140px]" aria-label="Filter by region"><SelectValue placeholder="Region" /></SelectTrigger>
+                  <SelectTrigger className="h-9 w-[140px]" aria-label="Filter by region"><SelectValue placeholder="Region" /></SelectTrigger>
                   <SelectContent>
                     <SelectItem value="All">All Regions</SelectItem>
                     {regions.map((r) => <SelectItem key={r} value={r}>{r}</SelectItem>)}
                   </SelectContent>
                 </Select>
                 <Select value={status} onValueChange={(v) => { setStatus(v); setPage(1); }}>
-                  <SelectTrigger className="w-[140px]" aria-label="Filter by status"><SelectValue placeholder="Status" /></SelectTrigger>
+                  <SelectTrigger className="h-9 w-[140px]" aria-label="Filter by status"><SelectValue placeholder="Status" /></SelectTrigger>
                   <SelectContent>
                     <SelectItem value="All">All Status</SelectItem>
                     <SelectItem value="Active">Active</SelectItem>
@@ -370,7 +386,7 @@ export function DestinationCatalog({ onSelect }: DestinationCatalogProps) {
                   </SelectContent>
                 </Select>
                 <Select value={sort} onValueChange={setSort}>
-                  <SelectTrigger className="w-[160px]" aria-label="Sort destinations"><SelectValue placeholder="Sort" /></SelectTrigger>
+                  <SelectTrigger className="h-9 w-[150px]" aria-label="Sort destinations"><SelectValue placeholder="Sort" /></SelectTrigger>
                   <SelectContent>
                     <SelectItem value="createdAt">Newest</SelectItem>
                     <SelectItem value="name">Name</SelectItem>

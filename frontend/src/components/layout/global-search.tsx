@@ -22,9 +22,9 @@ import type { ViewKey } from "@/types";
 
 const ENTITY_GROUPS = [
   { heading: "Sales & CRM", keys: ["crm", "customers", "trip-planner", "travel-proposals", "quotations"] as ViewKey[] },
-  { heading: "Products", keys: ["destinations", "hotel-products", "activity-packages", "packages", "product-approvals"] as ViewKey[] },
+  { heading: "Products", keys: ["destinations", "itinerary-places", "hotel-products", "transfer-products", "activity-packages", "packages", "product-approvals"] as ViewKey[] },
   { heading: "Settings", keys: ["branding", "quote-templates"] as ViewKey[] },
-  { heading: "Bookings", keys: ["flights", "hotels", "holiday", "bookings"] as ViewKey[] },
+  { heading: "Bookings", keys: ["flights", "hotels", "bookings"] as ViewKey[] },
 ];
 
 export function GlobalSearch() {

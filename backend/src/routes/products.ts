@@ -1269,12 +1269,172 @@ function registerFlightRoutes(app: Express, agencyScope: ScopeFn) {
   });
 }
 
+function registerSightseeingRoutes(app: Express, agencyScope: ScopeFn) {
+  const base = "/api/products/sightseeing-places";
+  const include = { destination: { select: { id: true, name: true, city: true, country: true, heroImage: true } } };
+
+  app.get(base, requireAuth, requireCrudPermission("destinations", "view"), async (req: AuthRequest, res: Response) => {
+    try {
+      const destinationId = typeof req.query.destinationId === "string" ? req.query.destinationId.trim() : "";
+      const q = typeof req.query.q === "string" ? req.query.q.trim() : "";
+      const liveOnly = req.query.liveOnly === "true";
+      const status = typeof req.query.status === "string" ? req.query.status.trim() : "";
+      const page = Math.max(1, Number(req.query.page) || 1);
+      const pageSize = Math.min(100, Math.max(1, Number(req.query.pageSize) || 50));
+      const where: Prisma.SightseeingPlaceWhereInput = {
+        AND: [
+          agencyScope(req) as Prisma.SightseeingPlaceWhereInput,
+          destinationId ? { destinationId } : {},
+          liveOnly || status === "Active" ? { status: "Active" } : status ? { status } : {},
+          q
+            ? {
+                OR: [
+                  { name: { contains: q, mode: "insensitive" } },
+                  { description: { contains: q, mode: "insensitive" } },
+                  { famousFor: { contains: q, mode: "insensitive" } },
+                ],
+              }
+            : {},
+        ],
+      };
+      const [items, total] = await Promise.all([
+        db.sightseeingPlace.findMany({
+          where,
+          include,
+          orderBy: [{ sortOrder: "asc" }, { name: "asc" }],
+          skip: (page - 1) * pageSize,
+          take: pageSize,
+        }),
+        db.sightseeingPlace.count({ where }),
+      ]);
+      res.json({ items, total, page, pageSize });
+    } catch (e) {
+      logger.error(e);
+      res.status(500).json({ error: "Server error" });
+    }
+  });
+
+  app.get(`${base}/:id`, requireAuth, requireCrudPermission("destinations", "view"), async (req: AuthRequest, res: Response) => {
+    try {
+      const item = await db.sightseeingPlace.findFirst({
+        where: { id: paramId(req), ...(agencyScope(req) as object) },
+        include,
+      });
+      if (!item) {
+        res.status(404).json({ error: "Not found" });
+        return;
+      }
+      res.json({ item });
+    } catch (e) {
+      logger.error(e);
+      res.status(500).json({ error: "Server error" });
+    }
+  });
+
+  app.post(base, requireAuth, requireCrudPermission("destinations", "add"), async (req: AuthRequest, res: Response) => {
+    try {
+      const body = req.body || {};
+      const destinationId = String(body.destinationId || "").trim();
+      const name = String(body.name || "").trim();
+      if (!destinationId || !name) {
+        res.status(400).json({ error: "destinationId and name are required" });
+        return;
+      }
+      const dest = await db.destination.findFirst({
+        where: { id: destinationId, deletedAt: null },
+        select: { id: true },
+      });
+      if (!dest) {
+        res.status(400).json({ error: "Destination not found" });
+        return;
+      }
+      const item = await db.sightseeingPlace.create({
+        data: {
+          agencyId: (req.auth as { agencyId?: string } | undefined)?.agencyId ?? null,
+          destinationId,
+          name,
+          description: body.description != null ? String(body.description) : null,
+          imageUrl: body.imageUrl != null ? String(body.imageUrl) : null,
+          bestTimeToVisit: body.bestTimeToVisit != null ? String(body.bestTimeToVisit) : null,
+          famousFor: body.famousFor != null ? String(body.famousFor) : null,
+          suggestedDuration: body.suggestedDuration != null ? String(body.suggestedDuration) : null,
+          sellingPrice: body.sellingPrice != null && body.sellingPrice !== "" ? Number(body.sellingPrice) : null,
+          costPrice: body.costPrice != null && body.costPrice !== "" ? Number(body.costPrice) : null,
+          currency: String(body.currency || "INR"),
+          status: String(body.status || "Active"),
+          sortOrder: Number(body.sortOrder || 0) || 0,
+        },
+        include,
+      });
+      res.status(201).json({ item });
+    } catch (e) {
+      logger.error(e);
+      res.status(500).json({ error: "Server error" });
+    }
+  });
+
+  app.patch(`${base}/:id`, requireAuth, requireCrudPermission("destinations", "edit"), async (req: AuthRequest, res: Response) => {
+    try {
+      const existing = await db.sightseeingPlace.findFirst({
+        where: { id: paramId(req), ...(agencyScope(req) as object) },
+      });
+      if (!existing) {
+        res.status(404).json({ error: "Not found" });
+        return;
+      }
+      const body = req.body || {};
+      const data: Prisma.SightseeingPlaceUpdateInput = {};
+      if (body.name != null) data.name = String(body.name).trim();
+      if (body.description !== undefined) data.description = body.description == null ? null : String(body.description);
+      if (body.imageUrl !== undefined) data.imageUrl = body.imageUrl == null ? null : String(body.imageUrl);
+      if (body.bestTimeToVisit !== undefined) data.bestTimeToVisit = body.bestTimeToVisit == null ? null : String(body.bestTimeToVisit);
+      if (body.famousFor !== undefined) data.famousFor = body.famousFor == null ? null : String(body.famousFor);
+      if (body.suggestedDuration !== undefined) data.suggestedDuration = body.suggestedDuration == null ? null : String(body.suggestedDuration);
+      if (body.sellingPrice !== undefined) data.sellingPrice = body.sellingPrice === "" || body.sellingPrice == null ? null : Number(body.sellingPrice);
+      if (body.costPrice !== undefined) data.costPrice = body.costPrice === "" || body.costPrice == null ? null : Number(body.costPrice);
+      if (body.currency != null) data.currency = String(body.currency);
+      if (body.status != null) data.status = String(body.status);
+      if (body.sortOrder != null) data.sortOrder = Number(body.sortOrder) || 0;
+      if (body.destinationId != null) {
+        data.destination = { connect: { id: String(body.destinationId) } };
+      }
+      const item = await db.sightseeingPlace.update({
+        where: { id: existing.id },
+        data,
+        include,
+      });
+      res.json({ item });
+    } catch (e) {
+      logger.error(e);
+      res.status(500).json({ error: "Server error" });
+    }
+  });
+
+  app.delete(`${base}/:id`, requireAuth, requireCrudPermission("destinations", "delete"), async (req: AuthRequest, res: Response) => {
+    try {
+      const existing = await db.sightseeingPlace.findFirst({
+        where: { id: paramId(req), ...(agencyScope(req) as object) },
+      });
+      if (!existing) {
+        res.status(404).json({ error: "Not found" });
+        return;
+      }
+      await db.sightseeingPlace.delete({ where: { id: existing.id } });
+      res.json({ ok: true });
+    } catch (e) {
+      logger.error(e);
+      res.status(500).json({ error: "Server error" });
+    }
+  });
+}
+
 export function mountProductRoutes(app: Express, agencyScope: ScopeFn) {
   registerHotelRoutes(app, agencyScope);
   registerActivityRoutes(app, agencyScope);
   registerTransferRoutes(app, agencyScope);
   registerMealRoutes(app, agencyScope);
   registerFlightRoutes(app, agencyScope);
+  registerSightseeingRoutes(app, agencyScope);
 
   app.get("/api/employees/activity", requireAuth, requirePermission("employees"), async (req: AuthRequest, res: Response) => {
     try {

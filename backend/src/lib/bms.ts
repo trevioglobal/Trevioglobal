@@ -101,14 +101,18 @@ export function deriveBookingStatusFromPayments(
   if (current === "Cancelled" || current === "Completed" || current === "Travel Documents Ready") {
     return current;
   }
+  // Ops-confirmed bookings must not regress to payment pipeline statuses on refresh.
+  const opsLocked = ["In Progress", "Partially Confirmed", "Confirmed"].includes(current);
   if (amountPaid <= 0) {
     if (current === "Draft" || current === "Awaiting Passenger Details") return current;
+    if (opsLocked) return current;
     return "Pending Initial Payment";
   }
-  if (amountPaid < amount) return "Partially Paid";
-  if (["In Progress", "Partially Confirmed", "Confirmed", "Travel Documents Ready"].includes(current)) {
-    return current;
+  if (amountPaid < amount) {
+    if (opsLocked) return current;
+    return "Partially Paid";
   }
+  if (opsLocked) return current;
   return "Payment Received";
 }
 

@@ -38,6 +38,28 @@ export function sumServiceLines(lines: unknown): { cost: number; selling: number
   );
 }
 
+/** Sum optional catalog prices on itinerary day places (SightseeingPlace). */
+export function sumItinerarySightseeing(itinerary: unknown): { cost: number; selling: number } {
+  if (!Array.isArray(itinerary)) return { cost: 0, selling: 0 };
+  let cost = 0;
+  let selling = 0;
+  for (const day of itinerary) {
+    const places = (day as { places?: unknown })?.places;
+    if (!Array.isArray(places)) continue;
+    for (const place of places) {
+      const row = place as CostLine;
+      const t = lineTotals({
+        sellingPrice: row.sellingPrice,
+        costPrice: row.costPrice,
+        qty: 1,
+      });
+      cost += t.cost;
+      selling += t.selling;
+    }
+  }
+  return { cost, selling };
+}
+
 export function calcPackageCosting(pkg: {
   hotels?: unknown;
   flights?: unknown;
@@ -45,6 +67,7 @@ export function calcPackageCosting(pkg: {
   activities?: unknown;
   meals?: unknown;
   addOns?: unknown;
+  itinerary?: unknown;
   visa?: { enabled?: boolean; costPrice?: number; sellingPrice?: number } | null;
   insurance?: {
     enabled?: boolean;
@@ -65,6 +88,7 @@ export function calcPackageCosting(pkg: {
   const transfers = sumServiceLines(pkg.transfers);
   const activities = sumServiceLines(pkg.activities);
   const meals = sumServiceLines(pkg.meals);
+  const sightseeing = sumItinerarySightseeing(pkg.itinerary);
   const addOnLines = Array.isArray(pkg.addOns)
     ? pkg.addOns.filter((row) => (row as { enabled?: boolean }).enabled !== false)
     : [];
@@ -85,6 +109,7 @@ export function calcPackageCosting(pkg: {
     { key: "flights", label: "Flights", netCost: flights.cost, sellingPrice: flights.selling },
     { key: "transfers", label: "Transfers", netCost: transfers.cost, sellingPrice: transfers.selling },
     { key: "activities", label: "Activities", netCost: activities.cost, sellingPrice: activities.selling },
+    { key: "sightseeing", label: "Sightseeing", netCost: sightseeing.cost, sellingPrice: sightseeing.selling },
     { key: "meals", label: "Meals", netCost: meals.cost, sellingPrice: meals.selling },
     { key: "visa", label: "Visa", netCost: visa.cost, sellingPrice: visa.selling },
     { key: "insurance", label: "Insurance", netCost: insurance.cost, sellingPrice: insurance.selling },
@@ -300,6 +325,7 @@ export function resolveQuotationCosting(quote: {
       activities: selected.activities,
       meals: selected.meals,
       addOns: selected.addOns,
+      itinerary: selected.itinerary,
       visa: selected.visa as { enabled?: boolean; costPrice?: number; sellingPrice?: number } | null,
       insurance: selected.insurance as {
         enabled?: boolean;

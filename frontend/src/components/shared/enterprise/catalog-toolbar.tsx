@@ -25,19 +25,21 @@ export function CatalogToolbar({
   bordered = true,
 }: CatalogToolbarProps) {
   const inner = (
-    <div className={cn("flex flex-col sm:flex-row gap-3 sm:items-center", className)}>
-      <div className="relative flex-1 min-w-[200px] max-w-md">
-        <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground pointer-events-none" aria-hidden />
-        <Input
-          className="pl-9 h-9 bg-background"
-          placeholder={searchPlaceholder}
-          value={searchValue}
-          onChange={(e) => onSearchChange(e.target.value)}
-          aria-label={searchPlaceholder}
-        />
+    <div className={cn("flex flex-col lg:flex-row gap-3 lg:items-center lg:justify-between", className)}>
+      <div className="flex flex-1 flex-col sm:flex-row sm:items-center gap-2 min-w-0">
+        <div className="relative w-full sm:flex-1 sm:min-w-[200px] sm:max-w-sm">
+          <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground pointer-events-none" aria-hidden />
+          <Input
+            className="pl-9 h-9 bg-background"
+            placeholder={searchPlaceholder}
+            value={searchValue}
+            onChange={(e) => onSearchChange(e.target.value)}
+            aria-label={searchPlaceholder}
+          />
+        </div>
+        {filters && <div className="flex flex-wrap items-center gap-2">{filters}</div>}
       </div>
-      {filters && <div className="flex flex-wrap items-center gap-2">{filters}</div>}
-      {actions && <div className="flex flex-wrap items-center gap-2 sm:ml-auto">{actions}</div>}
+      {actions && <div className="flex flex-wrap items-center gap-2 shrink-0">{actions}</div>}
     </div>
   );
 

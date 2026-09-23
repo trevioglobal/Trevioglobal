@@ -22,7 +22,6 @@ const lazy = (loader: () => Promise<{ [key: string]: React.ComponentType }>, exp
 const DashboardView = lazy(() => import("@/components/views/dashboard"), "DashboardView");
 const FlightsView = lazy(() => import("@/components/views/flights"), "FlightsView");
 const HotelsView = lazy(() => import("@/components/views/hotels"), "HotelsView");
-const HolidayView = lazy(() => import("@/components/views/holiday"), "HolidayView");
 const CrmView = lazy(() => import("@/components/views/crm"), "CrmView");
 const CustomersView = lazy(() => import("@/components/views/customers"), "CustomersView");
 const QuotationsView = lazy(() => import("@/components/views/quotations"), "QuotationsView");
@@ -39,11 +38,8 @@ const NotificationsView = lazy(() => import("@/components/views/notifications"),
 const SettingsView = lazy(() => import("@/components/views/settings"), "SettingsView");
 const AgenciesView = lazy(() => import("@/components/views/agencies"), "AgenciesView");
 const BranchesView = lazy(() => import("@/components/views/branches"), "BranchesView");
-const ApiMarketplaceView = lazy(() => import("@/components/views/api-marketplace"), "ApiMarketplaceView");
-const ApiManagementView = lazy(() => import("@/components/views/api-management"), "ApiManagementView");
 const MonitoringView = lazy(() => import("@/components/views/monitoring"), "MonitoringView");
 const MarketingView = lazy(() => import("@/components/views/marketing"), "MarketingView");
-const CmsView = lazy(() => import("@/components/views/cms"), "CmsView");
 const FinanceView = lazy(() => import("@/components/views/finance"), "FinanceView");
 const AuditLogsView = lazy(() => import("@/components/views/audit-logs"), "AuditLogsView");
 const AnalyticsView = lazy(() => import("@/components/views/analytics"), "AnalyticsView");
@@ -53,9 +49,11 @@ const BrandingView = lazy(() => import("@/components/views/branding"), "Branding
 const QuoteTemplatesView = lazy(() => import("@/components/views/quote-templates"), "QuoteTemplatesView");
 const TravelProposalsView = lazy(() => import("@/components/views/travel-proposals"), "TravelProposalsView");
 const DestinationsView = lazy(() => import("@/components/views/destinations"), "DestinationsView");
+const ItineraryPlacesView = lazy(() => import("@/components/views/itinerary-places"), "ItineraryPlacesView");
 const HotelProductsView = lazy(() => import("@/components/views/hotel-products"), "HotelProductsView");
 const ContractedRatesView = lazy(() => import("@/components/views/contracted-rates"), "ContractedRatesView");
 const ActivityPackagesView = lazy(() => import("@/components/views/activity-packages"), "ActivityPackagesView");
+const TransferProductsView = lazy(() => import("@/components/views/transfer-products"), "TransferProductsView");
 const ProductApprovalsView = lazy(() => import("@/components/views/product-approvals"), "ProductApprovalsView");
 const AttendanceLeaveView = lazy(() => import("@/components/views/attendance-leave"), "AttendanceLeaveView");
 const SuppliersView = lazy(() => import("@/components/views/suppliers"), "SuppliersView");
@@ -67,10 +65,12 @@ const VIEW_REGISTRY: Record<ViewKey, React.ComponentType> = {
   "hotel-products": HotelProductsView,
   "contracted-rates": ContractedRatesView,
   destinations: DestinationsView,
+  "itinerary-places": ItineraryPlacesView,
   packages: PackagesView,
   "activity-packages": ActivityPackagesView,
+  "transfer-products": TransferProductsView,
   "product-approvals": ProductApprovalsView,
-  holiday: HolidayView,
+  holiday: DashboardView, // stub module removed
   customers: CustomersView,
   crm: CrmView,
   "trip-planner": TripPlannerView,
@@ -91,11 +91,11 @@ const VIEW_REGISTRY: Record<ViewKey, React.ComponentType> = {
   settings: SettingsView,
   agencies: AgenciesView,
   branches: BranchesView,
-  "api-marketplace": ApiMarketplaceView,
-  "api-management": ApiManagementView,
+  "api-marketplace": DashboardView, // stub removed
+  "api-management": DashboardView, // stub removed
   monitoring: MonitoringView,
   marketing: MarketingView,
-  cms: CmsView,
+  cms: DashboardView, // stub removed
   finance: FinanceView,
   "audit-logs": AuditLogsView,
   analytics: AnalyticsView,

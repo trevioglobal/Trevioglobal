@@ -10,7 +10,6 @@ import {
   Clock,
   Eye,
   FileDown,
-  MessageCircle,
   MoreHorizontal,
   Pencil,
   Plane,
@@ -39,12 +38,33 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { formatFullINR } from "@/components/shared/ui-helpers";
+import { ImageUrlListField } from "@/components/shared/image-url-list-field";
 import { ActivityDetailsDialog, type ActivityDetailsSource } from "@/components/shared/activity-details-dialog";
+import { QuotePriceBreakdown } from "@/components/shared/quote-price-breakdown";
+import { AgencyQuoteStepper, AGENCY_QUOTE_STEPS } from "@/components/shared/agency-quote-stepper";
+import { ItineraryPlaceSelect, type ItineraryPlaceItem } from "@/components/shared/itinerary-place-select";
 import { formatActivityTimingBar } from "@/lib/activity-catalog";
 import { placeholderHotelImage } from "@/lib/hotel-placeholder-images";
 import { buildTripNightDates, formatItineraryDate, itemTypeLabel } from "@/lib/quote-itinerary-sync";
 import type { TripCityStayWindow } from "@/lib/quote-trip-stays";
+import type { ResolvedQuoteCosting } from "@/lib/quote-costing";
 import { cn } from "@/lib/utils";
+
+export type TripBuilderStage = "services" | "itinerary" | "pricing" | "preview";
+
+const STAGE_TO_FLOW: Record<TripBuilderStage, number> = {
+  services: 2,
+  itinerary: 3,
+  pricing: 4,
+  preview: 5,
+};
+
+const FLOW_TO_STAGE: Record<number, TripBuilderStage> = {
+  2: "services",
+  3: "itinerary",
+  4: "pricing",
+  5: "preview",
+};
 
 export type TripBuilderService = "Hotel" | "Transfers" | "Activities" | "Meals" | "Miscellaneous";
 
@@ -227,12 +247,23 @@ export function QuoteTripBuilder({
   itinerary,
   hotels = [],
   busy,
+  stage = "services",
+  flowStep = 2,
+  costing,
+  serviceRows = [],
+  discountType = "",
+  discountValue = 0,
+  trevioMarkupValue = 0,
+  lineItems = [],
+  onPricingChange,
+  onUpdateLineSelling,
+  onFlowStepChange,
   onBack,
   onUpdateTripDetails,
+  onEditPersonalDetails,
   onCreatePdf,
   onSendQuotation,
-  onBookNow,
-  onServiceCharge,
+  onSaveDraft,
   onOpenService,
   onRemoveHotel,
   onRemoveTransfer,
@@ -242,6 +273,7 @@ export function QuoteTripBuilder({
   onUpdateHotel,
   onUpdateTransfer,
   onUpdateActivity,
+  onUpdateItineraryDay,
 }: {
   form: TripFormSlice;
   stayWindows: TripCityStayWindow[];
@@ -251,12 +283,34 @@ export function QuoteTripBuilder({
   itinerary: unknown;
   hotels?: Record<string, unknown>[];
   busy?: boolean;
+  stage?: TripBuilderStage;
+  flowStep?: number;
+  costing?: ResolvedQuoteCosting | null;
+  serviceRows?: Array<{ key: string; label: string; netCost: number; sellingPrice: number }>;
+  discountType?: "" | "Fixed" | "Percentage";
+  discountValue?: number;
+  trevioMarkupValue?: number;
+  lineItems?: Array<{
+    kind: "hotel" | "flight" | "transfer" | "activity" | "meal" | "misc";
+    lineId: string;
+    label: string;
+    sellingPrice: number;
+    costPrice?: number;
+  }>;
+  onPricingChange?: (patch: {
+    discountType?: "" | "Fixed" | "Percentage";
+    discountValue?: number;
+    trevioMarkupValue?: number;
+  }) => void;
+  onUpdateLineSelling?: (kind: string, lineId: string, sellingPrice: number) => void;
+  onFlowStepChange?: (step: number) => void;
   onBack: () => void;
   onUpdateTripDetails: () => void;
+  onEditPersonalDetails?: () => void;
   onCreatePdf: () => void | Promise<void>;
   onSendQuotation: () => void | Promise<void>;
-  onBookNow: () => void;
-  onServiceCharge: () => void;
+  /** Explicit save — creates Draft if new, keeps work without auto-save on Continue. */
+  onSaveDraft?: () => void | Promise<void>;
   /** Opens live catalogue for Hotel / Transfers / Activities / Meals. */
   onOpenService?: (target: {
     service: TripBuilderService;
@@ -273,6 +327,14 @@ export function QuoteTripBuilder({
   onUpdateHotel?: (lineId: string, patch: { roomType?: string; mealPlan?: string; remarks?: string }) => void;
   onUpdateTransfer?: (lineId: string, patch: { pickupTime?: string; remarks?: string }) => void;
   onUpdateActivity?: (lineId: string, patch: { timeSlot?: string; remarks?: string }) => void;
+  onUpdateItineraryDay?: (date: string, patch: {
+    title?: string;
+    description?: string;
+    coverImage?: string;
+    city?: string;
+    destinationId?: string;
+    places?: ItineraryPlaceItem[];
+  }) => void;
 }) {
   const [serviceTarget, setServiceTarget] = useState<ServiceTarget | null>(null);
   const [activityDetails, setActivityDetails] = useState<ActivityDetailsSource | null>(null);
@@ -358,70 +420,167 @@ export function QuoteTripBuilder({
     return parts.join(", ");
   }, [form.adults, form.children, form.rooms]);
 
+  const activeStage: TripBuilderStage = stage || FLOW_TO_STAGE[flowStep] || "services";
+  const activeFlow = flowStep ?? STAGE_TO_FLOW[activeStage];
+
+  const dayMetaByDate = useMemo(() => {
+    const map = new Map<string, Record<string, unknown>>();
+    const days = Array.isArray(itinerary) ? itinerary : [];
+    for (const raw of days) {
+      if (!raw || typeof raw !== "object") continue;
+      const day = raw as Record<string, unknown>;
+      const date = String(day.date || "");
+      if (date) map.set(date, day);
+    }
+    return map;
+  }, [itinerary]);
+
   return (
     <div className="flex flex-col gap-4 pb-8">
+      <AgencyQuoteStepper
+        activeIndex={activeFlow}
+        onSelect={(index) => {
+          if (index === 0) {
+            (onEditPersonalDetails || onUpdateTripDetails)();
+            return;
+          }
+          if (index === 1) {
+            onUpdateTripDetails();
+            return;
+          }
+          onFlowStepChange?.(index);
+        }}
+      />
+
       <div className="flex flex-wrap items-center justify-between gap-3">
         <div className="flex flex-wrap gap-2">
-          <ActionPill icon={FileDown} label="Create PDF" disabled={busy} onClick={() => void onCreatePdf()} />
-          <ActionPill icon={Send} label="Send Quotation" disabled={busy} onClick={() => void onSendQuotation()} />
-          <ActionPill icon={ClipboardList} label="Book Now" onClick={onBookNow} />
-          <ActionPill icon={MessageCircle} label="Service Charge" onClick={onServiceCharge} />
+          {onSaveDraft && (
+            <Button
+              type="button"
+              variant="outline"
+              className="rounded-full px-4"
+              disabled={busy}
+              onClick={() => void onSaveDraft()}
+            >
+              {busy ? "Saving…" : quoteId ? "Save draft" : "Save draft"}
+            </Button>
+          )}
+          {(activeStage === "preview" || activeStage === "pricing") && (
+            <>
+              <ActionPill icon={FileDown} label="Create PDF" disabled={busy} onClick={() => void onCreatePdf()} />
+              <ActionPill icon={Send} label="Send Quotation" disabled={busy} onClick={() => void onSendQuotation()} />
+            </>
+          )}
         </div>
-        <Button
-          type="button"
-          className="bg-brand-blue hover:bg-brand-blue/90 text-white rounded-full px-5"
-          onClick={onBack}
-        >
-          <ArrowLeft className="w-4 h-4 mr-1.5" /> Back
-        </Button>
+        <div className="flex flex-wrap gap-2">
+          <Button type="button" variant="outline" className="rounded-full px-4" onClick={onBack}>
+            <ArrowLeft className="w-4 h-4 mr-1.5" /> Back
+          </Button>
+          {activeStage !== "preview" && onFlowStepChange && (
+            <Button
+              type="button"
+              className="bg-teal-600 hover:bg-teal-700 text-white rounded-full px-5"
+              onClick={() => onFlowStepChange(Math.min(activeFlow + 1, 5))}
+            >
+              Next · {AGENCY_QUOTE_STEPS[Math.min(activeFlow + 1, 5)]?.label}
+            </Button>
+          )}
+        </div>
       </div>
 
-      <section className="rounded-2xl border border-slate-200/80 bg-white shadow-[0_12px_40px_-18px_rgba(15,40,80,0.18)] p-5 sm:p-6">
-        <div className="flex flex-wrap items-start justify-between gap-4">
-          <div className="min-w-0 space-y-2">
+      {activeStage === "services" && (
+        <div className="rounded-xl border border-teal-100 bg-teal-50/60 px-4 py-3 flex flex-wrap items-start justify-between gap-3">
+          <div className="min-w-0">
+            <p className="text-sm font-semibold text-teal-900">Hotels, cars & activities</p>
+            <p className="text-xs text-teal-800/80 mt-0.5">
+              Per day: Hotel · Airport pickup / Transfers · Activities · Meals · Misc.
+              Lists follow the city from Travel (Products inventory). Skip any day if not needed.
+            </p>
+          </div>
+          {onFlowStepChange ? (
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              className="shrink-0 rounded-full border-teal-300 text-teal-800 hover:bg-teal-100"
+              onClick={() => onFlowStepChange(3)}
+            >
+              Skip to itinerary
+            </Button>
+          ) : null}
+        </div>
+      )}
+      {activeStage === "itinerary" && (
+        <div className="rounded-xl border border-amber-100 bg-amber-50/70 px-4 py-3">
+          <p className="text-sm font-semibold text-amber-950">Day-wise itinerary</p>
+          <p className="text-xs text-amber-900/80 mt-0.5">
+            Each day is locked to its Travel city. Pick sightseeing places (with images) from Products → Sightseeing Places for that city — select only, details auto-fill.
+          </p>
+        </div>
+      )}
+      {activeStage === "pricing" && (
+        <div className="rounded-xl border border-violet-100 bg-violet-50/60 px-4 py-3">
+          <p className="text-sm font-semibold text-violet-950">Pricing summary</p>
+          <p className="text-xs text-violet-900/80 mt-0.5">
+            Hotels / flights / cars fill automatically from catalogue selling prices when you add them. Edit line sell prices, add discount, then send.
+          </p>
+        </div>
+      )}
+      {activeStage === "preview" && (
+        <div className="rounded-xl border border-sky-100 bg-sky-50/70 px-4 py-3 space-y-2">
+          <p className="text-sm font-semibold text-sky-950">Preview & send to customer</p>
+          <p className="text-xs text-sky-900/80">
+            Send the branded PDF. When the customer accepts, open Quotations → Proceed to Booking.
+          </p>
+          <div className="flex flex-wrap gap-2 pt-1">
+            <ActionPill icon={FileDown} label="Preview PDF" disabled={busy} onClick={() => void onCreatePdf()} />
+            <ActionPill icon={Send} label="Send to customer" disabled={busy} onClick={() => void onSendQuotation()} />
+          </div>
+        </div>
+      )}
+
+      <section className="rounded-xl border border-border bg-card p-4 sm:p-5 shadow-[var(--shadow-card)]">
+        <div className="flex flex-wrap items-start justify-between gap-3">
+          <div className="min-w-0 space-y-1">
             <div className="flex flex-wrap items-center gap-2">
-              <h2 className="text-xl sm:text-2xl font-bold tracking-tight text-slate-900">{routeTitle}</h2>
+              <h2 className="text-lg sm:text-xl font-semibold tracking-tight text-foreground">{routeTitle}</h2>
               <Button
                 type="button"
                 variant="outline"
                 size="sm"
-                className="h-7 rounded-full text-xs border-brand-blue/30 text-brand-blue hover:bg-brand-blue/5"
+                className="h-7 rounded-full text-xs"
                 onClick={onUpdateTripDetails}
               >
-                Update trip details
+                Edit travel
               </Button>
             </div>
-            <p className="text-sm text-slate-600">
+            <p className="text-sm text-muted-foreground">
               {dateRangeLabel}
-              <span className="mx-2 text-slate-300">·</span>
+              <span className="mx-2 text-border">·</span>
               {paxLabel}
             </p>
             {form.landOnly && (
               <p className="text-xs font-medium text-brand-teal">Land only package</p>
             )}
-            <p className="text-xs text-slate-500">{destinationLabel}</p>
+            <p className="text-xs text-muted-foreground">{destinationLabel}</p>
           </div>
-          <div className="text-right shrink-0 space-y-1">
-            <p className="text-xs text-slate-500">
-              Booking ID: <span className="font-semibold text-slate-800">{quoteNo || quoteId || "DRAFT"}</span>
+          <div className="text-right shrink-0 space-y-0.5">
+            <p className="text-xs text-muted-foreground">
+              Quote <span className="font-semibold text-foreground">{quoteNo || quoteId || "DRAFT"}</span>
             </p>
-            <p className="text-xs text-slate-500">Total Price</p>
-            <p className="text-2xl font-bold tabular-nums text-slate-900">{formatFullINR(total)}</p>
-            <p className="text-xs text-slate-500">
-              Adult {formatFullINR(form.adults > 0 ? Math.round(total / form.adults) : 0)}
-            </p>
+            <p className="text-xl font-semibold tabular-nums text-foreground">{formatFullINR(total)}</p>
           </div>
         </div>
 
-        <div className="mt-5 grid grid-cols-1 md:grid-cols-2 gap-4 border-t border-slate-100 pt-5">
+        <div className="mt-3 grid grid-cols-1 sm:grid-cols-2 gap-2 border-t border-border pt-3">
           <ContactCard
-            title="Destination Expert Detail"
+            title="Sales / expert"
             name={form.salesExecutiveName || "—"}
             phone={form.salesExecutivePhone || "—"}
             email={form.salesExecutiveEmail || "—"}
           />
           <ContactCard
-            title="Guest Detail"
+            title="Guest"
             name={form.customerName || form.contactPerson || "—"}
             phone={form.contactPhone || "—"}
             email={form.contactEmail || "—"}
@@ -429,16 +588,133 @@ export function QuoteTripBuilder({
         </div>
       </section>
 
+      {(activeStage === "pricing" || activeStage === "preview") && costing ? (
+        <section className="rounded-2xl border border-slate-200/80 bg-white p-4 sm:p-5 shadow-sm space-y-4">
+          <div>
+            <h3 className="text-sm font-semibold text-slate-900">Quotation pricing summary</h3>
+            <p className="text-xs text-slate-500 mt-0.5">
+              Totals come from hotels, flights, transfers/cars, activities and meals you added. Edit selling prices or add a discount before sending.
+            </p>
+          </div>
+
+          {activeStage === "pricing" && (
+            <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 rounded-xl border border-slate-100 bg-slate-50/60 p-3">
+              <div className="space-y-1.5">
+                <Label className="text-xs">Discount type</Label>
+                <select
+                  className="h-9 w-full rounded-md border border-input bg-background px-2 text-sm"
+                  value={discountType || "none"}
+                  onChange={(e) => {
+                    const v = e.target.value;
+                    onPricingChange?.({
+                      discountType: v === "none" ? "" : (v as "Fixed" | "Percentage"),
+                    });
+                  }}
+                >
+                  <option value="none">None</option>
+                  <option value="Fixed">Fixed (₹)</option>
+                  <option value="Percentage">Percentage (%)</option>
+                </select>
+              </div>
+              <div className="space-y-1.5">
+                <Label className="text-xs">Discount value</Label>
+                <Input
+                  className="h-9"
+                  type="number"
+                  min={0}
+                  value={discountValue || 0}
+                  onChange={(e) => onPricingChange?.({ discountValue: Number(e.target.value) || 0 })}
+                />
+              </div>
+              <div className="space-y-1.5">
+                <Label className="text-xs">Trevio markup %</Label>
+                <Input
+                  className="h-9"
+                  type="number"
+                  min={0}
+                  value={trevioMarkupValue || 0}
+                  onChange={(e) => onPricingChange?.({ trevioMarkupValue: Number(e.target.value) || 0 })}
+                />
+              </div>
+            </div>
+          )}
+
+          {serviceRows.some((r) => r.sellingPrice > 0 || r.netCost > 0) ? (
+            <div className="rounded-xl border overflow-hidden">
+              <div className="px-3 py-2 border-b bg-slate-50">
+                <p className="text-xs font-semibold uppercase tracking-wide text-slate-600">By service</p>
+              </div>
+              <table className="w-full text-sm">
+                <thead>
+                  <tr className="border-b text-left text-[11px] uppercase tracking-wide text-slate-500">
+                    <th className="px-3 py-2 font-medium">Service</th>
+                    <th className="px-3 py-2 font-medium text-right">Net cost</th>
+                    <th className="px-3 py-2 font-medium text-right">Selling</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {serviceRows.filter((r) => r.sellingPrice > 0 || r.netCost > 0).map((row) => (
+                    <tr key={row.key} className="border-b last:border-0">
+                      <td className="px-3 py-2">{row.label}</td>
+                      <td className="px-3 py-2 text-right tabular-nums">{formatFullINR(row.netCost)}</td>
+                      <td className="px-3 py-2 text-right tabular-nums font-medium">{formatFullINR(row.sellingPrice)}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          ) : (
+            <div className="rounded-xl border border-dashed border-slate-200 px-4 py-6 text-center text-sm text-slate-500">
+              No priced services yet. Go back to Hotels &amp; services and add hotels, flights or transfers — selling prices from the catalogue fill here automatically.
+            </div>
+          )}
+
+          {activeStage === "pricing" && lineItems.length > 0 && (
+            <div className="rounded-xl border overflow-hidden">
+              <div className="px-3 py-2 border-b bg-slate-50">
+                <p className="text-xs font-semibold uppercase tracking-wide text-slate-600">Line items — edit selling price</p>
+              </div>
+              <div className="divide-y">
+                {lineItems.map((line) => (
+                  <div key={`${line.kind}-${line.lineId}`} className="flex flex-wrap items-center gap-3 px-3 py-2.5">
+                    <div className="min-w-0 flex-1">
+                      <p className="text-sm font-medium text-slate-900 truncate">{line.label}</p>
+                      <p className="text-[11px] text-slate-500 capitalize">{line.kind}{line.costPrice != null ? ` · cost ${formatFullINR(line.costPrice)}` : ""}</p>
+                    </div>
+                    <div className="flex items-center gap-2">
+                      <Label className="text-[11px] text-slate-500 shrink-0">Sell ₹</Label>
+                      <Input
+                        className="h-8 w-28 tabular-nums"
+                        type="number"
+                        min={0}
+                        value={line.sellingPrice || 0}
+                        onChange={(e) => onUpdateLineSelling?.(line.kind, line.lineId, Number(e.target.value) || 0)}
+                      />
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+
+          <QuotePriceBreakdown costing={costing} showInternal audience="internal" />
+        </section>
+      ) : null}
+
+      {activeStage !== "pricing" ? (
       <div className="space-y-4">
         {nights.length === 0 ? (
           <div className="rounded-2xl border border-dashed border-slate-200 bg-white/80 px-4 py-10 text-center text-sm text-slate-500">
-            Add trip cities and nights in Basic Details to build the day-wise plan.
+            Add trip cities and nights in Travel details to build the day-wise plan.
           </div>
         ) : (
           nights.map((night, index) => {
             const dayNumber = index + 1;
             const items = itineraryByDate.get(night.date) || [];
             const weekday = weekdayShort(night.date);
+            const dayMeta = dayMetaByDate.get(night.date);
+            const dayTitle = String(dayMeta?.title || `Day ${dayNumber} · ${night.city || "City"}`);
+            const dayCover = String(dayMeta?.coverImage || dayMeta?.imageUrl || "");
             return (
               <section
                 key={`${night.date}-${night.city}-${dayNumber}`}
@@ -449,6 +725,7 @@ export function QuoteTripBuilder({
                     Day {dayNumber} | {formatDayHeaderDate(night.date)}
                     {weekday ? ` - ${weekday}` : ""} | {night.city || "City"}
                   </h3>
+                  {activeStage === "services" ? (
                   <div className="flex flex-wrap gap-2">
                     {(() => {
                       const dayHasHotel = hotels.some((h) => {
@@ -567,7 +844,114 @@ export function QuoteTripBuilder({
                       });
                     })()}
                   </div>
+                  ) : null}
                 </div>
+
+                {activeStage === "itinerary" ? (
+                  <div className="px-4 sm:px-5 py-4 border-b border-slate-100 space-y-3 bg-white">
+                    {(() => {
+                      const stay = stayWindows.find((w) => {
+                        if (!w.checkIn || !w.checkOut) return false;
+                        return night.date >= w.checkIn && night.date < w.checkOut;
+                      }) || stayWindows.find((w) => w.city.trim().toLowerCase() === night.city.trim().toLowerCase());
+                      const cityDestId = stay?.destinationId || String(dayMeta?.destinationId || "") || null;
+                      const dayPlaces: ItineraryPlaceItem[] = Array.isArray(dayMeta?.places)
+                        ? (dayMeta!.places as ItineraryPlaceItem[])
+                        : dayMeta?.placeName
+                          ? [{ name: String(dayMeta.placeName), description: String(dayMeta.description || ""), imageUrl: String(dayMeta.coverImage || "") }]
+                          : [];
+                      return (
+                        <>
+                          <div className="rounded-lg border border-teal-100 bg-teal-50/50 px-3 py-2 text-xs text-teal-900">
+                            Day city from Travel plan: <span className="font-semibold">{night.city || "—"}</span>
+                            {cityDestId
+                              ? " · pick sightseeing places (Itinerary Places). Book paid experiences via Add → Activities."
+                              : " · set destination on Travel step to load places"}
+                          </div>
+
+                          <ItineraryPlaceSelect
+                            tripCityDestinationId={cityDestId}
+                            tripCityLabel={night.city || "city"}
+                            places={dayPlaces}
+                            onChange={(nextPlaces) => {
+                              const primary = nextPlaces[0];
+                              onUpdateItineraryDay?.(night.date, {
+                                destinationId: cityDestId || undefined,
+                                city: night.city,
+                                places: nextPlaces,
+                                title: primary
+                                  ? `Day ${dayNumber} · ${primary.name}`
+                                  : `Day ${dayNumber} · ${night.city || "City"}`,
+                                description: nextPlaces.map((p) => {
+                                  const bits = [
+                                    p.description?.trim(),
+                                    p.bestTimeToVisit?.trim()
+                                      ? `Best time to visit: ${p.bestTimeToVisit.trim()}`
+                                      : "",
+                                    p.famousFor?.trim()
+                                      ? `Famous for: ${p.famousFor.trim()}`
+                                      : "",
+                                  ].filter(Boolean);
+                                  // description already includes best time / famous for when auto-filled
+                                  if (p.description?.trim()) return `${p.name}\n${p.description.trim()}`;
+                                  return bits.length ? `${p.name}\n${bits.join("\n")}` : p.name;
+                                }).join("\n\n"),
+                                coverImage: primary?.imageUrl || dayCover || "",
+                              });
+                            }}
+                          />
+
+                          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                            <div className="space-y-1.5">
+                              <Label className="text-xs">Day title</Label>
+                              <Input
+                                className="h-9"
+                                value={dayTitle}
+                                onChange={(e) => onUpdateItineraryDay?.(night.date, { title: e.target.value })}
+                                placeholder={`Day ${dayNumber} · ${night.city || "City"}`}
+                              />
+                            </div>
+                            <div className="space-y-1.5 sm:col-span-2">
+                              <ImageUrlListField
+                                label="Day cover image"
+                                value={dayCover}
+                                onChange={(v) =>
+                                  onUpdateItineraryDay?.(night.date, {
+                                    coverImage: v.split(/\r?\n/).map((s) => s.trim()).filter(Boolean)[0] || "",
+                                  })
+                                }
+                                maxImages={1}
+                              />
+                            </div>
+                          </div>
+
+                          {onOpenService ? (
+                            <Button
+                              type="button"
+                              variant="outline"
+                              size="sm"
+                              className="rounded-full"
+                              onClick={() => onOpenService({
+                                service: "Activities",
+                                dayNumber,
+                                date: night.date,
+                                city: night.city,
+                              })}
+                            >
+                              <ClipboardList className="w-3.5 h-3.5 mr-1.5" />
+                              Add activity from Products (this city)
+                            </Button>
+                          ) : null}
+
+                          {dayCover ? (
+                            // eslint-disable-next-line @next/next/no-img-element
+                            <img src={dayCover} alt="" className="h-36 w-full object-cover rounded-xl border" />
+                          ) : null}
+                        </>
+                      );
+                    })()}
+                  </div>
+                ) : null}
 
                 <div className="p-4 sm:p-5 space-y-3">
                   {(() => {
@@ -834,7 +1218,8 @@ export function QuoteTripBuilder({
                                               name: title,
                                               description,
                                               duration: String(item.duration || ""),
-                                              startTime: String(item.pickupTime || item.timeSlot || ""),
+                                              startTime: String(item.startTime || item.pickupTime || item.timeSlot || ""),
+                                              closingTime: String(item.closingTime || ""),
                                               timeSlot: String(item.timeSlot || ""),
                                               location: String(item.city || night.city || ""),
                                               city: String(item.city || night.city || ""),
@@ -843,6 +1228,8 @@ export function QuoteTripBuilder({
                                               images: item.imageUrl ? [String(item.imageUrl)] : undefined,
                                               inclusions: item.inclusions,
                                               exclusions: item.exclusions,
+                                              passengerInfo: String(item.passengerInfo || item.guestInstructions || item.remarks || ""),
+                                              meetingPoint: String(item.meetingPoint || ""),
                                             })
                                             : () => setViewTarget({
                                               kind: isMeal ? "meal" : isMisc ? "misc" : "transfer",
@@ -888,6 +1275,7 @@ export function QuoteTripBuilder({
           })
         )}
       </div>
+      ) : null}
 
       <ServicePlaceholderDialog
         target={serviceTarget}
@@ -1028,15 +1416,14 @@ function ContactCard({
   email: string;
 }) {
   return (
-    <div className="rounded-xl border border-slate-100 bg-slate-50/60 p-3.5 flex gap-3">
-      <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-full bg-gradient-to-br from-brand-blue to-brand-teal text-white">
-        <UserRound className="w-5 h-5" />
+    <div className="rounded-lg border border-border bg-muted/30 px-3 py-2 flex gap-2.5 items-start">
+      <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-primary/10 text-primary mt-0.5">
+        <UserRound className="w-3.5 h-3.5" />
       </div>
       <div className="min-w-0">
-        <p className="text-[11px] font-semibold uppercase tracking-wide text-slate-500">{title}</p>
-        <p className="text-sm font-semibold text-slate-900 truncate">{name}</p>
-        <p className="text-xs text-slate-600 truncate">{phone}</p>
-        <p className="text-xs text-slate-500 truncate">{email}</p>
+        <p className="text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">{title}</p>
+        <p className="text-sm font-medium text-foreground truncate">{name}</p>
+        <p className="text-[11px] text-muted-foreground truncate">{phone} · {email}</p>
       </div>
     </div>
   );

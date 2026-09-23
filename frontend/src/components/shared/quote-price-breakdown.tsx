@@ -11,6 +11,7 @@ import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 import type { ResolvedQuoteCosting } from "@/lib/quote-costing";
 import { toCalendarDate } from "@/lib/quote-costing";
+import { todayYmd } from "@/lib/travel-dates";
 
 function formatPrettyDate(iso?: string) {
   const v = toCalendarDate(iso);
@@ -128,6 +129,7 @@ export function QuotePriceBreakdown({
               <Input
                 type="date"
                 className="h-9"
+                min={todayYmd()}
                 value={checkIn}
                 onChange={(e) => onChangeDates?.(e.target.value, checkOut)}
               />
@@ -150,7 +152,7 @@ export function QuotePriceBreakdown({
                 type="date"
                 className="h-9"
                 value={checkOut}
-                min={checkIn || undefined}
+                min={checkIn || todayYmd()}
                 onChange={(e) => onChangeDates?.(checkIn, e.target.value)}
               />
             ) : (

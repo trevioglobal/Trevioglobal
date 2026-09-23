@@ -99,6 +99,7 @@ function BookingDetailDialog({
   const [loading, setLoading] = useState(false);
   const [passengers, setPassengers] = useState<BookingPassenger[]>([]);
   const [policiesOk, setPoliciesOk] = useState(false);
+  const [leadDocType, setLeadDocType] = useState("PASSPORT_FRONT");
   const [payAmount, setPayAmount] = useState("");
   const [payLabel, setPayLabel] = useState("Advance");
   const [crType, setCrType] = useState(CHANGE_TYPES[0]);
@@ -108,6 +109,7 @@ function BookingDetailDialog({
   const [busy, setBusy] = useState(false);
   const [suppliers, setSuppliers] = useState<SupplierRecord[]>([]);
   const [opsForm, setOpsForm] = useState<Record<string, { supplierId: string; costPrice: string; confirmationNo: string }>>({});
+  const [voucherFiles, setVoucherFiles] = useState<Record<string, File | null>>({});
   const [proposedSelling, setProposedSelling] = useState("");
   const [sellingReason, setSellingReason] = useState("");
   const [travelForm, setTravelForm] = useState<TravelDetailsRecord>({ flights: [{}], hotel: {} });
@@ -469,15 +471,15 @@ function BookingDetailDialog({
                         <Button
                           size="sm"
                           disabled={!policiesOk || busy}
-                          onClick={() => run("Policies accepted", async () => {
+                          onClick={() => run("Policies accepted — Book Now enabled", async () => {
                             await api.acceptBookingPolicies(booking.id);
                           })}
                         >
-                          Accept & Enable Booking
+                          Book Now
                         </Button>
                       )}
                       {booking.policiesAcceptedAt && (
-                        <Badge variant="secondary" className="bg-emerald-100 text-emerald-700">Policies accepted</Badge>
+                        <Badge variant="secondary" className="bg-emerald-100 text-emerald-700">Book Now unlocked</Badge>
                       )}
                     </CardContent>
                   </Card>
@@ -609,6 +611,16 @@ function BookingDetailDialog({
                   >
                     Save Passengers
                   </Button>
+                  <Select value={leadDocType} onValueChange={setLeadDocType}>
+                    <SelectTrigger className="h-8 w-44 text-xs"><SelectValue placeholder="Document type" /></SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="PASSPORT_FRONT">Passport Front</SelectItem>
+                      <SelectItem value="PASSPORT_BACK">Passport Back</SelectItem>
+                      <SelectItem value="AADHAAR">Aadhaar</SelectItem>
+                      <SelectItem value="PAN">PAN Card</SelectItem>
+                      <SelectItem value="OTHER">Other</SelectItem>
+                    </SelectContent>
+                  </Select>
                   <input
                     type="file"
                     accept=".jpg,.jpeg,.png,.pdf,image/jpeg,image/png,application/pdf"
@@ -621,7 +633,7 @@ function BookingDetailDialog({
                       const lead = passengers.find((p) => p.isLead) || passengers[0];
                       void run("Document uploaded", async () => {
                         await api.uploadBookingDocument(booking.id, file, {
-                          docType: "OTHER",
+                          docType: leadDocType || "OTHER",
                           visibility: isAgent ? "AGENT" : "INTERNAL",
                           ...(lead?.id ? { passengerId: lead.id } : {}),
                         });
@@ -631,10 +643,10 @@ function BookingDetailDialog({
                   <Button
                     size="sm"
                     variant="outline"
-                    disabled={busy || !passengers[0]?.id}
+                    disabled={busy || !passengers[0]?.id || !booking.policiesAcceptedAt}
                     onClick={() => document.getElementById(`lead-doc-${booking.id}`)?.click()}
                   >
-                    Upload lead document
+                    Upload passenger document
                   </Button>
                 </div>
                 {!booking.policiesAcceptedAt && (
@@ -1081,6 +1093,18 @@ function BookingDetailDialog({
                               placeholder="Hotel / DMC ref"
                             />
                           </div>
+                          <div className="space-y-1 sm:col-span-2">
+                            <Label className="text-[10px]">Supplier voucher / confirmation PDF (optional)</Label>
+                            <Input
+                              type="file"
+                              accept=".pdf,image/jpeg,image/png"
+                              className="h-8 text-xs"
+                              onChange={(e) => {
+                                const file = e.target.files?.[0] || null;
+                                setVoucherFiles((prev) => ({ ...prev, [svc.id]: file }));
+                              }}
+                            />
+                          </div>
                           {svc.serviceType === "Transfer" && (
                             <div className="sm:col-span-2 grid gap-2 sm:grid-cols-3 border-t pt-2">
                               <p className="sm:col-span-3 text-[10px] font-semibold text-muted-foreground">Driver details (optional — shown on itinerary)</p>
@@ -1108,13 +1132,25 @@ function BookingDetailDialog({
                                 const sup = selectedSupplier || suppliers.find((s) => s.id === form.supplierId);
                                 if (!sup) throw new Error("Select a supplier");
                                 const d = driverForms[svc.id];
+                                let voucherUrl: string | undefined;
+                                const voucherFile = voucherFiles[svc.id];
+                                if (voucherFile) {
+                                  const uploaded = await api.uploadBookingDocument(booking.id, voucherFile, {
+                                    docType: `${svc.serviceType.toUpperCase()}_VOUCHER`,
+                                    visibility: "INTERNAL",
+                                    relatedEntity: svc.serviceType,
+                                    description: `${svc.serviceType} supplier voucher`,
+                                  });
+                                  voucherUrl = uploaded.document.downloadPath || undefined;
+                                  setVoucherFiles((prev) => ({ ...prev, [svc.id]: null }));
+                                }
                                 await api.updateBookingService(booking.id, svc.id, {
                                   status: "Confirmed",
                                   supplierName: sup.name,
                                   supplierRef: sup.id,
                                   costPrice: Number(form.costPrice),
                                   confirmationNo: form.confirmationNo || `CNF-${Date.now().toString().slice(-6)}`,
-                                  voucherUrl: `/vouchers/${booking.bookingRef}-${svc.serviceType}.pdf`,
+                                  ...(voucherUrl ? { voucherUrl } : {}),
                                   ...(svc.serviceType === "Transfer" && d ? { driverDetails: d } : {}),
                                 });
                               }, { approvalOk: true })}

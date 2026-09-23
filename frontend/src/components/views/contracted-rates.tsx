@@ -2,8 +2,10 @@
 
 import { useEffect, useState } from "react";
 import { PageHeader, PageShell } from "@/components/shared/ui-helpers";
+import { CatalogToolbar } from "@/components/shared/enterprise";
 import { ContractedRatesDialog, type ProductRateType } from "@/components/shared/contracted-rates-dialog";
 import { Button } from "@/components/ui/button";
+import { Card, CardContent } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { useToast } from "@/hooks/use-toast";
@@ -57,58 +59,82 @@ export function ContractedRatesView() {
     <PageShell>
       <PageHeader
         title="Contracted rates"
-        subtitle="Catalogue products keep their details. Contracted cost is a separate rate with an explicit validity period."
+        subtitle="Product details stay in the catalogue. Contracted cost is a separate rate with a validity period."
       />
-      <div className="grid sm:grid-cols-4 gap-2 mb-4">
-        <Select value={type} onValueChange={(v) => setType(v as ProductRateType)}>
-          <SelectTrigger><SelectValue /></SelectTrigger>
-          <SelectContent>
-            <SelectItem value="HOTEL">Hotels</SelectItem>
-            <SelectItem value="TRANSFER">Transfers</SelectItem>
-            <SelectItem value="ACTIVITY">Activities</SelectItem>
-            <SelectItem value="MEAL">Meals</SelectItem>
-            <SelectItem value="FLIGHT">Internal flights</SelectItem>
-          </SelectContent>
-        </Select>
-        <Input placeholder="Search name" value={q} onChange={(e) => setQ(e.target.value)} />
-        <Input placeholder="City / origin" value={city} onChange={(e) => setCity(e.target.value)} />
-        <Select value={status} onValueChange={setStatus}>
-          <SelectTrigger><SelectValue /></SelectTrigger>
-          <SelectContent>
-            <SelectItem value="All">All statuses</SelectItem>
-            <SelectItem value="Active">Active</SelectItem>
-            <SelectItem value="Draft">Draft</SelectItem>
-            <SelectItem value="Archived">Inactive</SelectItem>
-          </SelectContent>
-        </Select>
-      </div>
-      <div className="rounded-lg border divide-y">
-        {items.length === 0 && <p className="p-4 text-sm text-muted-foreground">No products match these filters.</p>}
-        {items.map((item) => (
-          <div key={item.id} className="p-3 flex items-center justify-between gap-3">
-            <div>
-              <p className="text-sm font-medium">{item.name}</p>
-              <p className="text-xs text-muted-foreground">{item.city || item.origin || "—"} · {item.status || "Active"}</p>
+
+      <CatalogToolbar
+        searchValue={q}
+        onSearchChange={setQ}
+        searchPlaceholder="Search name"
+        filters={
+          <>
+            <Select value={type} onValueChange={(v) => setType(v as ProductRateType)}>
+              <SelectTrigger className="h-9 w-[160px]"><SelectValue /></SelectTrigger>
+              <SelectContent>
+                <SelectItem value="HOTEL">Hotels</SelectItem>
+                <SelectItem value="TRANSFER">Transfers</SelectItem>
+                <SelectItem value="ACTIVITY">Activities</SelectItem>
+                <SelectItem value="MEAL">Meals</SelectItem>
+                <SelectItem value="FLIGHT">Internal flights</SelectItem>
+              </SelectContent>
+            </Select>
+            <Input className="h-9 w-[160px]" placeholder="City / origin" value={city} onChange={(e) => setCity(e.target.value)} />
+            <Select value={status} onValueChange={setStatus}>
+              <SelectTrigger className="h-9 w-[140px]"><SelectValue /></SelectTrigger>
+              <SelectContent>
+                <SelectItem value="All">All statuses</SelectItem>
+                <SelectItem value="Active">Active</SelectItem>
+                <SelectItem value="Draft">Draft</SelectItem>
+                <SelectItem value="Archived">Inactive</SelectItem>
+              </SelectContent>
+            </Select>
+          </>
+        }
+      />
+
+      <Card>
+        <CardContent className="p-0 divide-y">
+          {items.length === 0 && (
+            <p className="p-6 text-sm text-muted-foreground text-center">No products match these filters.</p>
+          )}
+          {items.map((item) => (
+            <div key={item.id} className="px-4 py-3.5 flex items-center justify-between gap-3">
+              <div className="min-w-0">
+                <p className="text-sm font-medium truncate">{item.name}</p>
+                <p className="text-caption text-muted-foreground mt-0.5">
+                  {item.city || item.origin || "—"} · {item.status || "Active"}
+                </p>
+              </div>
+              <Button size="sm" variant="outline" className="h-8 shrink-0" onClick={() => setSelected(item)}>
+                Rates
+              </Button>
             </div>
-            <Button size="sm" variant="outline" onClick={() => setSelected(item)}>Rates</Button>
-          </div>
-        ))}
-      </div>
+          ))}
+        </CardContent>
+      </Card>
+
       {type === "FLIGHT" && (
-        <div className="mt-6 rounded-lg border p-4 space-y-3">
-          <p className="text-sm font-medium">Add internal contracted flight</p>
-          <p className="text-xs text-muted-foreground">Amadeus search and manual employee flight entry stay available on quotations. This is only the internal catalogue product.</p>
-          <div className="grid sm:grid-cols-3 gap-2">
-            <Input placeholder="Name" value={flight.name} onChange={(e) => setFlight({ ...flight, name: e.target.value })} />
-            <Input placeholder="Airline" value={flight.airline} onChange={(e) => setFlight({ ...flight, airline: e.target.value })} />
-            <Input placeholder="Flight number" value={flight.flightNumber} onChange={(e) => setFlight({ ...flight, flightNumber: e.target.value })} />
-            <Input placeholder="Origin" value={flight.origin} onChange={(e) => setFlight({ ...flight, origin: e.target.value })} />
-            <Input placeholder="Destination" value={flight.destinationAirport} onChange={(e) => setFlight({ ...flight, destinationAirport: e.target.value })} />
-            <Input placeholder="Cabin" value={flight.cabinClass} onChange={(e) => setFlight({ ...flight, cabinClass: e.target.value })} />
-          </div>
-          <Button size="sm" onClick={createFlight}>Create flight product</Button>
-        </div>
+        <Card>
+          <CardContent className="p-4 md:p-5 space-y-3">
+            <div>
+              <p className="text-section-title text-foreground">Add internal contracted flight</p>
+              <p className="text-caption text-muted-foreground mt-1">
+                Amadeus search and manual employee flight entry stay on quotations. This is only the internal catalogue product.
+              </p>
+            </div>
+            <div className="grid sm:grid-cols-2 lg:grid-cols-3 gap-2.5">
+              <Input placeholder="Name" value={flight.name} onChange={(e) => setFlight({ ...flight, name: e.target.value })} />
+              <Input placeholder="Airline" value={flight.airline} onChange={(e) => setFlight({ ...flight, airline: e.target.value })} />
+              <Input placeholder="Flight number" value={flight.flightNumber} onChange={(e) => setFlight({ ...flight, flightNumber: e.target.value })} />
+              <Input placeholder="Origin" value={flight.origin} onChange={(e) => setFlight({ ...flight, origin: e.target.value })} />
+              <Input placeholder="Destination" value={flight.destinationAirport} onChange={(e) => setFlight({ ...flight, destinationAirport: e.target.value })} />
+              <Input placeholder="Cabin" value={flight.cabinClass} onChange={(e) => setFlight({ ...flight, cabinClass: e.target.value })} />
+            </div>
+            <Button size="sm" className="h-9" onClick={createFlight}>Create flight product</Button>
+          </CardContent>
+        </Card>
       )}
+
       {selected && (
         <ContractedRatesDialog
           open={Boolean(selected)}

@@ -229,6 +229,14 @@ export async function renderQuotationPdf(model: QuotationPdfModel): Promise<{ bu
         if (day.city || day.date) {
           body(doc, [day.city, day.date].filter(Boolean).join(" · "));
         }
+        const places = Array.isArray(day.places) ? day.places : [];
+        for (const place of places) {
+          if (!place?.name) continue;
+          body(doc, `• ${place.name}`, { width: contentWidth() });
+          if (place.bestTimeToVisit) body(doc, `  Best time: ${place.bestTimeToVisit}`, { width: contentWidth() });
+          if (place.famousFor) body(doc, `  Famous for: ${place.famousFor}`, { width: contentWidth() });
+          if (place.description) body(doc, `  ${place.description}`, { width: contentWidth() });
+        }
         for (const item of day.items) {
           const prefix = item.itemType ? `[${String(item.itemType).charAt(0)}${String(item.itemType).slice(1).toLowerCase()}] ` : "";
           const time = item.pickupTime ? `${item.pickupTime} · ` : "";

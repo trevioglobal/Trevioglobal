@@ -276,6 +276,10 @@ export const api = {
       file,
       fields,
     ),
+  listQuotationDocuments: (id: string) =>
+    apiFetch<{ documents: Array<{ id: string; fileName: string; docType: string; downloadPath?: string }> }>(
+      `/api/quotations/${id}/documents`,
+    ),
   uploadGstProof: (file: File) =>
     apiUpload<{ gstProofId: string }>("/api/auth/register/gst-proof", file),
 
@@ -609,24 +613,6 @@ export const api = {
   applyQuotationTemplate: (id: string, body: { templateId: string; mode?: "fill-empty" | "merge-append"; packageIndex?: number }) =>
     apiFetch<{ quotation: ApiQuotation; appliedFields: string[]; message?: string }>(`/api/quotations/${id}/apply-template`, {
       method: "POST",
-      body: JSON.stringify(body),
-    }),
-
-  createAgentQuotationFromPackage: (body: Record<string, unknown>) =>
-    apiFetch<{ quotation: ApiQuotation }>("/api/quotations/agent/from-package", {
-      method: "POST",
-      body: JSON.stringify(body),
-    }),
-
-  createAgentTripQuote: (body: Record<string, unknown>) =>
-    apiFetch<{ quotation: ApiQuotation }>("/api/quotations/agent/trip", {
-      method: "POST",
-      body: JSON.stringify(body),
-    }),
-
-  updateAgentQuotation: (id: string, body: Record<string, unknown>) =>
-    apiFetch<{ quotation: ApiQuotation }>(`/api/quotations/${id}/agent`, {
-      method: "PATCH",
       body: JSON.stringify(body),
     }),
 
@@ -1025,12 +1011,6 @@ export const api = {
         effectiveTo?: string | null;
       }>;
     }>("/api/tax-rules"),
-
-  getCmsPages: () => apiFetch<{ pages: any[] }>("/api/cms/pages"),
-  createCmsPage: (body: any) => apiFetch<any>("/api/cms/pages", { method: "POST", body: JSON.stringify(body) }),
-
-  getApiKeys: () => apiFetch<{ keys: any[] }>("/api/management/keys"),
-  createApiKey: (body: any) => apiFetch<any>("/api/management/keys", { method: "POST", body: JSON.stringify(body) }),
 
   getSupportTickets: (params?: { operationsType?: string; deliveryType?: string; department?: string; status?: string }) => {
     const q = new URLSearchParams();

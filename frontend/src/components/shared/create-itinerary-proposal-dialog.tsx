@@ -9,6 +9,7 @@ import {
   Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle,
 } from "@/components/ui/dialog";
 import { apiFetch } from "@/lib/api";
+import { todayYmd } from "@/lib/travel-dates";
 import type { TravelProposalRecord } from "@/types";
 
 type CityRow = { city: string; nights: number };
@@ -102,7 +103,7 @@ export function CreateItineraryProposalDialog({
           <div className="grid grid-cols-2 gap-3">
             <div className="space-y-1.5">
               <Label>Start date</Label>
-              <Input type="date" value={startDate} onChange={(e) => setStartDate(e.target.value)} />
+              <Input type="date" value={startDate} min={todayYmd()} onChange={(e) => setStartDate(e.target.value)} />
             </div>
             <div className="space-y-1.5">
               <Label>End date</Label>

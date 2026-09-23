@@ -169,6 +169,19 @@ export async function downloadClientQuotationBrochure(
 
   const itineraryHtml = itinerary
     .map((day, i) => {
+      const places = asArr(day.places);
+      const placeLis = places
+        .map((p) => {
+          const bits = [
+            p.bestTimeToVisit ? `Best time: ${escapeHtml(str(p.bestTimeToVisit))}` : "",
+            p.famousFor ? `Famous for: ${escapeHtml(str(p.famousFor))}` : "",
+            p.description ? escapeHtml(str(p.description)) : "",
+          ].filter(Boolean);
+          return `<li><strong>${escapeHtml(str(p.name))}</strong>${bits.length ? `<br/><span class="muted">${bits.join(" · ")}</span>` : ""}${
+            isImgUrl(p.imageUrl) ? imgTag(p.imageUrl, "day-photo", str(p.name)) : ""
+          }</li>`;
+        })
+        .join("");
       const items = asArr(day.items);
       const lis = items
         .map((it) => `<li>${escapeHtml(str(it.activityName || it.description))}${it.description && it.activityName && it.description !== it.activityName ? ` — ${escapeHtml(str(it.description))}` : ""}</li>`)
@@ -179,7 +192,8 @@ export async function downloadClientQuotationBrochure(
           ${day.city ? `<p class="muted">${escapeHtml(str(day.city))}</p>` : ""}
           ${imgTag(day.coverImage, "day-photo", str(day.title, `Day ${i + 1}`))}
           ${galleryHtml(day)}
-          <ul>${lis || "<li>Leisure</li>"}</ul>
+          <ul>${placeLis || lis || "<li>Leisure</li>"}</ul>
+          ${placeLis && lis ? `<ul>${lis}</ul>` : ""}
           ${day.mealPlan ? `<p class="meals">Meal plan: ${escapeHtml(str(day.mealPlan))}</p>` : ""}
         </div>`;
     })

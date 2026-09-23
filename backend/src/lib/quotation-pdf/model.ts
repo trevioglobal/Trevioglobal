@@ -108,6 +108,13 @@ export type QuotationPdfPackage = {
     date?: string;
     mealPlan?: string;
     coverImage?: string;
+    places?: Array<{
+      name?: string;
+      description?: string;
+      imageUrl?: string;
+      bestTimeToVisit?: string;
+      famousFor?: string;
+    }>;
     items: Array<{ activityName?: string; description?: string; itemType?: string; pickupTime?: string }>;
   }>;
   inclusions: string[];
@@ -400,6 +407,13 @@ function mapItinerary(rows: Record<string, unknown>[]) {
     date: str(day.date) || undefined,
     mealPlan: str(day.mealPlan) || undefined,
     coverImage: isImgUrl(day.coverImage) ? str(day.coverImage) : undefined,
+    places: asArr(day.places).map((p) => ({
+      name: str(p.name) || undefined,
+      description: str(p.description) || undefined,
+      imageUrl: isImgUrl(p.imageUrl) ? str(p.imageUrl) : undefined,
+      bestTimeToVisit: str(p.bestTimeToVisit) || undefined,
+      famousFor: str(p.famousFor) || undefined,
+    })).filter((p) => p.name),
     items: asArr(day.items).map((it) => ({
       activityName: str(it.activityName) || undefined,
       description: str(it.description) || undefined,

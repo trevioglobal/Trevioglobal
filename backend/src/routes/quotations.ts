@@ -25,6 +25,7 @@ import {
 } from "../lib/quotations.js";
 import { agentQuoteScope, canApproveStage, quoteSendBlockReason } from "../lib/quote-access.js";
 import { freshValidTill, isPastValidTill, quotePastValidityBlockReason, runExpireDueQuotations } from "../lib/quotation-expiry.js";
+import { defaultValidTill, todayYmd, travelDatesBlockReason, travelDatesUpdateBlockReason } from "../lib/travel-dates.js";
 import {
   createQuotationVersion,
   ensureInitialQuotationVersion,
@@ -764,6 +765,18 @@ export function mountQuotationRoutes(
       if (!agencyId && req.auth?.role === "super_admin") {
         agencyId = (await resolveDefaultAgencyId()) || undefined;
       }
+      const dateBlock = travelDatesBlockReason({
+        travelStartDate: body.travelStartDate,
+        travelEndDate: body.travelEndDate,
+        returnDate: body.returnDate,
+        travelDates: body.travelDates,
+        validTill: body.validTill || body.quoteExpiryDate,
+        estimatedBookingDate: body.estimatedBookingDate,
+      });
+      if (dateBlock) {
+        res.status(400).json({ error: dateBlock });
+        return;
+      }
       const codes = await resolveQuoteAgentCodes({ req, body, agencyId });
       const agencyCode = codes.agencyCode;
       const agentCode = codes.agentCode;
@@ -795,11 +808,8 @@ export function mountQuotationRoutes(
           gst: 0,
           total: 0,
           status: "Draft",
-          validTill: asStr(
-            body.validTill || body.quoteExpiryDate,
-            new Date(Date.now() + 7 * 86400000).toISOString().slice(0, 10),
-          ),
-          quoteDate: asStr(body.quoteDate, new Date().toISOString().slice(0, 10)),
+          validTill: asStr(body.validTill || body.quoteExpiryDate, defaultValidTill()),
+          quoteDate: todayYmd(),
           createdById,
           createdBy: asStr(body.createdBy || req.auth?.email, "System"),
           contactPerson: emptyToNull(body.contactPerson),
@@ -1025,6 +1035,11 @@ export function mountQuotationRoutes(
       }
 
       let body = (req.body || {}) as Record<string, unknown>;
+      const dateBlock = travelDatesUpdateBlockReason(body, existing);
+      if (dateBlock) {
+        res.status(400).json({ error: dateBlock });
+        return;
+      }
       if (agentActor) {
         body = stripAgentPricingOverrides(body);
         body.agentId = req.auth?.userId;
@@ -1058,6 +1073,7 @@ export function mountQuotationRoutes(
         "nationality",
       ] as const;
       for (const k of scalarKeys) {
+        if (k === "quoteDate") continue;
         if (body[k] !== undefined) data[k] = k === "leadId" ? emptyToNull(body[k]) : body[k];
       }
       if (body.budget != null) data.budget = toInt(body.budget, 0);
@@ -1436,6 +1452,12 @@ export function mountQuotationRoutes(
         data.termsSnapshot = buildTermsSnapshot(existing);
       }
       if (to === "Pending Approval") data.approvalStatus = "Pending";
+      if (to === "Accepted") {
+        data.acceptedVersionNumber = existing.currentVersion || 1;
+        data.acceptedAt = existing.acceptedAt || new Date();
+        data.acceptedByName = existing.acceptedByName || req.auth?.email || "Staff";
+        data.acceptedByEmail = existing.acceptedByEmail || req.auth?.email || null;
+      }
 
       const quotation = await db.quotation.update({
         where: { id: existing.id },
@@ -1770,6 +1792,10 @@ export function mountQuotationRoutes(
         res.status(404).json({ error: "Not found" });
         return;
       }
+      if (!canTransition(existing.status, "Rejected") && !canTransition(normalizeStatus(existing.status), "Rejected")) {
+        res.status(400).json({ error: `Cannot reject a quotation in status ${existing.status}` });
+        return;
+      }
       const quotation = await db.quotation.update({
         where: { id: existing.id },
         data: { status: "Rejected", rejectedReason: req.body?.reason || req.body?.comments },
@@ -1789,6 +1815,13 @@ export function mountQuotationRoutes(
       const existing = await loadQuoteForActor(req, agencyScope, branchScope);
       if (!existing) {
         res.status(404).json({ error: "Not found" });
+        return;
+      }
+      if (
+        !canTransition(existing.status, "Revision Requested")
+        && !canTransition(normalizeStatus(existing.status), "Revision Requested")
+      ) {
+        res.status(400).json({ error: `Cannot request revision in status ${existing.status}` });
         return;
       }
       await db.quotationRevision.create({
@@ -1841,7 +1874,7 @@ export function mountQuotationRoutes(
           total: existing.total,
           status: "Draft",
           validTill: existing.validTill,
-          quoteDate: new Date().toISOString().slice(0, 10),
+          quoteDate: todayYmd(),
           createdById: req.auth?.userId,
           createdBy: req.auth?.email || existing.createdBy,
           isInternational: existing.isInternational,
@@ -1999,6 +2032,11 @@ export function mountQuotationRoutes(
       const validTill = String(req.body?.validTill || "");
       if (!validTill) {
         res.status(400).json({ error: "validTill required" });
+        return;
+      }
+      const extendBlock = travelDatesBlockReason({ validTill });
+      if (extendBlock) {
+        res.status(400).json({ error: extendBlock });
         return;
       }
       const data: Record<string, unknown> = { validTill, expiredAt: null };
@@ -2437,315 +2475,13 @@ export function mountQuotationRoutes(
     });
   });
 
-  // ── Agent: create quotation from published package ───────────────────────
-  app.post("/api/quotations/agent/from-package", requireAuth, requirePermission("quotations"), async (req: AuthRequest, res: Response) => {
-    try {
-      if (!isAgentLike(req.auth?.role)) {
-        res.status(403).json({ error: "Only travel agents can use this endpoint" });
-        return;
-      }
-      const body = req.body || {};
-      const packageId = String(body.packageId || "");
-      if (!packageId) {
-        res.status(400).json({ error: "packageId is required" });
-        return;
-      }
-      const pkg = await loadPublishedPackage(packageId, ownAgencyId(req));
-      if (!pkg) {
-        res.status(404).json({ error: "Published package not found" });
-        return;
-      }
-
-      const { ensureUserAgentCode, ensureAgencyCode } = await import("../lib/agent-codes.js");
-      let agentCode = body.agentCode ? String(body.agentCode) : null;
-      let agencyCode = body.agencyCode ? String(body.agencyCode) : null;
-      if (req.auth?.userId) agentCode = (await ensureUserAgentCode(req.auth.userId)) || agentCode;
-      if (req.auth?.agencyId) agencyCode = (await ensureAgencyCode(req.auth.agencyId)) || agencyCode;
-
-      const { packagePayload, meta } = buildQuotationPackageFromTravelPackage(pkg);
-      const agentMarkup = Math.max(0, Math.round(Number(body.agentMarkup || 0)));
-      const adults = Number(body.adults ?? 2);
-      const children = Number(body.children ?? 0);
-      const customerName = String(body.customerName || "Guest").trim() || "Guest";
-      const quoteNo = await nextQuoteNo();
-      const validTill = body.validTill || new Date(Date.now() + 7 * 86400000).toISOString().slice(0, 10);
-
-      const frozenLines = await freezePackageLines(
-        {
-          hotels: packagePayload.hotels,
-          flights: packagePayload.flights,
-          transfers: packagePayload.transfers,
-          activities: packagePayload.activities,
-          meals: packagePayload.meals,
-        },
-        {
-          travelDate: body.travelStartDate || null,
-          travelEndDate: body.travelEndDate || null,
-          scope: catalogRateScope(req, agencyScope),
-        },
-      );
-      const priced = await priceFrozenPackage(
-        {
-          ...packagePayload,
-          hotels: frozenLines.hotels,
-          flights: frozenLines.flights,
-          transfers: frozenLines.transfers,
-          activities: frozenLines.activities,
-          meals: frozenLines.meals,
-        },
-        {
-          currency: meta.currency,
-          nights: meta.nights,
-          adults,
-          children,
-          infants: Number(body.infants ?? 0),
-          trevioMarkupType: "Percentage",
-          trevioMarkupValue: 0,
-          agentMarkupType: "Fixed",
-          agentMarkup,
-          travelStartDate: body.travelStartDate || null,
-          scope: catalogRateScope(req, agencyScope),
-        },
-      );
-      const layers = layersFromPackage(priced.priced);
-
-      const quote = await db.quotation.create({
-        data: {
-          quoteNo,
-          agencyId: ownAgencyId(req),
-          branchId: ownBranchId(req),
-          customerName,
-          service: "Holiday",
-          items: 1,
-          amount: layers.amount,
-          gst: layers.gst,
-          total: layers.total,
-          totalNetCost: layers.totalNetCost,
-          totalSelling: layers.totalSelling,
-          grossProfit: layers.grossProfit,
-          perPersonCost: layers.perPersonCost,
-          pricingStatus: priced.priced.unresolved ? "UNRESOLVED" : "OK",
-          status: priced.priced.unresolved || customerName === "Guest" ? "In Progress" : "Customer Reviewing",
-          validTill,
-          quoteDate: new Date().toISOString().slice(0, 10),
-          createdById: req.auth?.userId,
-          createdBy: req.auth?.email || "Agent",
-          agentId: req.auth?.userId,
-          agentName: body.agentName || req.auth?.email || "Agent",
-          agentCode,
-          agencyCode,
-          contactPerson: body.contactPerson || customerName,
-          contactEmail: body.contactEmail || null,
-          contactPhone: body.contactPhone || null,
-          destination: meta.destination,
-          country: meta.country,
-          coverImage: meta.coverImage,
-          nights: meta.nights,
-          days: meta.days,
-          adults,
-          children,
-          currency: meta.currency,
-          packageIncludes: meta.packageIncludes,
-          packageExcludes: meta.packageExcludes,
-          selectedPackageId: packageId,
-          agentMarkup,
-          baseSellingTotal: layers.totalSelling,
-          specialRequests: body.specialRequests || null,
-          travelStartDate: body.travelStartDate || null,
-          travelEndDate: body.travelEndDate || null,
-          travelDates: body.travelStartDate || null,
-          taxRate: priced.taxRate || 0,
-          taxRuleId: priced.taxRuleId,
-          approvalStatus: "Approved",
-        },
-      });
-
-      await db.quotationPackage.create({
-        data: {
-          quotationId: quote.id,
-          name: packagePayload.name,
-          sortOrder: 0,
-          isSelected: true,
-          description: packagePayload.description,
-          hotels: (priced.frozen.hotels || []) as Prisma.InputJsonValue,
-          flights: (priced.frozen.flights || []) as Prisma.InputJsonValue,
-          transfers: (priced.frozen.transfers || []) as Prisma.InputJsonValue,
-          activities: (priced.frozen.activities || []) as Prisma.InputJsonValue,
-          meals: (priced.frozen.meals || []) as Prisma.InputJsonValue,
-          itinerary: packagePayload.itinerary as Prisma.InputJsonValue,
-          addOns: [],
-          inclusions: packagePayload.inclusions as Prisma.InputJsonValue,
-          exclusions: packagePayload.exclusions as Prisma.InputJsonValue,
-          pricing: priced.priced as Prisma.InputJsonValue,
-          totalNetCost: layers.totalNetCost,
-          totalSelling: layers.totalSelling,
-          grossProfit: layers.grossProfit,
-          gst: layers.gst,
-          total: layers.total,
-          perPersonCost: layers.perPersonCost,
-        },
-      });
-
-      await writeQuoteAudit({
-        req,
-        agencyId: quote.agencyId,
-        quotationId: quote.id,
-        action: "Agent Quote Created",
-        updatedValue: { packageId, agentMarkup },
-      });
-      await ensureInitialQuotationVersion({
-        quotationId: quote.id,
-        createdByName: req.auth?.email || "Agent",
-        createdById: req.auth?.userId,
-      });
-
-      const full = await db.quotation.findUnique({ where: { id: quote.id }, include: QUOTE_INCLUDE });
-      res.status(201).json({ quotation: sanitizeQuotationForRole(full as unknown as Record<string, unknown>, req.auth?.role) });
-    } catch (e) {
-      logger.error(e);
-      res.status(500).json({ error: "Server error" });
-    }
+  // ── Agent package/trip quote UIs removed — use quotation wizard ───────────
+  app.post("/api/quotations/agent/from-package", requireAuth, requirePermission("quotations"), async (_req: AuthRequest, res: Response) => {
+    res.status(410).json({ error: "Removed. Create quotations via the quotation wizard." });
   });
 
-  // ── Agent: multi-service trip composer ────────────────────────────────────
-  app.post("/api/quotations/agent/trip", requireAuth, requirePermission("quotations"), async (req: AuthRequest, res: Response) => {
-    try {
-      if (!isAgentLike(req.auth?.role)) {
-        res.status(403).json({ error: "Only travel agents can use this endpoint" });
-        return;
-      }
-      const body = req.body || {};
-      const lines = Array.isArray(body.lines) ? body.lines : [];
-      if (!lines.length) {
-        res.status(400).json({ error: "Add at least one flight, hotel, transfer, or activity line" });
-        return;
-      }
-      const { ensureUserAgentCode, ensureAgencyCode } = await import("../lib/agent-codes.js");
-      let agentCode = body.agentCode ? String(body.agentCode) : null;
-      let agencyCode = body.agencyCode ? String(body.agencyCode) : null;
-      if (req.auth?.userId) agentCode = (await ensureUserAgentCode(req.auth.userId)) || agentCode;
-      if (req.auth?.agencyId) agencyCode = (await ensureAgencyCode(req.auth.agencyId)) || agencyCode;
-
-      const customerName = String(body.customerName || "Guest").trim() || "Guest";
-      const agentMarkup = Math.max(0, Math.round(Number(body.agentMarkup || 0)));
-      const adults = Number(body.adults ?? 2);
-      const children = Number(body.children ?? 0);
-
-      const prepared = await prepareAgentTripLines(lines, {
-        travelDate: body.travelStartDate,
-        scope: catalogRateScope(req, agencyScope),
-      });
-      if (prepared.error || !prepared.lineItems || !prepared.packages) {
-        res.status(400).json({ error: prepared.error || NO_VALID_RATE_MESSAGE });
-        return;
-      }
-      const lineItems = prepared.lineItems;
-      const packages = prepared.packages;
-      const { hotels, flights, transfers, activities, meals } = packages;
-      const priced = await priceFrozenPackage({ hotels, flights, transfers, activities, meals }, {
-        currency: "INR",
-        adults,
-        children,
-        infants: Number(body.infants ?? 0),
-        trevioMarkupType: "Percentage",
-        trevioMarkupValue: 0,
-        agentMarkupType: body.agentMarkupType === "Percentage" ? "Percentage" : "Fixed",
-        agentMarkup,
-        travelStartDate: body.travelStartDate,
-        scope: catalogRateScope(req, agencyScope),
-      });
-      const layers = layersFromPackage(priced.priced);
-      const quoteNo = await nextQuoteNo();
-      const validTill = body.validTill || new Date(Date.now() + 7 * 86400000).toISOString().slice(0, 10);
-
-      const quote = await db.quotation.create({
-        data: {
-          quoteNo,
-          agencyId: ownAgencyId(req),
-          branchId: ownBranchId(req),
-          customerName,
-          service: "Holiday",
-          items: lineItems.length,
-          amount: layers.amount,
-          gst: layers.gst,
-          total: layers.total,
-          totalSelling: layers.totalSelling,
-          totalNetCost: layers.totalNetCost,
-          grossProfit: layers.grossProfit,
-          perPersonCost: layers.perPersonCost,
-          pricingStatus: priced.priced.unresolved ? "UNRESOLVED" : "OK",
-          status: priced.priced.unresolved || customerName === "Guest" ? "In Progress" : "Customer Reviewing",
-          validTill,
-          quoteDate: new Date().toISOString().slice(0, 10),
-          createdById: req.auth?.userId,
-          createdBy: req.auth?.email || "Agent",
-          agentId: req.auth?.userId,
-          agentName: body.agentName || req.auth?.email || "Agent",
-          agentCode,
-          agencyCode,
-          contactPerson: body.contactPerson || customerName,
-          contactEmail: body.contactEmail || null,
-          contactPhone: body.contactPhone || null,
-          destination: body.destination || "Custom trip",
-          adults,
-          children,
-          currency: "INR",
-          lineItems,
-          agentMarkup,
-          baseSellingTotal: layers.totalSelling,
-          specialRequests: body.specialRequests || null,
-          travelStartDate: body.travelStartDate || null,
-          travelEndDate: body.travelEndDate || null,
-          travelDates: body.travelStartDate || null,
-          taxRate: priced.taxRate || 0,
-          taxRuleId: priced.taxRuleId,
-          approvalStatus: "Approved",
-          leadId: body.leadId || null,
-        },
-      });
-
-      await db.quotationPackage.create({
-        data: {
-          quotationId: quote.id,
-          name: "Custom Trip",
-          isSelected: true,
-          sortOrder: 0,
-          hotels: (priced.frozen.hotels || []) as Prisma.InputJsonValue,
-          flights: (priced.frozen.flights || []) as Prisma.InputJsonValue,
-          transfers: (priced.frozen.transfers || []) as Prisma.InputJsonValue,
-          activities: (priced.frozen.activities || []) as Prisma.InputJsonValue,
-          meals: (priced.frozen.meals || []) as Prisma.InputJsonValue,
-          addOns: [],
-          itinerary: [],
-          pricing: priced.priced as Prisma.InputJsonValue,
-          totalNetCost: layers.totalNetCost,
-          totalSelling: layers.totalSelling,
-          grossProfit: layers.grossProfit,
-          gst: layers.gst,
-          total: layers.total,
-          perPersonCost: layers.perPersonCost,
-        },
-      });
-
-      await writeQuoteAudit({
-        req,
-        agencyId: quote.agencyId,
-        quotationId: quote.id,
-        action: "Agent Trip Composer",
-        updatedValue: { lines: lineItems.length, agentMarkup },
-      });
-      await ensureInitialQuotationVersion({
-        quotationId: quote.id,
-        createdByName: req.auth?.email || "Agent",
-        createdById: req.auth?.userId,
-      });
-
-      const full = await db.quotation.findUnique({ where: { id: quote.id }, include: QUOTE_INCLUDE });
-      res.status(201).json({ quotation: sanitizeQuotationForRole(full as unknown as Record<string, unknown>, req.auth?.role) });
-    } catch (e) {
-      logger.error(e);
-      res.status(500).json({ error: "Server error" });
-    }
+  app.post("/api/quotations/agent/trip", requireAuth, requirePermission("quotations"), async (_req: AuthRequest, res: Response) => {
+    res.status(410).json({ error: "Removed. Create quotations via the quotation wizard." });
   });
 
   // ── Agent: update customer details & markup ──────────────────────────────

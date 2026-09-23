@@ -17,6 +17,7 @@ import {
   calcPriceFromGroups,
   defaultGroupsFromOptions,
 } from "../lib/package-matching.js";
+import { travelDatesBlockReason } from "../lib/travel-dates.js";
 
 type ScopeFn = (req: AuthRequest) => Record<string, unknown>;
 
@@ -138,6 +139,15 @@ export function mountTripPlannerRoutes(app: Express, agencyScope: ScopeFn) {
         res.status(400).json({ error: "Invalid travel dates" });
         return;
       }
+      const dateBlock = travelDatesBlockReason({
+        travelStartDate: body.travelStartDate,
+        travelEndDate: body.travelEndDate,
+        requireStart: true,
+      });
+      if (dateBlock) {
+        res.status(400).json({ error: dateBlock });
+        return;
+      }
       const computed = computeDaysNights(start, end);
       const requirementCode = await nextRequirementCode(req.auth?.agencyId);
 
@@ -199,6 +209,17 @@ export function mountTripPlannerRoutes(app: Express, agencyScope: ScopeFn) {
       if (body.customerId !== undefined) data.customer = body.customerId ? { connect: { id: body.customerId as string } } : { disconnect: true };
       if (body.leadId !== undefined) data.lead = body.leadId ? { connect: { id: body.leadId as string } } : { disconnect: true };
       if (body.destinationId) data.destination = { connect: { id: body.destinationId as string } };
+      if (body.travelStartDate || body.travelEndDate) {
+        const dateBlock = travelDatesBlockReason({
+          travelStartDate: body.travelStartDate ?? existing.travelStartDate?.toISOString().slice(0, 10),
+          travelEndDate: body.travelEndDate ?? existing.travelEndDate?.toISOString().slice(0, 10),
+          requireStart: true,
+        });
+        if (dateBlock) {
+          res.status(400).json({ error: dateBlock });
+          return;
+        }
+      }
       if (body.travelStartDate) data.travelStartDate = new Date(body.travelStartDate as string);
       if (body.travelEndDate) data.travelEndDate = new Date(body.travelEndDate as string);
       if (body.days !== undefined) data.days = body.days as number;

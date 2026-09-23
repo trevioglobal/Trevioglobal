@@ -1,9 +1,10 @@
 "use client";
 
 import { useCallback, useEffect, useRef, useState } from "react";
-import { Plus, Search, Copy, Archive, Trash2, Pencil, Download, Upload, CheckCircle, Package, IndianRupee } from "lucide-react";
-import { PageShell, PageHeader, MetricCard, StatusBadge } from "@/components/shared/ui-helpers";
+import { Plus, Copy, Archive, Trash2, Pencil, Download, Upload, CheckCircle, Package, IndianRupee } from "lucide-react";
+import { PageHeader, MetricCard, CatalogStatGrid, StatusBadge } from "@/components/shared/ui-helpers";
 import { ProductFormDialog, type ProductKind } from "@/components/shared/product-form-dialog";
+import { CatalogToolbar } from "@/components/shared/enterprise";
 import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -26,6 +27,10 @@ interface ProductCatalogProps {
   kind: ProductKind;
   apiPath: "/api/products/hotels" | "/api/products/activities" | "/api/products/transfers";
   columns: { key: string; label: string; render?: (item: ProductRecord) => React.ReactNode }[];
+  /** When true, skip page title (parent already shows one — e.g. tabs). */
+  hideHeader?: boolean;
+  /** When true, render without PageShell wrapper (nested in another page). */
+  embedded?: boolean;
 }
 
 function parseCsv(text: string): Record<string, string>[] {
@@ -69,12 +74,18 @@ function rowToPayload(kind: ProductKind, row: Record<string, string>): Record<st
       country: row.country || row.Country || "India",
       starCategory: parseInt(row.starCategory || row.Stars || "3", 10) || 3,
       currency: row.currency || row.Currency || "INR",
-      description: row.description || null,
-      address: row.address || null,
+      description: row.description || row.Description || null,
+      address: row.address || row.Address || null,
+      contactPerson: row.contactPerson || row["Contact Person"] || null,
+      contactPhone: row.contactPhone || row["Contact Phone"] || null,
+      contactEmail: row.contactEmail || row["Contact Email"] || null,
+      website: row.website || row.Website || null,
+      checkInTime: row.checkInTime || row["Check-in"] || "14:00",
+      checkOutTime: row.checkOutTime || row["Check-out"] || "11:00",
       status: row.status || "Draft",
-      amenities: (row.amenities || "").split("|").map((s) => s.trim()).filter(Boolean),
+      amenities: (row.amenities || row.Amenities || "").split("|").map((s) => s.trim()).filter(Boolean),
       roomCategories: [{
-        name: row.roomName || "Standard",
+        name: row.roomName || row["Room Name"] || "Standard",
         description: row.roomDescription || "",
         maxOccupancy: parseInt(row.maxOccupancy || "2", 10) || 2,
         maxAdults: parseInt(row.maxAdults || "2", 10) || 2,
@@ -134,7 +145,7 @@ function mergePendingRates(item: ProductRecord): ProductRecord {
   return { ...item, ...(pending as Record<string, unknown>) };
 }
 
-export function ProductCatalog({ title, subtitle, kind, apiPath, columns }: ProductCatalogProps) {
+export function ProductCatalog({ title, subtitle, kind, apiPath, columns, hideHeader = false, embedded = false }: ProductCatalogProps) {
   const { toast } = useToast();
   const fileRef = useRef<HTMLInputElement>(null);
   const [items, setItems] = useState<ProductRecord[]>([]);
@@ -285,8 +296,14 @@ export function ProductCatalog({ title, subtitle, kind, apiPath, columns }: Prod
 
   const downloadTemplate = () => {
     const templates: Record<ProductKind, string> = {
-      hotels: "name,city,country,starCategory,currency,amenities,roomName,priceSingle,priceDouble,status\nSample Hotel,Mumbai,India,4,INR,WiFi|Pool,Deluxe,8000,10000,Active",
-      activities: "name,location,duration,adultPrice,childPrice,currency,inclusions,status\nDesert Safari,Dubai,6 hours,4500,2500,INR,Transfer|Dinner,Active",
+      hotels: [
+        "destinationId,name,address,city,country,starCategory,currency,description,contactPerson,contactPhone,contactEmail,amenities,checkInTime,checkOutTime,roomName,priceSingle,priceDouble,priceExtraAdult,status",
+        ",Ramada Encore,Bukit Bintang,Kuala Lumpur,Malaysia,3,USD,City hotel near shopping,,+60…,,WiFi|Pool,15:00,12:00,Deluxe Double / Twin,39,39,21,Draft",
+      ].join("\n"),
+      activities: [
+        "destinationId,name,location,duration,startTime,closingTime,adultPrice,childPrice,currency,passengerInfo,inclusions,status",
+        ",iFly Singapore,Singapore,1.5 hours,10:00,18:00,8500,6500,INR,Wear closed shoes · arrive 30 mins early,Gear|Instructor,Draft",
+      ].join("\n"),
       transfers: "name,transferType,vehicleType,pickupLocation,dropLocation,privatePrice,sharedPrice,currency,status\nAirport Transfer,Private,Sedan,Airport,Hotel,2500,800,INR,Active",
     };
     const blob = new Blob([templates[kind]], { type: "text/csv" });
@@ -320,69 +337,88 @@ export function ProductCatalog({ title, subtitle, kind, apiPath, columns }: Prod
   };
 
   return (
-    <PageShell>
-      <PageHeader title={title} subtitle={subtitle} />
+    <div className={embedded ? "flex flex-col gap-4 lg:gap-8" : "page-shell animate-slide-up"}>
+      {!hideHeader && <PageHeader title={title} subtitle={subtitle} />}
 
-      <div className="grid grid-cols-2 md:grid-cols-3 gap-3 max-w-xl">
-        <MetricCard icon={Package} label="Total Products" value={total.toLocaleString("en-IN")} color="bg-sky-100 text-primary dark:bg-sky-500/15 dark:text-sky-400" index={0} />
-        <MetricCard icon={CheckCircle} label="Active" value={items.filter((i) => i.status === "Active").length.toLocaleString("en-IN")} color="bg-teal-100 text-brand-teal dark:bg-teal-500/15 dark:text-teal-400" subtitle="On this page" index={1} />
-      </div>
+      <CatalogStatGrid>
+        <MetricCard
+          variant="inline"
+          icon={Package}
+          label="Total Products"
+          value={total.toLocaleString("en-IN")}
+          color="bg-sky-100 text-primary dark:bg-sky-500/15 dark:text-sky-400"
+          index={0}
+        />
+        <MetricCard
+          variant="inline"
+          icon={CheckCircle}
+          label="Active"
+          value={items.filter((i) => i.status === "Active").length.toLocaleString("en-IN")}
+          color="bg-teal-100 text-brand-teal dark:bg-teal-500/15 dark:text-teal-400"
+          subtitle="On this page"
+          index={1}
+        />
+      </CatalogStatGrid>
 
       <Card>
-        <CardContent className="p-4 space-y-4">
-          <div className="flex flex-col lg:flex-row gap-3 lg:items-center lg:justify-between">
-            <div className="flex flex-1 gap-2 flex-wrap">
-              <div className="relative flex-1 max-w-sm min-w-[180px]">
-                <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
-                <Input className="pl-9" placeholder="Search products..." value={q} onChange={(e) => setQ(e.target.value)} />
-              </div>
-              <Input className="w-[160px]" placeholder="City" value={city} onChange={(e) => setCity(e.target.value)} />
-              <Select value={status} onValueChange={setStatus}>
-                <SelectTrigger className="w-[140px]"><SelectValue placeholder="Status" /></SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="All">All Status</SelectItem>
-                  <SelectItem value="Active">Active</SelectItem>
-                  <SelectItem value="Draft">Draft</SelectItem>
-                  <SelectItem value="Archived">Archived</SelectItem>
-                </SelectContent>
-              </Select>
-              <Select value={destinationId} onValueChange={(v) => { setDestinationId(v); setPage(1); }}>
-                <SelectTrigger className="w-[160px]"><SelectValue placeholder="Destination" /></SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="All">All Destinations</SelectItem>
-                  {destinations.map((d) => (
-                    <SelectItem key={d.id} value={d.id}>{d.name}</SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-              <Select value={sort} onValueChange={setSort}>
-                <SelectTrigger className="w-[160px]"><SelectValue placeholder="Sort" /></SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="createdAt">Newest</SelectItem>
-                  <SelectItem value="name">Name</SelectItem>
-                  <SelectItem value="updatedAt">Last Updated</SelectItem>
-                </SelectContent>
-              </Select>
-            </div>
-            <div className="flex gap-2 flex-wrap">
-              <Button variant="outline" size="sm" onClick={exportCsv}><Download className="w-4 h-4 mr-1" />Export</Button>
-              <Button variant="outline" size="sm" onClick={downloadTemplate}><Download className="w-4 h-4 mr-1" />Template</Button>
-              <Button variant="outline" size="sm" onClick={() => fileRef.current?.click()}><Upload className="w-4 h-4 mr-1" />Import</Button>
-              <input
-                ref={fileRef}
-                type="file"
-                accept=".csv,text/csv"
-                className="hidden"
-                onChange={(e) => {
-                  const file = e.target.files?.[0];
-                  if (file) handleImport(file);
-                }}
-              />
-              <Button size="sm" onClick={() => { setEditing(null); setFormOpen(true); }}>
-                <Plus className="w-4 h-4 mr-1" />Add
-              </Button>
-            </div>
-          </div>
+        <CardContent className="p-4 md:p-5 space-y-4">
+          <CatalogToolbar
+            bordered={false}
+            searchValue={q}
+            onSearchChange={setQ}
+            searchPlaceholder="Search products..."
+            filters={
+              <>
+                <Input className="h-9 w-[140px]" placeholder="City" value={city} onChange={(e) => setCity(e.target.value)} />
+                <Select value={status} onValueChange={setStatus}>
+                  <SelectTrigger className="h-9 w-[140px]"><SelectValue placeholder="Status" /></SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="All">All Status</SelectItem>
+                    <SelectItem value="Active">Active</SelectItem>
+                    <SelectItem value="Draft">Draft</SelectItem>
+                    <SelectItem value="Archived">Archived</SelectItem>
+                  </SelectContent>
+                </Select>
+                <Select value={destinationId} onValueChange={(v) => { setDestinationId(v); setPage(1); }}>
+                  <SelectTrigger className="h-9 w-[160px]"><SelectValue placeholder="Destination" /></SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="All">All Destinations</SelectItem>
+                    {destinations.map((d) => (
+                      <SelectItem key={d.id} value={d.id}>{d.name}</SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+                <Select value={sort} onValueChange={setSort}>
+                  <SelectTrigger className="h-9 w-[140px]"><SelectValue placeholder="Sort" /></SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="createdAt">Newest</SelectItem>
+                    <SelectItem value="name">Name</SelectItem>
+                    <SelectItem value="updatedAt">Last Updated</SelectItem>
+                  </SelectContent>
+                </Select>
+              </>
+            }
+            actions={
+              <>
+                <Button variant="outline" size="sm" className="h-9" onClick={exportCsv}><Download className="w-4 h-4 mr-1" />Export</Button>
+                <Button variant="outline" size="sm" className="h-9" onClick={downloadTemplate}><Download className="w-4 h-4 mr-1" />Template</Button>
+                <Button variant="outline" size="sm" className="h-9" onClick={() => fileRef.current?.click()}><Upload className="w-4 h-4 mr-1" />Import</Button>
+                <input
+                  ref={fileRef}
+                  type="file"
+                  accept=".csv,text/csv"
+                  className="hidden"
+                  onChange={(e) => {
+                    const file = e.target.files?.[0];
+                    if (file) handleImport(file);
+                  }}
+                />
+                <Button size="sm" className="h-9" onClick={() => { setEditing(null); setFormOpen(true); }}>
+                  <Plus className="w-4 h-4 mr-1" />Add
+                </Button>
+              </>
+            }
+          />
 
           <div className="rounded-lg border overflow-x-auto max-h-[70vh]">
             <Table>
@@ -468,6 +504,6 @@ export function ProductCatalog({ title, subtitle, kind, apiPath, columns }: Prod
         initial={editing}
         onSubmit={handleSubmit}
       />
-    </PageShell>
+    </div>
   );
 }

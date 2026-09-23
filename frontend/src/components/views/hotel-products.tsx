@@ -29,8 +29,8 @@ function ContractCell(item: ProductRecord) {
 export function HotelProductsView() {
   return (
     <ProductCatalog
-      title="Hotel Products"
-      subtitle="Manage hotel inventory, room categories, pricing, and availability. Submit rates for approval before going live."
+      title="Hotels"
+      subtitle="Rooms, rates and contacts"
       kind="hotels"
       apiPath="/api/products/hotels"
       columns={[
