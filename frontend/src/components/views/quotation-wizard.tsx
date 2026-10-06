@@ -8886,10 +8886,8 @@ function CatalogPicker({
                             )}
                             {address ? (
                               <p className="text-xs text-muted-foreground mt-1 line-clamp-2">{address}</p>
-                            ) : item.supplier?.name ? (
-                              {!isHiddenVendorName(item.supplier.name) ? (
-                                <p className="text-xs text-muted-foreground mt-1">Supplier · {scrubVendorBrand(item.supplier.name)}</p>
-                              ) : null}
+                            ) : item.supplier?.name && !isHiddenVendorName(item.supplier.name) ? (
+                              <p className="text-xs text-muted-foreground mt-1">Supplier · {scrubVendorBrand(item.supplier.name)}</p>
                             ) : null}
                             <div className="mt-3 pt-1 flex items-end justify-between gap-3">
                               <div>
