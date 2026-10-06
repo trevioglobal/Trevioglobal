@@ -1,5 +1,7 @@
 /** Customer-safe quotation PDF model. Never includes contracted cost, markup, or supplier data. */
 
+import { resolveDestinationTravelImages } from "./destination-images.js";
+
 export type PdfAudience = "customer" | "agent" | "internal";
 export type PdfMode = "preview" | "customer";
 
@@ -17,6 +19,7 @@ export type QuotationPdfPackage = {
     nights?: number | string;
     address?: string;
     imageUrl?: string;
+    highlight?: string;
     cancellationPolicy?: string;
     selfBooked?: boolean;
   }>;
@@ -33,6 +36,7 @@ export type QuotationPdfPackage = {
     stops?: number;
     cabin?: string;
     baggage?: string;
+    aircraft?: string;
     sellingPrice?: number;
     currency?: string;
     /** one_way | round_trip | multi_city | outbound | return */
@@ -132,6 +136,8 @@ export type QuotationPdfPackage = {
   }>;
   inclusions: string[];
   exclusions: string[];
+  /** Soft grouping of inclusion bullets for presentation only. */
+  inclusionGroups: Array<{ label: string; items: string[] }>;
   /** Customer-facing selling totals by service (no cost/markup). */
   serviceTotals: Array<{ label: string; amount: number }>;
   pricing: {
@@ -151,17 +157,32 @@ export type QuotationPdfModel = {
   customerName: string;
   contactEmail?: string;
   contactPhone?: string;
+  /** Short destination label for titles, e.g. "GOA". */
+  destinationName: string;
+  /** Display destination, may include country. */
   destination: string;
   country?: string;
+  destinationDescription?: string;
   departureCity?: string;
   routeLabel?: string;
   landOnly?: boolean;
   travelDates: string;
+  travelDatesShort?: string;
+  letterDate: string;
   nightsLabel: string;
   adults: number;
   children: number;
   infants: number;
+  paxSummary: string;
+  hotelSummary?: string;
+  /** Only set when flight selling totals exist and adults > 0. */
+  flightCostPerPerson?: number;
+  /** Only set when package base and flight totals allow a non-negative remainder. */
+  landCostPerPerson?: number;
   coverImage?: string;
+  closingImage?: string;
+  /** Destination-only imagery for itinerary/fallback storytelling (never hotel rooms). */
+  destinationImages: string[];
   specialRequests?: string;
   validTill?: string;
   paymentTerms?: string;
@@ -177,6 +198,9 @@ export type QuotationPdfModel = {
   visaNote?: string;
   insuranceNote?: string;
   salesContact?: string;
+  /** Customer-facing agent / advisor name for cover & closing. */
+  agentName: string;
+  overviewNotes: string[];
   packages: QuotationPdfPackage[];
   branding: {
     brandName: string;
@@ -256,6 +280,26 @@ function formatDates(quote: Record<string, unknown>): string {
   return str(quote.travelDates, "Dates as discussed");
 }
 
+function formatDatesShort(quote: Record<string, unknown>): string | undefined {
+  const start = str(quote.travelStartDate);
+  const end = str(quote.travelEndDate);
+  if (!start || !end) return undefined;
+  const a = new Date(start);
+  const b = new Date(end);
+  if (Number.isNaN(a.getTime()) || Number.isNaN(b.getTime())) return undefined;
+  const fmt = (d: Date) => d.toLocaleDateString("en-GB", { day: "2-digit", month: "short" }).toUpperCase();
+  return `${fmt(a)} - ${fmt(b)}`;
+}
+
+function letterDate(quote: Record<string, unknown>): string {
+  const raw = str(quote.updatedAt || quote.createdAt);
+  const d = raw ? new Date(raw) : new Date();
+  if (Number.isNaN(d.getTime())) {
+    return new Date().toLocaleDateString("en-GB", { weekday: "long", day: "numeric", month: "long", year: "numeric" });
+  }
+  return d.toLocaleDateString("en-GB", { weekday: "long", day: "numeric", month: "long", year: "numeric" });
+}
+
 function nightsLabel(quote: Record<string, unknown>, pkg: Record<string, unknown>): string {
   const hotels = asArr(pkg.hotels);
   const n = Number(quote.nights) || hotels.reduce((sum, h) => sum + Number(h.nights || 0), 0);
@@ -263,6 +307,22 @@ function nightsLabel(quote: Record<string, unknown>, pkg: Record<string, unknown
   if (n && days) return `${n}N & ${days}D`;
   if (n) return `${n} nights`;
   return str(pkg.description, "Package");
+}
+
+function paxSummary(adults: number, children: number, infants: number): string {
+  const parts: string[] = [];
+  if (adults > 0) parts.push(`${adults}A`);
+  if (children > 0) parts.push(`${children}C`);
+  if (infants > 0) parts.push(`${infants} INFANT${infants === 1 ? "" : "S"}`);
+  return parts.join("+") || "As discussed";
+}
+
+function hotelSummary(hotels: QuotationPdfPackage["hotels"]): string | undefined {
+  if (!hotels.length) return undefined;
+  return hotels.map((h) => {
+    const star = h.starCategory ? ` (${String(h.starCategory).replace(/star/i, "").trim()} STAR)` : "";
+    return `${h.hotelName.toUpperCase()}${star}`;
+  }).join(" · ");
 }
 
 function packagePricing(pkg: Record<string, unknown>, quote: Record<string, unknown>): QuotationPdfPackage["pricing"] {
@@ -304,6 +364,7 @@ function mapHotels(rows: Record<string, unknown>[]) {
     nights: h.nights != null ? h.nights as number | string : undefined,
     address: str(h.address) || undefined,
     imageUrl: isImgUrl(h.imageUrl) ? str(h.imageUrl) : undefined,
+    highlight: str(h.highlight || h.propertyHighlight || h.description || h.shortDescription) || undefined,
     cancellationPolicy: str(h.cancellationPolicy) || undefined,
     selfBooked: h.selfBooked === true || undefined,
   }));
@@ -325,6 +386,7 @@ function mapFlights(rows: Record<string, unknown>[]) {
       stops: f.stops != null && f.stops !== "" ? Number(f.stops) : undefined,
       cabin: str(f.cabin || f.cabinClass) || undefined,
       baggage: str(f.baggage) || undefined,
+      aircraft: str(f.aircraft) || undefined,
       sellingPrice: Number.isFinite(selling) && selling > 0 ? Math.round(selling) : undefined,
       currency: str(f.currency) || undefined,
       tripType: str(f.tripType) || undefined,
@@ -508,6 +570,30 @@ function sumSelling(rows: Array<{ sellingPrice?: number }>): number {
   return rows.reduce((s, r) => s + (Number(r.sellingPrice) > 0 ? Math.round(Number(r.sellingPrice)) : 0), 0);
 }
 
+function groupInclusions(items: string[]): Array<{ label: string; items: string[] }> {
+  if (!items.length) return [];
+  const groups: Record<string, string[]> = {
+    Hotel: [],
+    Meals: [],
+    Sightseeing: [],
+    Transfers: [],
+    "Other Services": [],
+  };
+  for (const raw of items) {
+    const item = String(raw || "").trim();
+    if (!item) continue;
+    const lower = item.toLowerCase();
+    if (/(hotel|accommodation|stay|room|night)/i.test(lower)) groups.Hotel.push(item);
+    else if (/(meal|breakfast|lunch|dinner|bf\b|cuisine)/i.test(lower)) groups.Meals.push(item);
+    else if (/(sight|tour|activity|entrance|ticket|guide|attraction)/i.test(lower)) groups.Sightseeing.push(item);
+    else if (/(transfer|airport|vehicle|transport|pickup|drop)/i.test(lower)) groups.Transfers.push(item);
+    else groups["Other Services"].push(item);
+  }
+  return Object.entries(groups)
+    .filter(([, list]) => list.length > 0)
+    .map(([label, list]) => ({ label, items: list }));
+}
+
 function mapPackage(pkg: Record<string, unknown>, quote: Record<string, unknown>): QuotationPdfPackage {
   const inclusions = Array.isArray(pkg.inclusions) && pkg.inclusions.length
     ? pkg.inclusions.map(String)
@@ -539,6 +625,7 @@ function mapPackage(pkg: Record<string, unknown>, quote: Record<string, unknown>
     itinerary: mapItinerary(asArr(pkg.itinerary)),
     inclusions,
     exclusions,
+    inclusionGroups: groupInclusions(inclusions),
     serviceTotals: [
       { label: "Hotels", amount: hotelSell },
       { label: "Flights", amount: sumSelling(flights) },
@@ -549,6 +636,61 @@ function mapPackage(pkg: Record<string, unknown>, quote: Record<string, unknown>
     ].filter((r) => r.amount > 0),
     pricing: packagePricing(pkg, quote),
   };
+}
+
+function resolveAgentName(quote: Record<string, unknown>, brandingName: string): string {
+  const candidates = [
+    str(quote.agentName),
+    str(quote.salesExecutiveName),
+    str(quote.createdBy),
+    brandingName,
+    "Trevio Global",
+  ].filter((v) => v && !/^undefined$/i.test(v) && !/^null$/i.test(v));
+  return candidates[0] || "Trevio Global";
+}
+
+function buildOverviewNotes(quote: Record<string, unknown>, pkg: QuotationPdfPackage): string[] {
+  const notes: string[] = [];
+  const availability = str(quote.termsAndConditions);
+  if (availability) notes.push(availability);
+  else notes.push("Above quote is not blocked or booked. It is strictly subject to availability at the time of confirmation & booking.");
+
+  if (pkg.pricing.taxConfigured && pkg.pricing.taxAmount != null && pkg.pricing.taxAmount > 0) {
+    const rate = pkg.pricing.taxRate != null ? ` (${pkg.pricing.taxRate}%)` : "";
+    notes.push(`Applicable tax${rate} is included as per quotation configuration.`);
+  } else if (pkg.pricing.taxConfigured === false) {
+    // omit fabricated GST claims when tax is not configured
+  }
+
+  const shareHint = str(quote.hotelTerms);
+  if (shareHint) notes.push(shareHint);
+
+  const disclaimer = str(quote.travelDisclaimer);
+  if (disclaimer) notes.push(disclaimer);
+
+  return notes.slice(0, 6);
+}
+
+/**
+ * Derive optional land/flight per-person rows only when selling flight totals exist.
+ * Never invents a split from a single all-in package price alone.
+ */
+function optionalLandFlightPerPerson(
+  pkg: QuotationPdfPackage,
+  adults: number,
+): { landCostPerPerson?: number; flightCostPerPerson?: number } {
+  if (adults <= 0) return {};
+  const flightTotal = sumSelling(pkg.flights);
+  if (flightTotal <= 0) return {};
+  const flightCostPerPerson = Math.round(flightTotal / adults);
+  const packageTotal = pkg.pricing.finalPrice || pkg.pricing.packageBase;
+  if (packageTotal > flightTotal) {
+    return {
+      flightCostPerPerson,
+      landCostPerPerson: Math.round((packageTotal - flightTotal) / adults),
+    };
+  }
+  return { flightCostPerPerson };
 }
 
 export function assertCustomerSafeModel(model: QuotationPdfModel): string[] {
@@ -576,6 +718,10 @@ export function buildQuotationPdfModel(input: {
   };
   /** Destination hero / thumbnail when quote has no coverImage. */
   destinationCoverImage?: string | null;
+  /** Additional destination gallery images for itinerary storytelling. */
+  destinationImages?: string[] | null;
+  /** Destination editorial copy when available in catalogue. */
+  destinationDescription?: string | null;
   mode: PdfMode;
   audience: PdfAudience;
 }): QuotationPdfModel {
@@ -585,39 +731,67 @@ export function buildQuotationPdfModel(input: {
     ? [...packages].sort((a, b) => Number(a.sortOrder || 0) - Number(b.sortOrder || 0))
     : [{ name: "Standard", hotels: [], flights: [], transfers: [], activities: [], meals: [], itinerary: [], inclusions: [], exclusions: [] }];
   const first = ordered[0];
-  const destName = str(quote.destination) || "Holiday";
-  const dest = [destName, str(quote.country)].filter(Boolean).join(" · ") || "Holiday";
+  const destinationName = str(quote.destination) || "Holiday";
+  const dest = [destinationName, str(quote.country)].filter(Boolean).join(" · ") || "Holiday";
   const departureCity = str(quote.departureCity) || undefined;
+  const mappedPackages = ordered.map((pkg) => mapPackage(pkg, quote));
+  const primary = mappedPackages[0];
+  const destinationImages = resolveDestinationTravelImages({
+    destinationName,
+    country: str(quote.country) || undefined,
+    city: destinationName,
+    catalogueImages: [
+      ...(Array.isArray(input.destinationImages) ? input.destinationImages : []),
+      input.destinationCoverImage,
+    ],
+  });
   const cover =
     (isImgUrl(quote.coverImage) && str(quote.coverImage))
-    || (isImgUrl(input.destinationCoverImage) && str(input.destinationCoverImage))
-    || mapItinerary(asArr(first.itinerary)).find((d) => d.coverImage)?.coverImage
-    || mapHotels(asArr(first.hotels)).find((h) => h.imageUrl)?.imageUrl
+    || destinationImages[0]
+    || primary?.itinerary.find((d) => d.coverImage)?.coverImage
+    || primary?.activities.find((a) => a.imageUrl)?.imageUrl
+    // Hotel only as last resort for cover/closing — never preferred for itinerary.
+    || primary?.hotels.find((h) => h.imageUrl)?.imageUrl
     || undefined;
   const branding = input.branding || {};
   const agencyName = str(branding.agencyName, "Trevio Global");
   const visa = asRecord(first.visa);
   const insurance = asRecord(first.insurance);
   const routeLabel = departureCity
-    ? `${departureCity} → ${destName}`
-    : destName;
+    ? `${departureCity} → ${destinationName}`
+    : destinationName;
+  const adults = Math.max(0, Number(quote.adults ?? 0) || 0);
+  const children = Math.max(0, Number(quote.children ?? 0) || 0);
+  const infants = Math.max(0, Number(quote.infants ?? 0) || 0);
+  const split = optionalLandFlightPerPerson(primary, adults);
+  const destDesc = str(input.destinationDescription) || str(quote.destinationDescription) || undefined;
 
   return {
     quoteNo: str(quote.quoteNo, "QUOTE"),
     customerName: str(quote.customerName, "Traveller"),
     contactEmail: str(quote.contactEmail) || undefined,
     contactPhone: str(quote.contactPhone) || undefined,
+    destinationName,
     destination: dest,
     country: str(quote.country) || undefined,
+    destinationDescription: destDesc,
     departureCity,
     routeLabel,
     landOnly: quote.landOnly === true,
     travelDates: formatDates(quote),
+    travelDatesShort: formatDatesShort(quote),
+    letterDate: letterDate(quote),
     nightsLabel: nightsLabel(quote, first),
-    adults: Math.max(0, Number(quote.adults ?? 0) || 0),
-    children: Math.max(0, Number(quote.children ?? 0) || 0),
-    infants: Math.max(0, Number(quote.infants ?? 0) || 0),
+    adults,
+    children,
+    infants,
+    paxSummary: paxSummary(adults, children, infants),
+    hotelSummary: hotelSummary(primary?.hotels || []),
+    flightCostPerPerson: split.flightCostPerPerson,
+    landCostPerPerson: split.landCostPerPerson,
     coverImage: cover,
+    closingImage: cover,
+    destinationImages,
     specialRequests: str(quote.specialRequests) || undefined,
     validTill: str(quote.validTill) || undefined,
     paymentTerms: str(quote.paymentTerms) || undefined,
@@ -637,7 +811,9 @@ export function buildQuotationPdfModel(input: {
       ? (str(insurance.notes || insurance.description) || undefined)
       : (str(quote.insuranceNote) || undefined),
     salesContact: [str(quote.salesExecutiveName || quote.createdBy), str(quote.salesExecutivePhone || quote.contactPhone)].filter(Boolean).join(" · ") || undefined,
-    packages: ordered.map((pkg) => mapPackage(pkg, quote)),
+    agentName: resolveAgentName(quote, agencyName),
+    overviewNotes: buildOverviewNotes(quote, primary),
+    packages: mappedPackages,
     branding: {
       brandName: agencyName,
       legalName: "TREVIO GLOBAL VOYAGE PRIVATE LIMITED",

@@ -133,6 +133,7 @@ import {
 } from "@/lib/transfer-catalog";
 import { QuoteTripBuilder } from "@/components/views/quote-trip-builder";
 import { ActivityDetailsDialog } from "@/components/shared/activity-details-dialog";
+import { isHiddenVendorName, scrubVendorBrand } from "@/lib/scrub-vendor-brand";
 import { todayYmd, defaultValidTill, travelDatesBlockReason } from "@/lib/travel-dates";
 
 /** Client Create Quote uses demonyms (e.g. Indian), not country names. */
@@ -8876,7 +8877,7 @@ function CatalogPicker({
                               </p>
                             )}
                             <p className="text-[11px] text-muted-foreground">
-                              Cancellation: {cancelLabel || "Unavailable in catalogue"}
+                              Cancellation: {scrubVendorBrand(cancelLabel) || "Unavailable in catalogue"}
                             </p>
                             {recommended ? (
                               <p className="text-[11px] text-teal-700 dark:text-teal-400">Contracted rate available for stay dates</p>
@@ -8886,7 +8887,9 @@ function CatalogPicker({
                             {address ? (
                               <p className="text-xs text-muted-foreground mt-1 line-clamp-2">{address}</p>
                             ) : item.supplier?.name ? (
-                              <p className="text-xs text-muted-foreground mt-1">Supplier · {item.supplier.name}</p>
+                              {!isHiddenVendorName(item.supplier.name) ? (
+                                <p className="text-xs text-muted-foreground mt-1">Supplier · {scrubVendorBrand(item.supplier.name)}</p>
+                              ) : null}
                             ) : null}
                             <div className="mt-3 pt-1 flex items-end justify-between gap-3">
                               <div>
@@ -8951,7 +8954,7 @@ function CatalogPicker({
       ? [...dayBound, ...otherBound, ...outstation]
       : items;
     const allVehicleOptions = vehiclePickItem ? getTransferVehicleOptions(vehiclePickItem) : [];
-    // Always show all 4 KTH columns (CAR / 10 / 18 / 18+GUIDE); pax rules still gate selection.
+    // Always show all 4 vehicle columns (CAR / 10 / 18 / 18+GUIDE); pax rules still gate selection.
     const vehicleOptions = allVehicleOptions;
     const paxBand = requiredVehicleBandForPax(quoteTotalPax);
     const guideMandatory = isAirportGuideMandatory(quoteTotalPax);
@@ -9018,7 +9021,7 @@ function CatalogPicker({
 
             {paxBand === "over_capacity" ? (
               <div className="rounded-xl border border-amber-200 bg-amber-50 px-4 py-6 text-sm text-amber-900">
-                No vehicle available for {quoteTotalPax} passengers. KTH airport transfer vehicles support a maximum of 13 passengers.
+                No vehicle available for {quoteTotalPax} passengers. Airport transfer vehicles support a maximum of 13 passengers.
               </div>
             ) : vehicleOptions.length === 0 ? (
               <div className="rounded-xl border bg-background p-6 text-center text-sm text-muted-foreground">
@@ -9300,10 +9303,10 @@ function CatalogPicker({
               </p>
               <p className="text-xs text-muted-foreground">
                 {isAirportPickup
-                  ? `KTH one-way rates from ${dayAirportLabel} to the selected hotel / outstation.`
+                  ? `Contracted one-way rates from ${dayAirportLabel} to the selected hotel / outstation.`
                   : isAirportDrop
-                    ? `KTH one-way rates from hotel to ${dayAirportLabel}.`
-                    : "KTH 2026 rates cover Kuala Lumpur (KLIA), Langkawi, and Penang."}
+                    ? `Contracted one-way rates from hotel to ${dayAirportLabel}.`
+                    : "2026 contracted rates cover Kuala Lumpur (KLIA), Langkawi, and Penang."}
               </p>
             </div>
           )}
@@ -9355,7 +9358,7 @@ function CatalogPicker({
                       Vehicles: {vehicles.map((v) => v.label).join(" · ")}
                     </p>
                   ) : !isAirportPickup && item.description ? (
-                    <p className="text-[11px] text-muted-foreground line-clamp-1">{String(item.description)}</p>
+                    <p className="text-[11px] text-muted-foreground line-clamp-1">{scrubVendorBrand(item.description)}</p>
                   ) : null}
                 </div>
                 <div className="p-3 sm:p-4 flex sm:flex-col items-end justify-between gap-2 sm:border-l border-border/60">
@@ -9435,7 +9438,7 @@ function CatalogPicker({
                 </div>
               </div>
               {item.description ? (
-                <p className="text-[11px] text-muted-foreground line-clamp-2">{String(item.description)}</p>
+                <p className="text-[11px] text-muted-foreground line-clamp-2">{scrubVendorBrand(item.description)}</p>
               ) : (
                 <p className="text-[11px] text-muted-foreground">
                   {String(item.location || item.city || activityCity)}
@@ -9877,7 +9880,7 @@ function CatalogPicker({
                 No activities for {activityCity}.
               </p>
               <p className="text-xs text-muted-foreground">
-                From KTH Malaysia ticket sheet (Non-Malaysian adult / child rates).
+                From Malaysia contracted ticket rates (Non-Malaysian adult / child rates).
               </p>
             </div>
           )}
@@ -10285,7 +10288,7 @@ function CatalogPicker({
               {destLabel ? `Live ${label} for ${destLabel}` : `Browse live ${label}`}
             </p>
             <p className="text-xs text-muted-foreground mt-1">
-              From Malaysia contracted / KTH rate sheets (2026).
+              From Malaysia contracted rate sheets (2026).
             </p>
           </div>
           <div className="relative max-w-md">
@@ -10399,7 +10402,7 @@ function CatalogPicker({
                     {item.closingTime ? `–${String(item.closingTime)}` : ""}
                     {item.duration ? ` · ${String(item.duration)}` : ""}
                     {item.adultPrice != null ? ` · ${formatFullINR(Number(item.adultPrice))}` : ""}
-                    {item.description ? ` · ${String(item.description).slice(0, 80)}` : ""}
+                    {item.description ? ` · ${scrubVendorBrand(item.description).slice(0, 80)}` : ""}
                   </span>
                 )}
                 {kind === "meals" && (

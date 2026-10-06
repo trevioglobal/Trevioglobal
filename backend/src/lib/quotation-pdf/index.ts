@@ -5,6 +5,7 @@ import { agentCanAccessQuote, agentQuoteScope, quoteSendBlockReason } from "../q
 import { putPrivateObject, objectKey } from "../document-storage.js";
 import { safeStoredName } from "../documents.js";
 import { assertCustomerSafeModel, buildQuotationPdfModel, type PdfAudience, type PdfMode } from "./model.js";
+import { resolveDestinationTravelImages } from "./destination-images.js";
 import { renderQuotationPdf } from "./render.js";
 
 export class QuotationPdfError extends Error {
@@ -101,9 +102,12 @@ export async function generateQuotationPdf(input: GenerateQuotationPdfInput) {
   const branding = await loadBranding(quote.agencyId);
 
   let destinationCoverImage: string | null = null;
-  if (!quote.coverImage && quote.destination) {
+  let destinationDescription: string | null = null;
+  let destinationImages: string[] = [];
+  if (quote.destination) {
     try {
       const destName = String(quote.destination).split(/[·,]/)[0].trim();
+      const country = quote.country ? String(quote.country) : "";
       const dest = await db.destination.findFirst({
         where: {
           AND: [
@@ -111,8 +115,13 @@ export async function generateQuotationPdf(input: GenerateQuotationPdfInput) {
               OR: [
                 { name: { equals: destName, mode: "insensitive" } },
                 { name: { contains: destName, mode: "insensitive" } },
-                ...(quote.country
-                  ? [{ country: { equals: String(quote.country), mode: "insensitive" as const } }]
+                { city: { equals: destName, mode: "insensitive" } },
+                { city: { contains: destName, mode: "insensitive" } },
+                ...(country
+                  ? [
+                      { country: { equals: country, mode: "insensitive" as const } },
+                      { name: { equals: country, mode: "insensitive" as const } },
+                    ]
                   : []),
               ],
             },
@@ -121,19 +130,53 @@ export async function generateQuotationPdf(input: GenerateQuotationPdfInput) {
               : []),
           ],
         },
-        select: { heroImage: true, thumbnail: true },
+        select: {
+          name: true,
+          city: true,
+          country: true,
+          heroImage: true,
+          thumbnail: true,
+          bannerImage: true,
+          galleryImages: true,
+          shortDescription: true,
+          longDescription: true,
+        },
         orderBy: { updatedAt: "desc" },
       });
-      destinationCoverImage = dest?.heroImage || dest?.thumbnail || null;
+      const gallery = Array.isArray(dest?.galleryImages)
+        ? (dest.galleryImages as unknown[]).map(String)
+        : [];
+      const catalogueImages = [dest?.heroImage, dest?.bannerImage, ...gallery, dest?.thumbnail];
+      destinationImages = resolveDestinationTravelImages({
+        destinationName: destName,
+        country: country || dest?.country,
+        city: dest?.city || destName,
+        catalogueImages,
+      });
+      destinationCoverImage = destinationImages[0] || null;
+      destinationDescription = dest?.longDescription || dest?.shortDescription || null;
     } catch {
-      destinationCoverImage = null;
+      destinationImages = resolveDestinationTravelImages({
+        destinationName: String(quote.destination),
+        country: quote.country ? String(quote.country) : null,
+      });
+      destinationCoverImage = destinationImages[0] || null;
+      destinationDescription = null;
     }
+  } else {
+    destinationImages = resolveDestinationTravelImages({
+      destinationName: null,
+      country: quote.country ? String(quote.country) : null,
+    });
+    destinationCoverImage = destinationImages[0] || null;
   }
 
   const model = buildQuotationPdfModel({
     quote: quote as unknown as Record<string, unknown>,
     branding,
     destinationCoverImage,
+    destinationImages,
+    destinationDescription,
     mode,
     audience,
   });

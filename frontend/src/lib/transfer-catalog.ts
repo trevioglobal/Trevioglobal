@@ -290,7 +290,7 @@ export type TransferVehicleOption = {
 };
 
 function vehicleColumnLabel(type: string): string {
-  if (/guide/i.test(type)) return "18 SEATER ( KTH ) + GUIDE";
+  if (/guide/i.test(type)) return "18 SEATER + GUIDE";
   if (/18/.test(type)) return "18-SEATER";
   if (/10/.test(type)) return "10-SEATER";
   return "CAR";

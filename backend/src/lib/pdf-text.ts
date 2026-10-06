@@ -7,6 +7,8 @@ export function pdfSafeText(value: unknown, fallback = ""): string {
     .replace(/←/g, "<-")
     .replace(/★/g, "*")
     .replace(/•/g, "-")
+    .replace(/[✓✔]/g, "+")
+    .replace(/[♥❤♡]/g, "love")
     .replace(/[’‘]/g, "'")
     .replace(/[“”]/g, '"')
     .replace(/[—–]/g, "-");

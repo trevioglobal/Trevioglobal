@@ -15,6 +15,7 @@ import {
   formatActivityTimingBar,
   isTourActivity,
 } from "@/lib/activity-catalog";
+import { scrubVendorBrand } from "@/lib/scrub-vendor-brand";
 import { cn } from "@/lib/utils";
 
 export type ActivityDetailsSource = {
@@ -69,9 +70,9 @@ export function ActivityDetailsDialog({
 
   const images = useMemo(() => (activity ? activityImages(activity) : []), [activity]);
   const timing = activity ? formatActivityTimingBar(activity) : "";
-  const title = String(activity?.name || "Activity").trim();
-  const description = String(activity?.description || "").trim();
-  const location = String(activity?.location || activity?.city || "").trim();
+  const title = scrubVendorBrand(activity?.name || "Activity");
+  const description = scrubVendorBrand(activity?.description || "");
+  const location = scrubVendorBrand(activity?.location || activity?.city || "");
 
   const inclusions = useMemo(() => {
     if (!activity) return [];
@@ -223,7 +224,7 @@ export function ActivityDetailsDialog({
 
               {tab === "restrictions" ? (
                 <div className="text-sm text-slate-600 leading-relaxed space-y-2">
-                  <p>{String(activity.cancellationPolicy || "").trim() || "Subject to supplier blackout dates and local operating conditions."}</p>
+                  <p>{scrubVendorBrand(activity.cancellationPolicy || "") || "Subject to supplier blackout dates and local operating conditions."}</p>
                   <p>Children and infant policies follow the contracted rate sheet unless noted otherwise.</p>
                 </div>
               ) : null}

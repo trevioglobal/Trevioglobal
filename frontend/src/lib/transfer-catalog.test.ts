@@ -48,14 +48,14 @@ describe("Malaysia airport vehicle ↔ pax rules", () => {
     expect(filterVehiclesForAirportPax(opts, 3).map((v) => v.label)).toEqual(["CAR"]);
     expect(filterVehiclesForAirportPax(opts, 5).map((v) => v.label)).toEqual(["10-SEATER"]);
     expect(filterVehiclesForAirportPax(opts, 7).map((v) => v.label)).toEqual(["18-SEATER"]);
-    expect(filterVehiclesForAirportPax(opts, 10).map((v) => v.label)).toEqual(["18 SEATER ( KTH ) + GUIDE"]);
+    expect(filterVehiclesForAirportPax(opts, 10).map((v) => v.label)).toEqual(["18 SEATER + GUIDE"]);
     expect(filterVehiclesForAirportPax(opts, 14)).toEqual([]);
     // Full sheet always exposes all 4 columns.
     expect(opts.map((v) => v.label)).toEqual([
       "CAR",
       "10-SEATER",
       "18-SEATER",
-      "18 SEATER ( KTH ) + GUIDE",
+      "18 SEATER + GUIDE",
     ]);
     expect(opts.map((v) => v.paxLabel)).toEqual([
       "1-3 Pax",
