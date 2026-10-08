@@ -14,38 +14,38 @@ const DINNER_RESTAURANTS =
 
 const MEALS = [
   {
-    name: "Indian Lunch (3 main course set veg menu)",
+    name: "Lunch at Indian Restaurant without Transfer",
     mealType: "Lunch",
     transferInclusion: "NONE" as const,
     adultPrice: 1602,
-    description: "3 main course set veg menu. No transfer included.",
+    description: "Lunch at Indian Restaurant without Transfer",
     restaurant: null as string | null,
     duration: "",
   },
   {
-    name: "Indian Lunch (3 main course set veg menu)",
+    name: "Lunch at Indian Restaurant with Transfer",
     mealType: "Lunch",
     transferInclusion: "PRIVATE" as const,
     adultPrice: 3535,
-    description: "Indian Lunch (3 main course set veg menu) with Hotel → Activity → Hotel (6 Hours) transfer",
+    description: "Lunch at Indian Restaurant with Transfer",
     restaurant: null,
     duration: "6 Hours",
   },
   {
-    name: "Indian dinner (3 main course veg set menu)",
+    name: "Dinner at Indian Restaurant without Transfer",
     mealType: "Dinner",
     transferInclusion: "NONE" as const,
     adultPrice: 1602,
-    description: DINNER_RESTAURANTS,
+    description: "Dinner at Indian Restaurant without Transfer",
     restaurant: DINNER_RESTAURANTS,
     duration: "",
   },
   {
-    name: "Indian dinner (3 main course veg set menu)",
+    name: "Dinner at Indian Restaurant with Transfer",
     mealType: "Dinner",
     transferInclusion: "PRIVATE" as const,
     adultPrice: 3535,
-    description: `Indian dinner (3 main course veg set menu) with Hotel → Activity → Hotel (6 Hours) transfer. ${DINNER_RESTAURANTS}`,
+    description: "Dinner at Indian Restaurant with Transfer",
     restaurant: DINNER_RESTAURANTS,
     duration: "6 Hours",
   },
@@ -96,19 +96,38 @@ async function upsertRate(productId: string, contractedCost: number, transferInc
   });
 }
 
+async function findExistingMeal(meal: (typeof MEALS)[number]) {
+  const byType = await db.mealProduct.findFirst({
+    where: {
+      mealType: meal.mealType,
+      transferInclusion: meal.transferInclusion,
+      OR: [
+        { name: { equals: meal.name, mode: "insensitive" } },
+        { name: { contains: "Indian Lunch", mode: "insensitive" } },
+        { name: { contains: "Indian dinner", mode: "insensitive" } },
+        { name: { contains: "Indian Dinner", mode: "insensitive" } },
+        { name: { contains: "at Indian Restaurant", mode: "insensitive" } },
+      ],
+    },
+    orderBy: { updatedAt: "desc" },
+  });
+  if (byType) return byType;
+  return db.mealProduct.findFirst({
+    where: {
+      mealType: meal.mealType,
+      transferInclusion: meal.transferInclusion,
+    },
+    orderBy: { updatedAt: "desc" },
+  });
+}
+
 async function main() {
   const supplier = await ensureSupplier();
   let created = 0;
   let updated = 0;
 
   for (const meal of MEALS) {
-    const existing = await db.mealProduct.findFirst({
-      where: {
-        name: { equals: meal.name, mode: "insensitive" },
-        mealType: meal.mealType,
-        transferInclusion: meal.transferInclusion,
-      },
-    });
+    const existing = await findExistingMeal(meal);
     const payload = {
       agencyId: null as string | null,
       supplierId: supplier.id,

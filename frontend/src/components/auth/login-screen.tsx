@@ -18,7 +18,9 @@ import { Checkbox } from "@/components/ui/checkbox";
 import { useToast } from "@/hooks/use-toast";
 import { AgentRegistrationForm } from "@/components/auth/agent-registration-form";
 
-type Mode = "login" | "forgot" | "reset" | "register";
+export type AuthScreenMode = "login" | "forgot" | "reset" | "register";
+
+type Mode = AuthScreenMode;
 
 const HIGHLIGHTS = [
   { icon: Plane, label: "1M+ Flights Booked" },
@@ -27,12 +29,41 @@ const HIGHLIGHTS = [
   { icon: Palmtree, label: "Custom Holiday Packages" },
 ];
 
-export function LoginScreen() {
+export function LoginScreen({
+  initialMode = "login",
+  onBackToHome,
+  onModeChange,
+}: {
+  initialMode?: AuthScreenMode;
+  onBackToHome?: () => void;
+  onModeChange?: (mode: AuthScreenMode) => void;
+} = {}) {
   const loginWithApi = useAuthStore((s) => s.loginWithApi);
   const hydrateFromApi = useDemoDataStore((s) => s.hydrateFromApi);
   const { toast } = useToast();
   const allowPublicRegister = process.env.NEXT_PUBLIC_ALLOW_PUBLIC_REGISTER === "true";
-  const [mode, setMode] = useState<Mode>("login");
+  const [mode, setModeState] = useState<Mode>(initialMode);
+
+  const setMode = (next: Mode) => {
+    setModeState(next);
+    onModeChange?.(next);
+  };
+
+  useEffect(() => {
+    setModeState(initialMode);
+  }, [initialMode]);
+
+  useEffect(() => {
+    if (mode !== "register" || allowPublicRegister) return;
+    toast({
+      title: "Partner registration is invitation-only",
+      description:
+        "Self-serve signup is currently disabled. Contact Trevio Global partner support, or sign in if you already have an account.",
+    });
+    setModeState("login");
+    onModeChange?.("login");
+  }, [mode, allowPublicRegister, onModeChange, toast]);
+
   const [showPassword, setShowPassword] = useState(false);
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
@@ -164,8 +195,33 @@ export function LoginScreen() {
     }
   };
 
-  if (mode === "register" && allowPublicRegister) {
-    return <AgentRegistrationForm onLogin={() => setMode("login")} />;
+  const displayMode: Mode =
+    mode === "register" && !allowPublicRegister ? "login" : mode;
+
+  if (displayMode === "register" && allowPublicRegister) {
+    return (
+      <div className="min-h-screen bg-background">
+        {onBackToHome ? (
+          <div className="mx-auto flex max-w-5xl items-center justify-between gap-3 px-4 py-4 sm:px-6">
+            <button
+              type="button"
+              onClick={onBackToHome}
+              className="text-sm font-medium text-slate-600 hover:text-slate-900"
+            >
+              ← Back to MyPartner
+            </button>
+            <button
+              type="button"
+              onClick={() => setMode("login")}
+              className="text-sm font-semibold text-brand-blue hover:underline"
+            >
+              Login
+            </button>
+          </div>
+        ) : null}
+        <AgentRegistrationForm onLogin={() => setMode("login")} />
+      </div>
+    );
   }
 
   return (
@@ -184,6 +240,15 @@ export function LoginScreen() {
         </motion.div>
 
         <div className="relative z-10">
+          {onBackToHome ? (
+            <button
+              type="button"
+              onClick={onBackToHome}
+              className="mb-4 text-xs font-medium text-white/75 hover:text-white"
+            >
+              ← Back to MyPartner
+            </button>
+          ) : null}
           <img
             src="/trevio-logo.png"
             alt="Trevio Global"
@@ -275,14 +340,14 @@ export function LoginScreen() {
         <div className="relative z-10 w-full max-w-[420px]">
           <AnimatePresence mode="wait">
             <motion.div
-              key={mode}
+              key={displayMode}
               initial={{ opacity: 0, y: 12 }}
               animate={{ opacity: 1, y: 0 }}
               exit={{ opacity: 0, y: -8 }}
               transition={{ duration: 0.28, ease: "easeOut" }}
               className="rounded-[1.75rem] bg-white p-8 sm:p-10 shadow-[0_24px_60px_-20px_rgba(15,40,80,0.18)]"
             >
-              {mode === "login" && (
+              {displayMode === "login" && (
                 <div className="space-y-6">
                   <div className="lg:hidden mb-2 flex justify-center">
                     <img src="/trevio-logo.png" alt="Trevio Global" className="h-8 w-auto" />
@@ -403,7 +468,7 @@ export function LoginScreen() {
                 </div>
               )}
 
-              {mode === "forgot" && (
+              {displayMode === "forgot" && (
                 <div className="space-y-6">
                   <button type="button" onClick={() => setMode("login")} className="text-sm text-muted-foreground hover:text-foreground">
                     ← Back to sign in
@@ -433,7 +498,7 @@ export function LoginScreen() {
                 </div>
               )}
 
-              {mode === "reset" && (
+              {displayMode === "reset" && (
                 <div className="space-y-6">
                   <button type="button" onClick={() => setMode("forgot")} className="text-sm text-muted-foreground hover:text-foreground">
                     ← Back

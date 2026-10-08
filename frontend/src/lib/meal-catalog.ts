@@ -2,6 +2,25 @@
 
 export const MEAL_TRANSFER_ROUTE = "Hotel → Activity → Hotel (6 Hours)";
 
+/**
+ * Agent-facing meal catalogue title.
+ * Always: "Lunch|Dinner at Indian Restaurant with|without Transfer"
+ */
+export function formatMealCatalogTitle(item: {
+  name?: unknown;
+  mealType?: unknown;
+  transferInclusion?: unknown;
+  description?: unknown;
+}): string {
+  const hay = `${item.mealType || ""} ${item.name || ""}`;
+  const kind = /\bdinner\b/i.test(hay) ? "Dinner" : "Lunch";
+  const withTransfer =
+    item.transferInclusion === "PRIVATE"
+    || /\bwith\b.*\btransfer\b/i.test(String(item.name || ""))
+    || /\bHotel\s*[→\-].*Activity\b/i.test(String(item.description || ""));
+  return `${kind} at Indian Restaurant ${withTransfer ? "with" : "without"} Transfer`;
+}
+
 /** Private transfer vehicle options shown on meal cards (reference sheet rates). */
 export const MEAL_TRANSFER_VEHICLES = [
   { id: "avenza", label: "Avenza", capacity: "1 - 5", price: 1933.32 },

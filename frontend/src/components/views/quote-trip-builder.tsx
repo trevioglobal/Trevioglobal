@@ -104,26 +104,14 @@ type ServiceTarget = {
   city: string;
 };
 
+/** Day-level add actions only — Hotels are trip-level (own section, like Flights). */
 const DAY_SERVICES: Array<{
   key: TripBuilderService;
   icon: typeof Building2;
 }> = [
-  { key: "Hotel", icon: Building2 },
   { key: "Activities", icon: ClipboardList },
   { key: "Meals", icon: UtensilsCrossed },
 ];
-
-function hotelCoversNight(hotel: Record<string, unknown>, date: string): boolean {
-  const cin = String(hotel.checkIn || "");
-  const cout = String(hotel.checkOut || "");
-  if (!/^\d{4}-\d{2}-\d{2}$/.test(cin) || !/^\d{4}-\d{2}-\d{2}$/.test(date)) return false;
-  if (/^\d{4}-\d{2}-\d{2}$/.test(cout)) return date >= cin && date < cout;
-  return date === cin;
-}
-
-function isHotelCheckInDay(hotel: Record<string, unknown>, date: string): boolean {
-  return String(hotel.checkIn || "") === date;
-}
 
 function weekdayShort(ymd: string): string {
   if (!/^\d{4}-\d{2}-\d{2}$/.test(ymd)) return "";
@@ -539,7 +527,7 @@ export function QuoteTripBuilder({
           <div className="min-w-0">
             <p className="text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">Hotels, flights, cars & activities</p>
             <p className="text-xs text-muted-foreground mt-0.5 leading-relaxed">
-              Trip-level Flights (if not land-only). Per day: Hotel · Activities (incl. transfers) · Meals · sightseeing.
+              Trip-level Hotels &amp; Flights (if not land-only). Per day: Activities (incl. transfers) · Meals · sightseeing.
               Same lines transfer into booking Travel / Itinerary.
             </p>
           </div>
@@ -804,6 +792,181 @@ export function QuoteTripBuilder({
 
       {activeStage !== "pricing" ? (
       <div className="space-y-4">
+        {activeStage === "services" ? (
+          <section className="rounded-2xl border border-teal-200/80 bg-white shadow-sm overflow-hidden">
+            <div className="flex flex-wrap items-center justify-between gap-3 px-4 sm:px-5 py-3 border-b border-teal-100 bg-teal-50/70">
+              <div className="min-w-0">
+                <h3 className="text-sm sm:text-base font-bold text-slate-900 flex items-center gap-2">
+                  <Building2 className="w-4 h-4 text-teal-700" />
+                  Hotels
+                </h3>
+                <p className="text-xs text-slate-500 mt-0.5">
+                  Stay for {stayWindows[0]?.city || form.destination || "destination"} · hotel charges roll into Pricing
+                </p>
+              </div>
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                className="h-8 rounded-full border-teal-200 bg-white text-teal-800 hover:border-teal-400 hover:bg-teal-50"
+                onClick={() => {
+                  onOpenService?.({
+                    service: "Hotel",
+                    dayNumber: 1,
+                    date: form.travelStartDate || stayWindows[0]?.checkIn || "",
+                    city: stayWindows[0]?.city || form.destination || "",
+                  });
+                }}
+              >
+                <Building2 className="w-3.5 h-3.5 mr-1.5" />
+                Add hotel
+              </Button>
+            </div>
+            {hotels.length === 0 ? (
+              <p className="px-4 py-5 text-sm text-slate-500">
+                No hotels yet. Add a stay so accommodation appears in Pricing and the itinerary.
+              </p>
+            ) : (
+              <ul className="divide-y">
+                {hotels.map((hotel, hi) => {
+                  const name = String(hotel.hotelName || hotel.name || "Hotel");
+                  const stars = hotelStars(hotel.starCategory);
+                  const roomType = String(hotel.roomType || "").trim();
+                  const meal = String(hotel.mealPlan || "").trim();
+                  const rooms = hotel.rooms != null ? Math.max(1, Math.round(Number(hotel.rooms) || 1)) : null;
+                  const nightsCount = hotel.nights != null && Number(hotel.nights) > 0
+                    ? Math.round(Number(hotel.nights))
+                    : null;
+                  const city = String(hotel.city || hotel.tripCity || "").trim();
+                  const refundable = hotel.refundable === true
+                    || /refundable|free\s*cancel/i.test(String(hotel.cancellationPolicy || ""));
+                  const selfBooked = hotel.selfBooked === true;
+                  const img = String(hotel.imageUrl || "").trim()
+                    || placeholderHotelImage({
+                      name,
+                      city: city || form.destination || "",
+                      country: "Malaysia",
+                    });
+                  const lineId = String(hotel.lineId || hotel.productId || `hotel-${hi}`);
+                  const hotelSell = displayComponentSellingPrice(hotel, "hotel");
+                  const remarks = String(hotel.remarks || "").trim();
+                  return (
+                    <li
+                      key={lineId}
+                      className="flex flex-col sm:flex-row gap-3 px-4 sm:px-5 py-3"
+                    >
+                      <div className="relative h-24 w-full sm:h-20 sm:w-28 shrink-0 rounded-lg overflow-hidden bg-slate-100">
+                        {/* eslint-disable-next-line @next/next/no-img-element */}
+                        <img src={img} alt="" className="absolute inset-0 w-full h-full object-cover" />
+                      </div>
+                      <div className="min-w-0 flex-1 space-y-1">
+                        <div className="flex flex-wrap items-start justify-between gap-2">
+                          <div className="min-w-0 space-y-0.5">
+                            <div className="flex items-center gap-1.5 flex-wrap">
+                              <p className="text-sm font-semibold text-slate-900">{name}</p>
+                              {stars > 0 ? (
+                                <span className="inline-flex items-center gap-0.5">
+                                  {Array.from({ length: stars }).map((_, i) => (
+                                    <Star key={i} className="w-3 h-3 fill-amber-400 text-amber-400" />
+                                  ))}
+                                </span>
+                              ) : null}
+                              {selfBooked ? (
+                                <span className="rounded-md bg-slate-100 text-slate-700 border border-slate-200 px-1.5 py-0.5 text-[10px] font-medium">
+                                  Self-booked
+                                </span>
+                              ) : null}
+                            </div>
+                            {city ? <p className="text-xs text-slate-600">{city}</p> : null}
+                            <p className="text-xs text-slate-500">
+                              {formatStayDisplay(String(hotel.checkIn || ""), String(hotel.checkOut || ""))}
+                              {nightsCount != null ? ` · ${nightsCount} night${nightsCount === 1 ? "" : "s"}` : ""}
+                            </p>
+                            {roomType ? (
+                              <p className="text-xs text-slate-600">
+                                {roomType}
+                                {rooms != null ? ` · ${rooms} room${rooms === 1 ? "" : "s"}` : ""}
+                              </p>
+                            ) : rooms != null ? (
+                              <p className="text-xs text-slate-600">
+                                {rooms} room{rooms === 1 ? "" : "s"}
+                              </p>
+                            ) : null}
+                            <div className="flex flex-wrap gap-1.5 pt-1">
+                              {meal ? (
+                                <span className="rounded-md bg-emerald-50 text-emerald-700 border border-emerald-100 px-1.5 py-0.5 text-[10px] font-medium">
+                                  {meal}
+                                </span>
+                              ) : null}
+                              {refundable ? (
+                                <span className="rounded-md bg-emerald-50 text-emerald-700 border border-emerald-100 px-1.5 py-0.5 text-[10px] font-medium">
+                                  Refundable
+                                </span>
+                              ) : (
+                                <span className="rounded-md bg-rose-50 text-rose-700 border border-rose-100 px-1.5 py-0.5 text-[10px] font-medium">
+                                  Non-Refundable
+                                </span>
+                              )}
+                              <span className="rounded-md bg-amber-50 text-amber-800 border border-amber-100 px-1.5 py-0.5 text-[10px] font-medium">
+                                On Request
+                              </span>
+                            </div>
+                          </div>
+                          <div className="flex flex-col items-end gap-1.5 shrink-0">
+                            {hotelSell != null ? (
+                              <div className="text-right">
+                                <p className="text-[10px] uppercase tracking-wide text-slate-500">Stay total</p>
+                                <ComponentSellLabel amount={hotelSell} />
+                              </div>
+                            ) : null}
+                            <ItemActionButtons
+                              onEdit={
+                                onUpdateHotel
+                                  ? () => openEdit({
+                                    kind: "hotel",
+                                    lineId,
+                                    title: name,
+                                    roomType,
+                                    mealPlan: meal,
+                                    remarks: String(hotel.remarks || ""),
+                                  })
+                                  : undefined
+                              }
+                              onDelete={onRemoveHotel ? () => onRemoveHotel(lineId) : undefined}
+                              onView={() => setViewTarget({
+                                kind: "hotel",
+                                title: name,
+                                imageUrl: img,
+                                rows: [
+                                  { label: "City", value: city || "—" },
+                                  { label: "Room type", value: roomType || "—" },
+                                  { label: "Rooms", value: rooms != null ? String(rooms) : "—" },
+                                  { label: "Meal plan", value: meal || "—" },
+                                  { label: "Check in / out", value: formatStayDisplay(String(hotel.checkIn || ""), String(hotel.checkOut || "")) },
+                                  { label: "Nights", value: nightsCount != null ? String(nightsCount) : "—" },
+                                  { label: "Cancellation", value: refundable ? "Refundable" : "Non-refundable" },
+                                  ...(selfBooked ? [{ label: "Booking", value: "Self-booked" }] : []),
+                                  ...(hotelSell != null
+                                    ? [{ label: "Stay total", value: formatFullINR(hotelSell) }]
+                                    : []),
+                                  { label: "Remarks", value: remarks || "—" },
+                                ],
+                              })}
+                              deleteLabel="Remove hotel"
+                              editLabel="Edit hotel"
+                              viewLabel="View hotel"
+                            />
+                          </div>
+                        </div>
+                      </div>
+                    </li>
+                  );
+                })}
+              </ul>
+            )}
+          </section>
+        ) : null}
+
         {activeStage === "services" && !form.landOnly && (
           <section className="rounded-2xl border border-sky-200/80 bg-white shadow-sm overflow-hidden">
             <div className="flex flex-wrap items-center justify-between gap-3 px-4 sm:px-5 py-3 border-b border-sky-100 bg-sky-50/70">
@@ -907,161 +1070,152 @@ export function QuoteTripBuilder({
                   </h3>
                   {activeStage === "services" ? (
                   <div className="flex flex-wrap gap-2">
-                    {(() => {
-                      const dayHasHotel = hotels.some((h) => hotelCoversNight(h, night.date));
-                      return DAY_SERVICES.filter(({ key }) => !(key === "Hotel" && dayHasHotel)).map(({ key, icon: Icon }) => {
-                        if (key === "Activities") {
-                          return (
-                            <DropdownMenu key={key}>
-                              <DropdownMenuTrigger asChild>
-                                <Button
-                                  type="button"
-                                  variant="outline"
-                                  size="sm"
-                                  className="h-8 rounded-full border-slate-200 bg-white text-slate-700 hover:border-brand-blue/40 hover:text-brand-blue data-[state=open]:bg-brand-blue data-[state=open]:text-white data-[state=open]:border-brand-blue"
-                                >
-                                  <Icon className="w-3.5 h-3.5 mr-1.5" />
-                                  Activities
-                                  <ChevronDown className="w-3 h-3 ml-1 opacity-70" />
-                                </Button>
-                              </DropdownMenuTrigger>
-                              <DropdownMenuContent align="end" className="min-w-[200px] rounded-xl p-1">
-                                <DropdownMenuItem
-                                  className="rounded-lg cursor-pointer gap-2"
-                                  onSelect={() => {
-                                    if (onOpenService) {
-                                      onOpenService({
-                                        service: "Activities",
-                                        dayNumber,
-                                        date: night.date,
-                                        city: night.city,
-                                      });
-                                      return;
-                                    }
-                                    setServiceTarget({
+                    {DAY_SERVICES.map(({ key, icon: Icon }) => {
+                      if (key === "Activities") {
+                        return (
+                          <DropdownMenu key={key}>
+                            <DropdownMenuTrigger asChild>
+                              <Button
+                                type="button"
+                                variant="outline"
+                                size="sm"
+                                className="h-8 rounded-full border-slate-200 bg-white text-slate-700 hover:border-brand-blue/40 hover:text-brand-blue data-[state=open]:bg-brand-blue data-[state=open]:text-white data-[state=open]:border-brand-blue"
+                              >
+                                <Icon className="w-3.5 h-3.5 mr-1.5" />
+                                Activities
+                                <ChevronDown className="w-3 h-3 ml-1 opacity-70" />
+                              </Button>
+                            </DropdownMenuTrigger>
+                            <DropdownMenuContent align="end" className="min-w-[200px] rounded-xl p-1">
+                              <DropdownMenuItem
+                                className="rounded-lg cursor-pointer gap-2"
+                                onSelect={() => {
+                                  if (onOpenService) {
+                                    onOpenService({
                                       service: "Activities",
                                       dayNumber,
                                       date: night.date,
                                       city: night.city,
                                     });
-                                  }}
-                                >
-                                  <ClipboardList className="w-3.5 h-3.5 text-brand-blue" />
-                                  Activity / Sightseeing
-                                </DropdownMenuItem>
-                                <DropdownMenuItem
-                                  className="rounded-lg cursor-pointer gap-2"
-                                  onSelect={() => {
-                                    if (onOpenService) {
-                                      onOpenService({
-                                        service: "Transfers",
-                                        dayNumber,
-                                        date: night.date,
-                                        city: night.city,
-                                        transferKind: "transfer",
-                                      });
-                                      return;
-                                    }
-                                    setServiceTarget({
+                                    return;
+                                  }
+                                  setServiceTarget({
+                                    service: "Activities",
+                                    dayNumber,
+                                    date: night.date,
+                                    city: night.city,
+                                  });
+                                }}
+                              >
+                                <ClipboardList className="w-3.5 h-3.5 text-brand-blue" />
+                                Activity / Sightseeing
+                              </DropdownMenuItem>
+                              <DropdownMenuItem
+                                className="rounded-lg cursor-pointer gap-2"
+                                onSelect={() => {
+                                  if (onOpenService) {
+                                    onOpenService({
                                       service: "Transfers",
                                       dayNumber,
                                       date: night.date,
                                       city: night.city,
+                                      transferKind: "transfer",
                                     });
-                                  }}
-                                >
-                                  <Car className="w-3.5 h-3.5 text-brand-blue" />
-                                  Transfer
-                                </DropdownMenuItem>
-                                <DropdownMenuItem
-                                  className="rounded-lg cursor-pointer gap-2"
-                                  onSelect={() => {
-                                    if (onOpenService) {
-                                      onOpenService({
-                                        service: "Transfers",
-                                        dayNumber,
-                                        date: night.date,
-                                        city: night.city,
-                                        transferKind: "airport_pickup",
-                                      });
-                                      return;
-                                    }
-                                    setServiceTarget({
+                                    return;
+                                  }
+                                  setServiceTarget({
+                                    service: "Transfers",
+                                    dayNumber,
+                                    date: night.date,
+                                    city: night.city,
+                                  });
+                                }}
+                              >
+                                <Car className="w-3.5 h-3.5 text-brand-blue" />
+                                Transfer
+                              </DropdownMenuItem>
+                              <DropdownMenuItem
+                                className="rounded-lg cursor-pointer gap-2"
+                                onSelect={() => {
+                                  if (onOpenService) {
+                                    onOpenService({
                                       service: "Transfers",
                                       dayNumber,
                                       date: night.date,
                                       city: night.city,
+                                      transferKind: "airport_pickup",
                                     });
-                                  }}
-                                >
-                                  <Plane className="w-3.5 h-3.5 text-brand-blue" />
-                                  Airport Pickup
-                                </DropdownMenuItem>
-                                <DropdownMenuItem
-                                  className="rounded-lg cursor-pointer gap-2"
-                                  onSelect={() => {
-                                    if (onOpenService) {
-                                      onOpenService({
-                                        service: "Transfers",
-                                        dayNumber,
-                                        date: night.date,
-                                        city: night.city,
-                                        transferKind: "airport_drop",
-                                      });
-                                      return;
-                                    }
-                                    setServiceTarget({
+                                    return;
+                                  }
+                                  setServiceTarget({
+                                    service: "Transfers",
+                                    dayNumber,
+                                    date: night.date,
+                                    city: night.city,
+                                  });
+                                }}
+                              >
+                                <Plane className="w-3.5 h-3.5 text-brand-blue" />
+                                Airport Pickup
+                              </DropdownMenuItem>
+                              <DropdownMenuItem
+                                className="rounded-lg cursor-pointer gap-2"
+                                onSelect={() => {
+                                  if (onOpenService) {
+                                    onOpenService({
                                       service: "Transfers",
                                       dayNumber,
                                       date: night.date,
                                       city: night.city,
+                                      transferKind: "airport_drop",
                                     });
-                                  }}
-                                >
-                                  <Plane className="w-3.5 h-3.5 text-brand-blue rotate-180" />
-                                  Airport Drop
-                                </DropdownMenuItem>
-                              </DropdownMenuContent>
-                            </DropdownMenu>
-                          );
-                        }
-                        return (
-                          <Button
-                            key={key}
-                            type="button"
-                            variant="outline"
-                            size="sm"
-                            className="h-8 rounded-full border-slate-200 bg-white text-slate-700 hover:border-brand-blue/40 hover:text-brand-blue"
-                            onClick={() => {
-                              if (
-                                onOpenService
-                                && (
-                                  key === "Hotel"
-                                  || key === "Meals"
-                                )
-                              ) {
-                                onOpenService({
-                                  service: key,
-                                  dayNumber,
-                                  date: night.date,
-                                  city: night.city,
-                                });
-                                return;
-                              }
-                              setServiceTarget({
+                                    return;
+                                  }
+                                  setServiceTarget({
+                                    service: "Transfers",
+                                    dayNumber,
+                                    date: night.date,
+                                    city: night.city,
+                                  });
+                                }}
+                              >
+                                <Plane className="w-3.5 h-3.5 text-brand-blue rotate-180" />
+                                Airport Drop
+                              </DropdownMenuItem>
+                            </DropdownMenuContent>
+                          </DropdownMenu>
+                        );
+                      }
+                      return (
+                        <Button
+                          key={key}
+                          type="button"
+                          variant="outline"
+                          size="sm"
+                          className="h-8 rounded-full border-slate-200 bg-white text-slate-700 hover:border-brand-blue/40 hover:text-brand-blue"
+                          onClick={() => {
+                            if (onOpenService && key === "Meals") {
+                              onOpenService({
                                 service: key,
                                 dayNumber,
                                 date: night.date,
                                 city: night.city,
                               });
-                            }}
-                          >
-                            <Icon className="w-3.5 h-3.5 mr-1.5" />
-                            {key}
-                          </Button>
-                        );
-                      });
-                    })()}
+                              return;
+                            }
+                            setServiceTarget({
+                              service: key,
+                              dayNumber,
+                              date: night.date,
+                              city: night.city,
+                            });
+                          }}
+                        >
+                          <Icon className="w-3.5 h-3.5 mr-1.5" />
+                          {key}
+                        </Button>
+                      );
+                    })}
                   </div>
                   ) : null}
                 </div>
@@ -1156,12 +1310,9 @@ export function QuoteTripBuilder({
 
                 <div className="p-4 sm:p-5 space-y-3">
                   {(() => {
-                    const dayHotels = hotels.filter((h) => hotelCoversNight(h, night.date));
-                    const checkInHotels = dayHotels.filter((h) => isHotelCheckInDay(h, night.date));
-                    const continuingHotels = dayHotels.filter((h) => !isHotelCheckInDay(h, night.date));
-                    // Hotel stay cards render from packages[].hotels; skip HOTEL itinerary projections to avoid duplicates.
+                    // Hotels live in the trip-level Hotels section — skip HOTEL itinerary projections here.
                     const nonHotelItems = items.filter((item) => String(item.itemType || "").toUpperCase() !== "HOTEL");
-                    const empty = nonHotelItems.length === 0 && dayHotels.length === 0;
+                    const empty = nonHotelItems.length === 0;
                     if (empty) {
                       return (
                         <div className="rounded-xl border border-dashed border-slate-200 bg-slate-50/50 px-4 py-8 text-center">
@@ -1170,17 +1321,13 @@ export function QuoteTripBuilder({
                           </div>
                           <p className="text-sm font-semibold text-slate-800">Day at Leisure</p>
                           <p className="text-xs text-slate-500 mt-1 max-w-sm mx-auto">
-                            No hotel or activities planned. Add hotel or pick Activities (incl. transfers).
+                            No activities planned. Pick Activities (incl. transfers) or Meals for this day.
                           </p>
                         </div>
                       );
                     }
 
                     let dayDisplayTotal = 0;
-                    for (const hotel of checkInHotels) {
-                      const sell = displayComponentSellingPrice(hotel, "hotel");
-                      if (sell != null) dayDisplayTotal += sell;
-                    }
                     for (const item of nonHotelItems) {
                       const t = String(item.itemType || "").toUpperCase();
                       if (t === "TRANSFER") {
@@ -1204,165 +1351,6 @@ export function QuoteTripBuilder({
 
                     return (
                       <>
-                        {checkInHotels.length > 0 ? (
-                          <ul className="space-y-3">
-                            {checkInHotels.map((hotel, hi) => {
-                              const name = String(hotel.hotelName || hotel.name || "Hotel");
-                              const stars = hotelStars(hotel.starCategory);
-                              const roomType = String(hotel.roomType || "").trim();
-                              const meal = String(hotel.mealPlan || "").trim();
-                              const rooms = hotel.rooms != null ? Math.max(1, Math.round(Number(hotel.rooms) || 1)) : null;
-                              const nightsCount = hotel.nights != null && Number(hotel.nights) > 0
-                                ? Math.round(Number(hotel.nights))
-                                : null;
-                              const city = String(hotel.city || hotel.tripCity || "").trim();
-                              const refundable = hotel.refundable === true
-                                || /refundable|free\s*cancel/i.test(String(hotel.cancellationPolicy || ""));
-                              const selfBooked = hotel.selfBooked === true;
-                              const img = String(hotel.imageUrl || "").trim()
-                                || placeholderHotelImage({
-                                  name,
-                                  city: city || form.destination || "",
-                                  country: "Malaysia",
-                                });
-                              const lineId = String(hotel.lineId || hotel.productId || `hotel-${hi}`);
-                              const hotelSell = displayComponentSellingPrice(hotel, "hotel");
-                              const remarks = String(hotel.remarks || "").trim();
-                              return (
-                                <li
-                                  key={lineId}
-                                  className="flex flex-col sm:flex-row gap-3 rounded-xl border border-teal-100 bg-teal-50/30 px-3 py-3"
-                                >
-                                  <div className="relative h-24 w-full sm:h-20 sm:w-28 shrink-0 rounded-lg overflow-hidden bg-slate-100">
-                                    {/* eslint-disable-next-line @next/next/no-img-element */}
-                                    <img src={img} alt="" className="absolute inset-0 w-full h-full object-cover" />
-                                  </div>
-                                  <div className="min-w-0 flex-1 space-y-1">
-                                    <div className="flex flex-wrap items-start justify-between gap-2">
-                                      <div className="min-w-0 space-y-0.5">
-                                        <div className="flex items-center gap-1.5 flex-wrap">
-                                          <p className="text-sm font-semibold text-slate-900">{name}</p>
-                                          {stars > 0 ? (
-                                            <span className="inline-flex items-center gap-0.5">
-                                              {Array.from({ length: stars }).map((_, i) => (
-                                                <Star key={i} className="w-3 h-3 fill-amber-400 text-amber-400" />
-                                              ))}
-                                            </span>
-                                          ) : null}
-                                          {selfBooked ? (
-                                            <span className="rounded-md bg-slate-100 text-slate-700 border border-slate-200 px-1.5 py-0.5 text-[10px] font-medium">
-                                              Self-booked
-                                            </span>
-                                          ) : null}
-                                        </div>
-                                        {city ? <p className="text-xs text-slate-600">{city}</p> : null}
-                                        <p className="text-xs text-slate-500">
-                                          {formatStayDisplay(String(hotel.checkIn || ""), String(hotel.checkOut || ""))}
-                                          {nightsCount != null ? ` · ${nightsCount} night${nightsCount === 1 ? "" : "s"}` : ""}
-                                        </p>
-                                        {roomType ? (
-                                          <p className="text-xs text-slate-600">
-                                            {roomType}
-                                            {rooms != null ? ` · ${rooms} room${rooms === 1 ? "" : "s"}` : ""}
-                                          </p>
-                                        ) : rooms != null ? (
-                                          <p className="text-xs text-slate-600">
-                                            {rooms} room{rooms === 1 ? "" : "s"}
-                                          </p>
-                                        ) : null}
-                                        <div className="flex flex-wrap gap-1.5 pt-1">
-                                          {meal ? (
-                                            <span className="rounded-md bg-emerald-50 text-emerald-700 border border-emerald-100 px-1.5 py-0.5 text-[10px] font-medium">
-                                              {meal}
-                                            </span>
-                                          ) : null}
-                                          {refundable ? (
-                                            <span className="rounded-md bg-emerald-50 text-emerald-700 border border-emerald-100 px-1.5 py-0.5 text-[10px] font-medium">
-                                              Refundable
-                                            </span>
-                                          ) : (
-                                            <span className="rounded-md bg-rose-50 text-rose-700 border border-rose-100 px-1.5 py-0.5 text-[10px] font-medium">
-                                              Non-Refundable
-                                            </span>
-                                          )}
-                                          <span className="rounded-md bg-amber-50 text-amber-800 border border-amber-100 px-1.5 py-0.5 text-[10px] font-medium">
-                                            On Request
-                                          </span>
-                                        </div>
-                                      </div>
-                                      <div className="flex flex-col items-end gap-1.5 shrink-0">
-                                        {hotelSell != null ? (
-                                          <div className="text-right">
-                                            <p className="text-[10px] uppercase tracking-wide text-slate-500">Stay total</p>
-                                            <ComponentSellLabel amount={hotelSell} />
-                                          </div>
-                                        ) : null}
-                                        <ItemActionButtons
-                                          onEdit={
-                                            onUpdateHotel
-                                              ? () => openEdit({
-                                                kind: "hotel",
-                                                lineId,
-                                                title: name,
-                                                roomType,
-                                                mealPlan: meal,
-                                                remarks: String(hotel.remarks || ""),
-                                              })
-                                              : undefined
-                                          }
-                                          onDelete={onRemoveHotel ? () => onRemoveHotel(lineId) : undefined}
-                                          onView={() => setViewTarget({
-                                            kind: "hotel",
-                                            title: name,
-                                            imageUrl: img,
-                                            rows: [
-                                              { label: "City", value: city || "—" },
-                                              { label: "Room type", value: roomType || "—" },
-                                              { label: "Rooms", value: rooms != null ? String(rooms) : "—" },
-                                              { label: "Meal plan", value: meal || "—" },
-                                              { label: "Check in / out", value: formatStayDisplay(String(hotel.checkIn || ""), String(hotel.checkOut || "")) },
-                                              { label: "Nights", value: nightsCount != null ? String(nightsCount) : "—" },
-                                              { label: "Cancellation", value: refundable ? "Refundable" : "Non-refundable" },
-                                              ...(selfBooked ? [{ label: "Booking", value: "Self-booked" }] : []),
-                                              ...(hotelSell != null
-                                                ? [{ label: "Stay total", value: formatFullINR(hotelSell) }]
-                                                : []),
-                                              { label: "Remarks", value: remarks || "—" },
-                                            ],
-                                          })}
-                                          deleteLabel="Remove hotel"
-                                          editLabel="Edit hotel"
-                                          viewLabel="View hotel"
-                                        />
-                                      </div>
-                                    </div>
-                                  </div>
-                                </li>
-                              );
-                            })}
-                          </ul>
-                        ) : null}
-                        {continuingHotels.length > 0 ? (
-                          <ul className="space-y-1.5">
-                            {continuingHotels.map((hotel, hi) => {
-                              const name = String(hotel.hotelName || hotel.name || "Hotel");
-                              const lineId = String(hotel.lineId || hotel.productId || `hotel-stay-${hi}`);
-                              return (
-                                <li
-                                  key={`${lineId}-cont`}
-                                  className="rounded-lg border border-slate-200 bg-slate-50/80 px-3 py-2 text-xs text-slate-700 flex items-center gap-2"
-                                >
-                                  <Building2 className="w-3.5 h-3.5 text-brand-teal shrink-0" />
-                                  <span>
-                                    Staying at <span className="font-semibold">{name}</span>
-                                    {" · "}
-                                    {formatStayDisplay(String(hotel.checkIn || ""), String(hotel.checkOut || ""))}
-                                  </span>
-                                </li>
-                              );
-                            })}
-                          </ul>
-                        ) : null}
                         {nonHotelItems.length > 0 ? (
                           <ul className="space-y-3">
                             {nonHotelItems.map((item, i) => {

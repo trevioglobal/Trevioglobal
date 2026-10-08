@@ -87,6 +87,7 @@ import {
 } from "@/lib/activity-catalog";
 import {
   defaultMealVehicleQty,
+  formatMealCatalogTitle,
   mealFoodOnlyPrice,
   mealTimeSlotsForType,
   mealTransferVehicleTotal,
@@ -1956,7 +1957,7 @@ export function QuotationWizardView() {
       source: "CONTRACTED_PRODUCT",
       selfBooked: false,
       restaurant: String(item.restaurant || item.name || ""),
-      name: String(item.name || ""),
+      name: formatMealCatalogTitle(item),
       mealType: String(item.mealType || "Dinner"),
       cuisine: String(item.cuisine || ""),
       city,
@@ -1967,7 +1968,7 @@ export function QuotationWizardView() {
       time: timeSlot,
       timeSlot,
       duration: String(item.duration || (transferInclusion === "PRIVATE" ? "6 Hours" : "")),
-      description: String(item.description || ""),
+      description: formatMealCatalogTitle({ ...item, transferInclusion }),
       transferInclusion,
       transferBadge: transferInclusion === "PRIVATE" ? "Private Transfer" : "No Transfer",
       adults,
@@ -2000,11 +2001,10 @@ export function QuotationWizardView() {
     });
     void persistTripPackage(buildSelectedPackagePatch({ meals, itinerary }));
     setServicePicker(null);
+    const mealTitle = formatMealCatalogTitle({ ...item, transferInclusion });
     toast({
       title: "Meal added",
-      description: `${String(item.name || "Meal")}${timeSlot ? ` · ${timeSlot}` : ""}${
-        transferInclusion === "PRIVATE" ? " · Private Transfer" : ""
-      }`,
+      description: `${mealTitle}${timeSlot ? ` · ${timeSlot}` : ""}`,
     });
   }
 
@@ -9971,11 +9971,12 @@ function CatalogPicker({
               const displayPrice = expanded
                 ? foodPrice + (mealWantTransfer ? transferTotal : 0)
                 : Number(item.adultPrice || 0);
-              const sub = String(item.description || "").trim();
               const slots = mealTimeSlotsForType(item.mealType);
+              const mealTitle = formatMealCatalogTitle(item);
               const mealKind = /\bdinner\b/i.test(String(item.mealType || item.name || ""))
                 ? "Dinner"
                 : "Lunch";
+              const hasTransfer = item.transferInclusion === "PRIVATE";
 
               return (
                 <div
@@ -9988,24 +9989,20 @@ function CatalogPicker({
                   <div className="flex flex-col sm:flex-row sm:items-start gap-3">
                     <div className="min-w-0 flex-1 space-y-1.5">
                       <div className="flex flex-wrap items-center gap-2">
-                        <p className="font-semibold text-sm text-slate-900 leading-snug">{item.name}</p>
+                        <p className="font-semibold text-sm text-slate-900 leading-snug">{mealTitle}</p>
                         <span className="inline-flex items-center rounded-full px-2 py-0.5 text-[10px] font-semibold bg-amber-50 text-amber-800">
                           {mealKind}
                         </span>
-                        {expanded ? (
-                          <span
-                            className={cn(
-                              "inline-flex items-center rounded-full px-2 py-0.5 text-[10px] font-semibold",
-                              mealWantTransfer ? "bg-sky-100 text-sky-800" : "bg-slate-100 text-slate-700",
-                            )}
-                          >
-                            {mealWantTransfer ? "With Transfer" : "Without Transfer"}
-                          </span>
-                        ) : (
-                          <span className="inline-flex items-center rounded-full px-2 py-0.5 text-[10px] font-semibold bg-slate-100 text-slate-600">
-                            Transfer optional
-                          </span>
-                        )}
+                        <span
+                          className={cn(
+                            "inline-flex items-center rounded-full px-2 py-0.5 text-[10px] font-semibold",
+                            (expanded ? mealWantTransfer : hasTransfer)
+                              ? "bg-sky-100 text-sky-800"
+                              : "bg-slate-100 text-slate-700",
+                          )}
+                        >
+                          {(expanded ? mealWantTransfer : hasTransfer) ? "With Transfer" : "Without Transfer"}
+                        </span>
                         <button
                           type="button"
                           className="inline-flex items-center gap-1 text-xs font-medium text-orange-600 hover:underline"
@@ -10015,9 +10012,6 @@ function CatalogPicker({
                           View Details
                         </button>
                       </div>
-                      {sub ? (
-                        <p className="text-xs text-slate-500 line-clamp-2">{sub}</p>
-                      ) : null}
                     </div>
                     <div className="flex sm:flex-col items-center sm:items-end justify-between gap-2 shrink-0 sm:min-w-[120px]">
                       <div className="text-left sm:text-right">
@@ -10224,7 +10218,7 @@ function CatalogPicker({
         >
           <DialogContent className="sm:max-w-lg">
             <DialogTitle className="text-base font-semibold pr-8">
-              {String(mealDetailsItem?.name || "Meal")}
+              {mealDetailsItem ? formatMealCatalogTitle(mealDetailsItem) : "Meal"}
             </DialogTitle>
             {mealDetailsItem ? (
               <div className="space-y-3 text-sm">
@@ -10236,24 +10230,16 @@ function CatalogPicker({
                       : "bg-slate-100 text-slate-700",
                   )}
                 >
-                  {mealDetailsItem.transferInclusion === "PRIVATE" ? "Private Transfer" : "No Transfer"}
+                  {mealDetailsItem.transferInclusion === "PRIVATE" ? "With Transfer" : "Without Transfer"}
                 </span>
                 {mealDetailsItem.mealType ? (
                   <p className="text-xs text-muted-foreground uppercase tracking-wide">
                     {String(mealDetailsItem.mealType)}
                   </p>
                 ) : null}
-                {mealDetailsItem.description ? (
-                  <p className="text-slate-700 leading-relaxed whitespace-pre-wrap">
-                    {String(mealDetailsItem.description)}
-                  </p>
-                ) : null}
-                {mealDetailsItem.restaurant ? (
-                  <p className="text-xs text-slate-500">
-                    <span className="font-medium text-slate-700">Restaurants: </span>
-                    {String(mealDetailsItem.restaurant)}
-                  </p>
-                ) : null}
+                <p className="text-slate-700 leading-relaxed">
+                  {formatMealCatalogTitle(mealDetailsItem)}
+                </p>
                 <p className="text-sm font-bold text-emerald-600 tabular-nums">
                   {Number(mealDetailsItem.adultPrice || 0) > 0
                     ? formatMealInr(Number(mealDetailsItem.adultPrice))
