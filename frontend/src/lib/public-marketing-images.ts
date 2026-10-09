@@ -1,5 +1,5 @@
 /**
- * Central image config for the public MyPartner marketing site.
+ * Central image config for the public Trevioglobal marketing site.
  * Prefer swapping these for owned Trevio assets under /public when available.
  */
 

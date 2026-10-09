@@ -40,13 +40,13 @@ export function HeroSection({
           transition={{ duration: 0.7, ease: [0.22, 1, 0.36, 1], delay: 0.1 }}
         >
           <p className="text-[11px] font-semibold uppercase tracking-[0.22em] text-[var(--brand-teal)]">
-            Trevio Global · MyPartner
+            Trevioglobal
           </p>
           <h1 className="text-[2.35rem] font-semibold leading-[1.08] tracking-tight sm:text-5xl lg:text-[3.65rem]">
             The Smarter Way to Grow Your Travel Business
           </h1>
           <p className="max-w-2xl text-base leading-relaxed text-white/80 sm:text-lg">
-            Welcome to Trevio Global MyPartner — your dedicated B2B travel platform built for travel agents,
+            Welcome to Trevioglobal — your dedicated B2B travel platform built for travel agents,
             tour operators and travel businesses.
           </p>
           <p className="max-w-2xl text-sm leading-relaxed text-white/60 sm:text-[0.95rem]">
@@ -67,7 +67,7 @@ export function HeroSection({
               onClick={onLogin}
               className="h-12 w-full rounded-xl border-white/30 bg-white/5 px-6 text-sm font-semibold text-white hover:bg-white/10 hover:text-white sm:w-auto"
             >
-              Login to MyPartner
+              Login to Trevioglobal
             </Button>
           </div>
         </motion.div>

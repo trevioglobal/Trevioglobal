@@ -208,7 +208,7 @@ export function LoginScreen({
               onClick={onBackToHome}
               className="text-sm font-medium text-slate-600 hover:text-slate-900"
             >
-              ← Back to MyPartner
+              ← Back to Trevioglobal
             </button>
             <button
               type="button"
@@ -246,7 +246,7 @@ export function LoginScreen({
               onClick={onBackToHome}
               className="mb-4 text-xs font-medium text-white/75 hover:text-white"
             >
-              ← Back to MyPartner
+              ← Back to Trevioglobal
             </button>
           ) : null}
           <img

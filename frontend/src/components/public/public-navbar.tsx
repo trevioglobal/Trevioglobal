@@ -65,7 +65,7 @@ export function PublicNavbar({
               scrolled ? "text-slate-500" : "text-white/70",
             )}
           >
-            MyPartner
+            Trevioglobal
           </span>
         </a>
 

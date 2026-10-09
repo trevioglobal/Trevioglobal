@@ -30,7 +30,7 @@ export function FinalCta({
             Ready to Grow Your Travel Business?
           </h2>
           <p className="mx-auto mt-5 max-w-2xl text-base leading-relaxed text-white/75 sm:text-lg">
-            Join Trevio Global MyPartner.
+            Join Trevioglobal.
           </p>
           <p className="mx-auto mt-3 max-w-2xl text-sm leading-relaxed text-white/55 sm:text-base">
             Give your customers more travel choices while managing your business from one powerful B2B platform.
@@ -50,7 +50,7 @@ export function FinalCta({
               onClick={onLogin}
               className="h-12 rounded-xl border-white/30 bg-white/5 px-6 text-sm font-semibold text-white hover:bg-white/10 hover:text-white"
             >
-              Already a partner? Login to MyPartner
+              Already a partner? Login to Trevioglobal
             </Button>
           </div>
         </ScrollReveal>

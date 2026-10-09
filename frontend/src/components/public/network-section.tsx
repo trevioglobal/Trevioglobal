@@ -36,7 +36,7 @@ export function NetworkSection() {
             transfers and travel solutions.
           </p>
           <p className="max-w-2xl text-sm leading-relaxed text-white/55 sm:text-base">
-            Whether you&apos;re handling an individual booking or managing a complete group itinerary, MyPartner gives
+            Whether you&apos;re handling an individual booking or managing a complete group itinerary, Trevioglobal gives
             you the tools to manage your travel business efficiently.
           </p>
           <motion.p

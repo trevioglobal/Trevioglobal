@@ -38,7 +38,7 @@ export function PublicFooter({
           <div className="lg:col-span-4 space-y-4">
             <img src="/trevio-logo.png" alt="Trevio Global" className="h-9 w-auto object-contain" />
             <p className="text-[11px] font-semibold uppercase tracking-[0.2em] text-white/50">
-              MyPartner
+              Trevioglobal
             </p>
             <p className="max-w-sm text-sm leading-relaxed text-white/65">
               Premium B2B travel platform for travel agents, tour operators and travel businesses.

@@ -38,7 +38,7 @@ export function PartnerBenefits() {
               More Tools. More Opportunities. More Business.
             </h2>
             <p className="mt-5 max-w-md text-base leading-relaxed text-slate-600">
-              MyPartner is designed to help agencies sell more travel — with cleaner workflows, stronger packaging,
+              Trevioglobal is designed to help agencies sell more travel — with cleaner workflows, stronger packaging,
               and support that understands the trade.
             </p>
           </ScrollReveal>

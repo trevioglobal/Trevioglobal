@@ -42,7 +42,7 @@ export function HowItWorks() {
             Journey
           </p>
           <h2 className="mt-3 text-3xl font-semibold tracking-tight text-[#0b1220] sm:text-4xl">
-            How MyPartner Works
+            How Trevioglobal Works
           </h2>
         </ScrollReveal>
 
