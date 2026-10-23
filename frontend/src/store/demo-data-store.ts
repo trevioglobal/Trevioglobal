@@ -73,7 +73,8 @@ interface DemoDataState {
   upsertQuotation: (q: Quotation) => void;
   updateQuotationStatus: (id: string, status: Quotation["status"]) => void;
   addEmployee: (e: Omit<Employee, "id" | "joinDate" | "status" | "incentives" | "achieved" | "attendance"> & { branchId?: string; permissions?: Module[] | null; password?: string }) => Promise<Employee & { tempPassword?: string }>;
-  updateEmployee: (id: string, patch: Partial<Employee> & { branchId?: string | null; permissions?: Module[] | null }) => Promise<void>;
+  updateEmployee: (id: string, patch: Partial<Employee> & { branchId?: string | null; permissions?: Module[] | null; password?: string }) => Promise<void>;
+  deleteEmployee: (id: string) => Promise<void>;
   addTask: (t: Omit<Task, "id" | "createdAt" | "status">) => Task;
   updateTaskStatus: (id: string, status: Task["status"]) => void;
   addPayment: (p: Omit<Payment, "id" | "txnId" | "date" | "status"> & { orderId?: string; paymentId?: string; signature?: string }) => Promise<Payment>;
@@ -426,14 +427,27 @@ export const useDemoDataStore = create<DemoDataState>()(
         }
       },
 
-      updateEmployee: async (id, patch) => {
-        set((s) => ({ employees: s.employees.map((e) => (e.id === id ? { ...e, ...patch } : e)) }));
-        try {
-          await api.updateEmployee(id, patch);
-        } catch {
-          reportSyncFailure("Employee update");
-        }
-      },
+  updateEmployee: async (id, patch) => {
+    set((s) => ({ employees: s.employees.map((e) => (e.id === id ? { ...e, ...patch } : e)) }));
+    try {
+      await api.updateEmployee(id, patch);
+    } catch {
+      reportSyncFailure("Employee update");
+    }
+  },
+
+  deleteEmployee: async (id) => {
+    const previous = get().employees;
+    set((s) => ({ employees: s.employees.filter((e) => e.id !== id) }));
+    try {
+      await api.deleteEmployee(id);
+    } catch {
+      set({ employees: previous });
+      reportSyncFailure("Employee deletion");
+      throw new Error("Employee deletion failed");
+    }
+  },
+
 
       addTask: (input) => {
         const localId = `tk-${Date.now()}`;

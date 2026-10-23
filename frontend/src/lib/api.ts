@@ -932,6 +932,9 @@ export const api = {
   updateEmployee: (id: string, body: Record<string, unknown>) =>
     apiFetch<{ employee: ApiEmployee }>(`/api/employees/${id}`, { method: "PATCH", body: JSON.stringify(body) }),
 
+  deleteEmployee: (id: string) =>
+    apiFetch<{ success: boolean }>(`/api/employees/${id}`, { method: "DELETE" }),
+
   createBranch: (body: Record<string, unknown>) =>
     apiFetch<{ branch: ApiBranch }>("/api/branches", { method: "POST", body: JSON.stringify(body) }),
 

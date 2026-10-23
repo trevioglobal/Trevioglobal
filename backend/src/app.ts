@@ -2238,7 +2238,7 @@ app.patch("/api/employees/:id", requireAuth, requireRole("super_admin", "agency_
       res.status(404).json({ error: "Not found" });
       return;
     }
-    const { name, email, phone, designation, department, branch, branchId, role, status, salary, target, permissions } = req.body;
+    const { name, email, phone, designation, department, branch, branchId, role, status, salary, target, permissions, password } = req.body;
     // branch managers may only manage employees within their own branch, and can't grant custom permissions
     const isBranchManager = req.auth?.role === "branch_manager";
     const data: Record<string, string | number | object | null | undefined> = {};
@@ -2259,6 +2259,14 @@ app.patch("/api/employees/:id", requireAuth, requireRole("super_admin", "agency_
       data.branch = branch;
     }
     const employee = await db.employee.update({ where: { id: existing.id }, data });
+    if (typeof password === "string" && password.trim()) {
+      if (password.trim().length < 8) {
+        res.status(400).json({ error: "Password must be at least 8 characters" });
+        return;
+      }
+      const passwordHash = await bcrypt.hash(password.trim(), 10);
+      await db.user.updateMany({ where: { email: existing.email }, data: { password: passwordHash, status: "Active" } });
+    }
     if (permissions !== undefined && !isBranchManager) {
       await db.employee.update({ where: { id: employee.id }, data: { permissions: permissions ?? null } }).catch(() => undefined);
       await db.user.updateMany({ where: { email: employee.email }, data: { permissions: permissions ?? null } }).catch(() => undefined);
@@ -2282,6 +2290,25 @@ app.patch("/api/employees/:id", requireAuth, requireRole("super_admin", "agency_
   } catch (e) {
     logger.error(e);
     res.status(500).json({ error: "Server error" });
+  }
+});
+
+app.delete("/api/employees/:id", requireAuth, requireRole("super_admin", "agency_admin", "branch_manager"), async (req: AuthRequest, res) => {
+  try {
+    const id = routeParamId(req);
+    const employee = await db.employee.findFirst({
+      where: { id, ...agencyScope(req), ...branchScope(req) },
+    });
+    if (!employee) {
+      res.status(404).json({ error: "Employee not found" });
+      return;
+    }
+    await db.employee.delete({ where: { id: employee.id } });
+    await db.user.updateMany({ where: { email: employee.email }, data: { status: "Inactive", password: null } });
+    res.json({ success: true });
+  } catch (e) {
+    logger.error(e);
+    res.status(500).json({ error: "Unable to delete employee" });
   }
 });
 
@@ -2529,7 +2556,7 @@ app.patch("/api/branches/:id", requireAuth, requireRole("super_admin", "agency_a
   }
 });
 
-// ── POST /api/agencies ────────────────────────────────────────────────────────
+// ── POST /api/agencies ───────────────────────────────────���────────────────────
 app.post("/api/agencies", requireAuth, requireRole("super_admin"), validate(agencySchema), async (req, res) => {
   try {
     const body = req.body;
