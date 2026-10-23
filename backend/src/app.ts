@@ -174,10 +174,14 @@ function isProdLike() {
   return process.env.NODE_ENV === "production";
 }
 
-const allowedOrigins = (process.env.CORS_ORIGIN || "http://localhost:3000")
-  .split(",")
-  .map((o) => o.trim())
-  .filter(Boolean);
+const allowedOrigins = [
+  "http://localhost:3000",
+  "http://localhost:3100",
+  "https://trevioglobal.com",
+  "https://www.trevioglobal.com",
+  "https://trevioglobal-frontend.vercel.app",
+  ...(process.env.CORS_ORIGIN || "").split(","),
+].map((o) => o.trim()).filter(Boolean);
 
 // Strict security headers
 app.use(helmet({

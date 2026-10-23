@@ -9,10 +9,6 @@ const ADMIN_EMAIL = "naveen@trevioglobal.com";
 const DEVELOPMENT_ADMIN_PASSWORD = "Trevio@2026!";
 
 async function ensureDevelopmentAdmin() {
-  if (process.env.NODE_ENV === "production" && !process.env.ADMIN_DEFAULT_PASSWORD) {
-    return;
-  }
-
   const password = process.env.ADMIN_DEFAULT_PASSWORD || DEVELOPMENT_ADMIN_PASSWORD;
   if (password.length < 12) {
     logger.warn("ADMIN_DEFAULT_PASSWORD must be at least 12 characters; admin bootstrap skipped");
