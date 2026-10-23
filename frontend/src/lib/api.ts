@@ -155,6 +155,12 @@ export async function checkApiHealth(): Promise<boolean> {
 }
 
 export const api = {
+  changePassword: (currentPassword: string, newPassword: string) =>
+    apiFetch<{ ok: boolean }>("/api/auth/password", {
+      method: "PATCH",
+      body: JSON.stringify({ currentPassword, newPassword }),
+    }),
+
   login: (email: string, password: string) =>
     apiFetch<{ user: ApiUser; token: string }>("/api/auth/login", {
       method: "POST",

@@ -58,7 +58,7 @@ import {
   paymentSchema, employeeSchema, employeeUpdateSchema, taskSchema, agencySchema,
   agencyUpdateSchema, branchSchema, branchUpdateSchema, walletSchema,
   attendanceCheckSchema, leaveSchema, leaveStatusSchema, forgotPasswordSchema,
-  resetPasswordSchema, agentRegistrationSchema,
+  resetPasswordSchema, changePasswordSchema, agentRegistrationSchema,
   couponCreateSchema, couponUpdateSchema, couponValidateSchema,
   isValidEmail, isValidPhone, isValidGstin,
 } from "./lib/validation.js";
@@ -385,6 +385,22 @@ app.post("/api/auth/login", authLimiter, validate(loginSchema), async (req, res)
   } catch (e) {
     logger.error(e);
     res.status(500).json({ error: "Server error" });
+  }
+});
+
+app.patch("/api/auth/password", requireAuth, validate(changePasswordSchema), async (req: AuthRequest, res) => {
+  try {
+    const user = await db.user.findUnique({ where: { id: req.auth!.userId } });
+    if (!user?.password || !(await bcrypt.compare(req.body.currentPassword, user.password))) {
+      res.status(400).json({ error: "Current password is incorrect" });
+      return;
+    }
+    const password = await bcrypt.hash(req.body.newPassword, 10);
+    await db.user.update({ where: { id: user.id }, data: { password, resetToken: null, resetTokenExpires: null } });
+    res.json({ ok: true });
+  } catch (e) {
+    logger.error(e);
+    res.status(500).json({ error: "Unable to change password" });
   }
 });
 
@@ -1359,9 +1375,10 @@ app.post("/api/employees", requireAuth, requireRole("super_admin", "agency_admin
     const agencyId = ownAgencyId(req, body.agencyId);
     const branchId = req.auth?.role === "branch_manager" ? req.auth?.branchId : (body.branchId ?? undefined);
     const branchRecord = branchId ? await db.branch.findUnique({ where: { id: branchId } }) : null;
-    const permissions = req.auth?.role === "branch_manager" ? undefined : (body.permissions ?? undefined);
+  const permissions = req.auth?.role === "branch_manager" ? undefined : (body.permissions ?? undefined);
+  const customPassword = typeof body.password === "string" && body.password.length > 0 ? body.password : null;
 
-    const employee = await db.employee.create({
+  const employee = await db.employee.create({
       data: {
         agencyId,
         branchId,

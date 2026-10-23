@@ -72,7 +72,7 @@ interface DemoDataState {
   addQuotation: (q: NewQuotationInput) => Quotation;
   upsertQuotation: (q: Quotation) => void;
   updateQuotationStatus: (id: string, status: Quotation["status"]) => void;
-  addEmployee: (e: Omit<Employee, "id" | "joinDate" | "status" | "incentives" | "achieved" | "attendance"> & { branchId?: string; permissions?: Module[] | null }) => Promise<Employee & { tempPassword?: string }>;
+  addEmployee: (e: Omit<Employee, "id" | "joinDate" | "status" | "incentives" | "achieved" | "attendance"> & { branchId?: string; permissions?: Module[] | null; password?: string }) => Promise<Employee & { tempPassword?: string }>;
   updateEmployee: (id: string, patch: Partial<Employee> & { branchId?: string | null; permissions?: Module[] | null }) => Promise<void>;
   addTask: (t: Omit<Task, "id" | "createdAt" | "status">) => Task;
   updateTaskStatus: (id: string, status: Task["status"]) => void;
@@ -413,6 +413,7 @@ export const useDemoDataStore = create<DemoDataState>()(
             salary: input.salary,
             target: input.target,
             permissions,
+            password: input.password,
           });
           const server = mapApiEmployee(res.employee);
           set((s) => ({

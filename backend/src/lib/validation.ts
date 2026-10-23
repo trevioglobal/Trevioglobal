@@ -262,6 +262,12 @@ export const employeeSchema = z.object({
   target: z.number().min(0).optional(),
   joinDate: z.string().optional(),
   permissions: z.array(z.string()).optional().nullable(),
+  password: passwordSchema.optional(),
+});
+
+export const changePasswordSchema = z.object({
+  currentPassword: z.string().min(1),
+  newPassword: passwordSchema,
 });
 
 export const employeeUpdateSchema = employeeSchema.partial().extend({

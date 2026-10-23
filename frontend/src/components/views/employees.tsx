@@ -309,6 +309,7 @@ function AddEmployeeDialog({ open, onOpenChange }: { open: boolean; onOpenChange
   const [role, setRole] = useState<Role>("employee");
   const [salary, setSalary] = useState("40000");
   const [target, setTarget] = useState("500000");
+  const [password, setPassword] = useState("");
   const [permissions, setPermissions] = useState<Module[]>(ROLE_DEFAULT_PERMISSIONS.employee);
   const [permissionsTouched, setPermissionsTouched] = useState(false);
 
@@ -327,7 +328,7 @@ function AddEmployeeDialog({ open, onOpenChange }: { open: boolean; onOpenChange
   const resetForm = () => {
     setName(""); setEmail(""); setPhone(""); setDesignation("Travel Consultant");
     setDepartment("Sales"); setBranchId(currentUser?.branchId || ""); setRole("employee");
-    setSalary("40000"); setTarget("500000");
+    setSalary("40000"); setTarget("500000"); setPassword("");
     setPermissions(ROLE_DEFAULT_PERMISSIONS.employee); setPermissionsTouched(false);
   };
 
@@ -353,6 +354,7 @@ function AddEmployeeDialog({ open, onOpenChange }: { open: boolean; onOpenChange
       role,
       salary: Number(salary) || 40000,
       target: Number(target) || 500000,
+      password: password || undefined,
       permissions: isBranchManager ? undefined : (permissionsTouched ? permissions : undefined),
     });
     toast({
@@ -422,6 +424,11 @@ function AddEmployeeDialog({ open, onOpenChange }: { open: boolean; onOpenChange
           <div className="space-y-1.5">
             <Label>Target (₹/month)</Label>
             <Input type="number" placeholder="500000" value={target} onChange={(e) => setTarget(e.target.value)} />
+          </div>
+          <div className="col-span-2 space-y-1.5">
+            <Label>Custom password <span className="text-muted-foreground font-normal">(optional)</span></Label>
+            <Input type="password" placeholder="Leave blank to generate a secure password" value={password} onChange={(e) => setPassword(e.target.value)} minLength={12} />
+            <p className="text-[11px] text-muted-foreground">Use 12+ characters with uppercase, lowercase, number and symbol.</p>
           </div>
         </div>
 
