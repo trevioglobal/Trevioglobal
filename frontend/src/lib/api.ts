@@ -9,10 +9,12 @@ function resolveApiBase(): string {
   // The v0 preview runs the frontend in a browser sandbox where localhost:4000
   // resolves back to the frontend preview, not the separately running API.
   // Route local development traffic through the Next.js server-side proxy.
+  if (process.env.NODE_ENV === "production") {
+    return "/api/backend";
+  }
+
   if (!cleaned || /^(https?:\/\/)?localhost(?::\d+)?$/i.test(cleaned)) {
-    return process.env.NODE_ENV === "production"
-      ? "https://travelpartner-api-v7nt.onrender.com"
-      : "/backend";
+    return "/backend";
   }
 
   if (!/^https?:\/\//i.test(cleaned)) {
