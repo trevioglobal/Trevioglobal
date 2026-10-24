@@ -41,7 +41,7 @@ services:
       - key: ALLOW_DEMO_PAYMENTS
         value: "false"
       - key: ALLOW_PUBLIC_REGISTRATION
-        value: "false"
+        value: "true"
       - key: ALLOW_INSECURE_TEMP_PASSWORD_RESPONSE
         value: "false"
       - key: SMTP_HOST
