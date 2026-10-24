@@ -59,14 +59,6 @@ export function PublicNavbar({
             alt="Trevio Global"
             className="h-8 w-auto sm:h-9 object-contain"
           />
-          <span
-            className={cn(
-              "hidden sm:block text-[11px] font-semibold uppercase tracking-[0.18em]",
-              scrolled ? "text-slate-500" : "text-white/70",
-            )}
-          >
-            Trevioglobal
-          </span>
         </a>
 
         <nav className="hidden lg:flex items-center gap-8" aria-label="Primary">

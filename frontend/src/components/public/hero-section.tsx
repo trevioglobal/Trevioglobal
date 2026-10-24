@@ -46,7 +46,7 @@ export function HeroSection({
             The Smarter Way to Grow Your Travel Business
           </h1>
           <p className="max-w-2xl text-base leading-relaxed text-white/80 sm:text-lg">
-            Welcome to Trevioglobal — your dedicated B2B travel platform built for travel agents,
+            Welcome to Trevioglobal, your dedicated B2B travel platform built for travel agents,
             tour operators and travel businesses.
           </p>
           <p className="max-w-2xl text-sm leading-relaxed text-white/60 sm:text-[0.95rem]">

@@ -55,7 +55,7 @@ export function TravelSolutions() {
             Sell travel with confidence
           </h2>
           <p className="mt-4 text-base leading-relaxed text-slate-600">
-            A complete B2B catalogue designed for agencies — from flights and hotels to curated holidays and on-ground services.
+            A complete B2B catalogue designed for agencies - from flights and hotels to curated holidays and on-ground services.
           </p>
         </ScrollReveal>
 

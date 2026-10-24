@@ -66,7 +66,7 @@ export function PublicFooter({
             <p className="text-[11px] font-semibold uppercase tracking-[0.16em] text-white/45">Partner</p>
             <ul className="mt-4 space-y-2.5">
               <li>
-                <button type="button" onClick={onBecomePartner} className="text-sm text-white/70 hover:text-white transition-colors">
+                <button type="button" onClick={onBecomePartner} className="text-left text-sm text-white/70 hover:text-white transition-colors">
                   Become a Partner
                 </button>
               </li>
