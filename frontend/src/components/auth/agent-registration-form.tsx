@@ -517,9 +517,7 @@ export function AgentRegistrationForm({ onLogin }: { onLogin: () => void }) {
                 autoComplete="off"
               />
             </Field>
-          </div>
 
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
             <Field label="GST / VAT Proof" error={errors.gstProof}>
               <input
                 ref={fileRef}
