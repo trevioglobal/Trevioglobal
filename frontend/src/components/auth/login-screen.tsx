@@ -23,7 +23,7 @@ export type AuthScreenMode = "login" | "forgot" | "reset" | "register";
 type Mode = AuthScreenMode;
 
 const HIGHLIGHTS = [
-  { icon: Plane, label: "1M+ Flights Booked" },
+  { icon: Plane, label: "1M+ Flights" },
   { icon: Hotel, label: "50K+ Hotels" },
   { icon: Zap, label: "Real-time Inventory" },
   { icon: Palmtree, label: "Custom Holiday Packages" },
@@ -271,7 +271,7 @@ export function LoginScreen({
               Book the world,<br />run your agency.
             </h2>
             <p className="text-teal-100 text-base leading-relaxed">
-              Flights, hotels, and holidays — with multi-agency RBAC,
+              Flights, hotels, and holidays - with multi-agency RBAC,
               CRM, payments, and commission engine. Everything in one powerful dashboard.
             </p>
           </motion.div>
@@ -539,7 +539,7 @@ export function LoginScreen({
 
           <p className="text-xs text-center text-slate-400 mt-7 flex items-center justify-center gap-1.5">
             <Shield className="w-3.5 h-3.5" />
-            Secure sign-in • Authorized staff only
+            Secure sign-in • Authorized personal only
           </p>
         </div>
       </div>
