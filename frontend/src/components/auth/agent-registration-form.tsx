@@ -1,7 +1,7 @@
 "use client";
 
-import { useMemo, useRef, useState, type ReactNode } from "react";
-import { Upload, Eye, EyeOff, Loader2, X, CheckCircle2, Search } from "lucide-react";
+import { useMemo, useState, type ReactNode } from "react";
+import { Eye, EyeOff, Loader2, Search } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -28,20 +28,16 @@ import { stateFromGstin } from "@/lib/gst-state";
 import { cn } from "@/lib/utils";
 import { AgentRegistrationTermsDialog } from "@/components/auth/agent-registration-terms-dialog";
 
-const MAX_PROOF_BYTES = 5 * 1024 * 1024;
-const ALLOWED_PROOF_TYPES = ["image/jpeg", "image/png", "application/pdf"];
-
 type FieldErrors = Partial<Record<
   | "fullName" | "companyName" | "address" | "email" | "phone"
   | "country" | "state" | "city" | "password" | "confirmPassword"
-  | "passportNumber" | "terms" | "gstProof",
+    | "passportNumber" | "terms"
+,
   string
 >>;
 
 export function AgentRegistrationForm({ onLogin }: { onLogin: () => void }) {
   const { toast } = useToast();
-  const fileRef = useRef<HTMLInputElement>(null);
-
   const [fullName, setFullName] = useState("");
   const [companyName, setCompanyName] = useState("");
   const [address, setAddress] = useState("");
@@ -58,10 +54,6 @@ export function AgentRegistrationForm({ onLogin }: { onLogin: () => void }) {
   const [password, setPassword] = useState("");
   const [confirmPassword, setConfirmPassword] = useState("");
   const [gstNumber, setGstNumber] = useState("");
-  const [gstProofName, setGstProofName] = useState("");
-  const [gstProofSize, setGstProofSize] = useState(0);
-  const [gstProofId, setGstProofId] = useState("");
-  const [gstProofUploading, setGstProofUploading] = useState(false);
   const [termsAccepted, setTermsAccepted] = useState(false);
   const [termsOpen, setTermsOpen] = useState(false);
   const [showPassword, setShowPassword] = useState(false);
@@ -106,37 +98,6 @@ export function AgentRegistrationForm({ onLogin }: { onLogin: () => void }) {
     return next;
   }
 
-  async function handleProofFile(file: File) {
-    clearError("gstProof");
-    if (file.size > MAX_PROOF_BYTES) {
-      setErrors((e) => ({ ...e, gstProof: "GST / VAT proof must be under 5MB" }));
-      return;
-    }
-    if (!ALLOWED_PROOF_TYPES.includes(file.type)) {
-      setErrors((e) => ({ ...e, gstProof: "Upload JPG, PNG, or PDF only" }));
-      return;
-    }
-    setGstProofUploading(true);
-    try {
-      const uploaded = await api.uploadGstProof(file);
-      setGstProofId(uploaded.gstProofId);
-      setGstProofName(file.name);
-      setGstProofSize(file.size);
-    } catch (err) {
-      setErrors((e) => ({ ...e, gstProof: err instanceof Error ? err.message : "Upload failed. Try another file." }));
-    } finally {
-      setGstProofUploading(false);
-    }
-  }
-
-  function clearProof() {
-    setGstProofId("");
-    setGstProofName("");
-    setGstProofSize(0);
-    if (fileRef.current) fileRef.current.value = "";
-    clearError("gstProof");
-  }
-
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
     const clientErrors = validateClient();
@@ -164,7 +125,6 @@ export function AgentRegistrationForm({ onLogin }: { onLogin: () => void }) {
         password,
         confirmPassword,
         gstNumber: gstNumber.trim() || undefined,
-        gstProofId: gstProofId || undefined,
         termsAccepted: true,
         termsVersion: AGENT_TERMS_VERSION,
       });
@@ -517,53 +477,6 @@ export function AgentRegistrationForm({ onLogin }: { onLogin: () => void }) {
                 }}
                 autoComplete="off"
               />
-            </Field>
-            <Field label="GST / VAT Proof" error={errors.gstProof}>
-              <input
-                ref={fileRef}
-                type="file"
-                accept=".jpg,.jpeg,.png,.pdf,image/jpeg,image/png,application/pdf"
-                className="hidden"
-                onChange={(e) => {
-                  const file = e.target.files?.[0];
-                  if (file) void handleProofFile(file);
-                }}
-              />
-              {!gstProofName ? (
-                <button
-                  type="button"
-                  onClick={() => fileRef.current?.click()}
-                  disabled={gstProofUploading}
-                  className={cn(
-                    "w-full rounded-xl border-2 border-dashed border-slate-200 p-6 text-center transition hover:border-brand-blue/40 hover:bg-brand-blue/5",
-                    errors.gstProof && "border-destructive/50",
-                  )}
-                >
-                  {gstProofUploading ? (
-                    <Loader2 className="w-7 h-7 mx-auto text-brand-teal mb-2 animate-spin" />
-                  ) : (
-                    <Upload className="w-7 h-7 mx-auto text-brand-blue/70 mb-2" />
-                  )}
-                  <p className="text-sm font-medium text-slate-800">Click to upload GST / VAT Proof</p>
-                  <p className="text-xs text-slate-500 mt-1">JPG, PNG or PDF • Max 5MB</p>
-                </button>
-              ) : (
-                <div className="rounded-xl border border-brand-teal/30 bg-brand-teal/5 px-3 py-3 flex items-start gap-3">
-                  <CheckCircle2 className="w-5 h-5 text-brand-teal shrink-0 mt-0.5" />
-                  <div className="min-w-0 flex-1">
-                    <p className="text-sm font-medium truncate text-slate-800">{gstProofName}</p>
-                    <p className="text-xs text-slate-500">{(gstProofSize / 1024).toFixed(0)} KB · Ready</p>
-                    <div className="flex gap-2 mt-2">
-                      <Button type="button" variant="outline" size="sm" className="h-7 rounded-lg" onClick={() => fileRef.current?.click()}>
-                        Replace
-                      </Button>
-                      <Button type="button" variant="ghost" size="sm" className="h-7 rounded-lg" onClick={clearProof}>
-                        <X className="w-3.5 h-3.5 mr-1" /> Remove
-                      </Button>
-                    </div>
-                  </div>
-                </div>
-              )}
             </Field>
           </div>
 
