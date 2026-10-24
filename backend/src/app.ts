@@ -540,8 +540,7 @@ app.post("/api/auth/reset-password", authLimiter, validate(resetPasswordSchema),
 });
 
 app.post("/api/auth/register", authLimiter, validate(agentRegistrationSchema), async (req, res) => {
-  const allowRegister = process.env.ALLOW_PUBLIC_REGISTRATION === "true"
-    || (process.env.ALLOW_PUBLIC_REGISTRATION !== "false" && process.env.NODE_ENV !== "production");
+  const allowRegister = process.env.ALLOW_PUBLIC_REGISTRATION !== "false";
   if (!allowRegister) {
     res.status(403).json({ error: "Public registration is disabled. Ask an administrator to create your account." });
     return;
@@ -559,7 +558,7 @@ app.post("/api/auth/register", authLimiter, validate(agentRegistrationSchema), a
       state: string;
       city: string;
       panNumber?: string;
-      passportNumber: string;
+      passportNumber?: string;
       password: string;
       gstNumber?: string;
       gstProofId?: string;

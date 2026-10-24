@@ -318,7 +318,7 @@ export const agentRegistrationSchema = z
     state: z.string().trim().min(1, "State/Province is required").max(120),
     city: z.string().trim().min(1, "City is required").max(120),
     panNumber: z.string().trim().max(40).optional().or(z.literal("")),
-    passportNumber: z.string().trim().min(5, "Passport number is required").max(40),
+    passportNumber: z.string().trim().max(40).optional().or(z.literal("")),
     password: passwordSchema,
     confirmPassword: z.string(),
     gstNumber: z.string().trim().max(40).optional().or(z.literal("")),
