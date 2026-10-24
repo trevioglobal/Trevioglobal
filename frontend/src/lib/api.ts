@@ -1087,7 +1087,7 @@ export interface AgentRegistrationBody {
   state: string;
   city: string;
   panNumber?: string;
-  passportNumber: string;
+  passportNumber?: string;
   password: string;
   confirmPassword: string;
   gstNumber?: string;

@@ -122,9 +122,7 @@ export function AgentRegistrationForm({ onLogin }: { onLogin: () => void }) {
     if (!country.trim()) next.country = "Select a country";
     if (!state.trim()) next.state = "Enter state / province";
     if (!city.trim()) next.city = "Select or enter a city";
-    if (!passportNumber.trim() || passportNumber.trim().length < 5) {
-      next.passportNumber = "Enter a valid passport number";
-    }
+
     if (!password) next.password = "Password is required";
     else if (password.length < 12) next.password = "Password must be at least 12 characters";
     else if (!/[A-Z]/.test(password) || !/[a-z]/.test(password) || !/[0-9]/.test(password) || !/[!@#$%^&*()_+\-=[\]{};':"\\|,.<>/?]/.test(password)) {
@@ -159,7 +157,7 @@ export function AgentRegistrationForm({ onLogin }: { onLogin: () => void }) {
         state: state.trim(),
         city: city.trim(),
         panNumber: panNumber.trim() || undefined,
-        passportNumber: passportNumber.trim(),
+        passportNumber: passportNumber.trim() || undefined,
         password,
         confirmPassword,
         gstNumber: gstNumber.trim() || undefined,
@@ -436,7 +434,7 @@ export function AgentRegistrationForm({ onLogin }: { onLogin: () => void }) {
                 />
               )}
             </Field>
-            <Field label="Passport Number" required error={errors.passportNumber}>
+            <Field label="Passport Number" error={errors.passportNumber}>
               <Input
                 placeholder="Enter passport number"
                 className="h-11 rounded-xl border-slate-200 focus-visible:ring-brand-blue/30"
