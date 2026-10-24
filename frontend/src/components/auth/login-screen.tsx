@@ -41,7 +41,7 @@ export function LoginScreen({
   const loginWithApi = useAuthStore((s) => s.loginWithApi);
   const hydrateFromApi = useDemoDataStore((s) => s.hydrateFromApi);
   const { toast } = useToast();
-  const allowPublicRegister = process.env.NEXT_PUBLIC_ALLOW_PUBLIC_REGISTER === "true";
+  const allowPublicRegister = process.env.NEXT_PUBLIC_ALLOW_PUBLIC_REGISTER !== "false";
   const [mode, setModeState] = useState<Mode>(initialMode);
 
   const setMode = (next: Mode) => {
