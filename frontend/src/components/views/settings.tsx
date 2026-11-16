@@ -96,6 +96,7 @@ export function SettingsView() {
       <Tabs defaultValue="company">
         <TabsList className="w-full sm:w-auto overflow-x-auto">
           <TabsTrigger value="company"><Building2 className="w-3.5 h-3.5 mr-1.5" /> Company</TabsTrigger>
+          <TabsTrigger value="profile"><Lock className="w-3.5 h-3.5 mr-1.5" /> My Profile</TabsTrigger>
           <TabsTrigger value="users"><Users className="w-3.5 h-3.5 mr-1.5" /> Users & Roles</TabsTrigger>
           <TabsTrigger value="agents"><Plane className="w-3.5 h-3.5 mr-1.5" /> Travel Agents</TabsTrigger>
           <TabsTrigger value="api-keys"><KeyRound className="w-3.5 h-3.5 mr-1.5" /> API Keys & Integrations</TabsTrigger>
@@ -104,6 +105,7 @@ export function SettingsView() {
         </TabsList>
 
         <TabsContent value="company" className="mt-4"><CompanyTab /></TabsContent>
+        <TabsContent value="profile" className="mt-4"><ProfileTab /></TabsContent>
         <TabsContent value="users" className="mt-4"><UsersTab /></TabsContent>
         <TabsContent value="agents" className="mt-4"><AgentsTab /></TabsContent>
         <TabsContent value="api-keys" className="mt-4"><ApiKeysTab /></TabsContent>
@@ -112,6 +114,36 @@ export function SettingsView() {
       </Tabs>
     </PageShell>
   );
+}
+
+function ProfileTab() {
+  const { toast } = useToast();
+  const [currentPassword, setCurrentPassword] = useState("");
+  const [newPassword, setNewPassword] = useState("");
+  const [confirmPassword, setConfirmPassword] = useState("");
+  const [saving, setSaving] = useState(false);
+
+  const handleChange = async () => {
+    if (newPassword !== confirmPassword) {
+      toast({ title: "Passwords do not match", variant: "destructive" });
+      return;
+    }
+    setSaving(true);
+    try {
+      await api.changePassword(currentPassword, newPassword);
+      setCurrentPassword(""); setNewPassword(""); setConfirmPassword("");
+      toast({ title: "Password changed", description: "Your new password is active now." });
+    } catch (e) {
+      toast({ title: "Could not change password", description: e instanceof Error ? e.message : "Please try again", variant: "destructive" });
+    } finally { setSaving(false); }
+  };
+
+  return <Card className="max-w-xl"><CardHeader><CardTitle>My Profile</CardTitle><CardDescription>Change your sign-in password securely.</CardDescription></CardHeader><CardContent className="space-y-4">
+    <div className="space-y-1.5"><Label>Current password</Label><Input type="password" value={currentPassword} onChange={(e) => setCurrentPassword(e.target.value)} /></div>
+    <div className="space-y-1.5"><Label>New password</Label><Input type="password" minLength={12} value={newPassword} onChange={(e) => setNewPassword(e.target.value)} /><p className="text-xs text-muted-foreground">At least 12 characters with uppercase, lowercase, number and symbol.</p></div>
+    <div className="space-y-1.5"><Label>Confirm new password</Label><Input type="password" value={confirmPassword} onChange={(e) => setConfirmPassword(e.target.value)} /></div>
+    <Button onClick={handleChange} disabled={saving || !currentPassword || !newPassword || !confirmPassword}><Lock className="w-4 h-4 mr-1.5" />{saving ? "Saving…" : "Change password"}</Button>
+  </CardContent></Card>;
 }
 
 function CompanyTab() {

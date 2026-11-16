@@ -23,8 +23,8 @@ export type AuthScreenMode = "login" | "forgot" | "reset" | "register";
 type Mode = AuthScreenMode;
 
 const HIGHLIGHTS = [
-  { icon: Plane, label: "1M+ Flights Booked" },
-  { icon: Hotel, label: "50K+ Hotels" },
+  { icon: Plane, label: "Flights" },
+  { icon: Hotel, label: "Hotels" },
   { icon: Zap, label: "Real-time Inventory" },
   { icon: Palmtree, label: "Custom Holiday Packages" },
 ];
@@ -41,7 +41,7 @@ export function LoginScreen({
   const loginWithApi = useAuthStore((s) => s.loginWithApi);
   const hydrateFromApi = useDemoDataStore((s) => s.hydrateFromApi);
   const { toast } = useToast();
-  const allowPublicRegister = process.env.NEXT_PUBLIC_ALLOW_PUBLIC_REGISTER === "true";
+  const allowPublicRegister = process.env.NEXT_PUBLIC_ALLOW_PUBLIC_REGISTER !== "false";
   const [mode, setModeState] = useState<Mode>(initialMode);
 
   const setMode = (next: Mode) => {
@@ -271,7 +271,7 @@ export function LoginScreen({
               Book the world,<br />run your agency.
             </h2>
             <p className="text-teal-100 text-base leading-relaxed">
-              Flights, hotels, and holidays — with multi-agency RBAC,
+              Flights, hotels, and holidays - with multi-agency RBAC,
               CRM, payments, and commission engine. Everything in one powerful dashboard.
             </p>
           </motion.div>
@@ -428,13 +428,7 @@ export function LoginScreen({
                       />
                       <span className="text-sm text-slate-600">Remember me</span>
                     </label>
-                    <button
-                      type="button"
-                      onClick={() => setMode("forgot")}
-                      className="text-sm font-medium text-brand-blue hover:underline"
-                    >
-                      Need help?
-                    </button>
+
                   </div>
 
                   <Button
@@ -539,7 +533,7 @@ export function LoginScreen({
 
           <p className="text-xs text-center text-slate-400 mt-7 flex items-center justify-center gap-1.5">
             <Shield className="w-3.5 h-3.5" />
-            Secure sign-in • Authorized staff only
+            Secure sign-in • Authorized personal only
           </p>
         </div>
       </div>

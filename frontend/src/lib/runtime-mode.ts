@@ -6,7 +6,7 @@
  *   NEXT_PUBLIC_ENABLE_MOCK_INVENTORY=true|false  (mock flights/hotels; default true only in demo)
  *   NEXT_PUBLIC_ENABLE_STUB_MODULES=true|false    (marketing/cms/holiday shells; default true only in demo)
  *   NEXT_PUBLIC_SHOW_DEMO_LOGIN=true|false        (seed credential helpers on login)
- *   NEXT_PUBLIC_ALLOW_PUBLIC_REGISTER=true|false  (self-serve agency signup; default false in live)
+ *   NEXT_PUBLIC_ALLOW_PUBLIC_REGISTER=true|false  (self-serve agency signup; default open unless explicitly false)
  *
  * Backend (already enforced):
  *   NODE_ENV=production → demo payments OFF unless ALLOW_DEMO_PAYMENTS=true

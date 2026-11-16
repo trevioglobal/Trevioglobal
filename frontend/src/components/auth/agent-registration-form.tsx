@@ -1,7 +1,7 @@
 "use client";
 
 import { useMemo, useRef, useState, type ReactNode } from "react";
-import { Upload, Eye, EyeOff, Loader2, X, CheckCircle2, Search } from "lucide-react";
+import { Eye, EyeOff, Loader2, Search, Upload, X, CheckCircle2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -34,14 +34,13 @@ const ALLOWED_PROOF_TYPES = ["image/jpeg", "image/png", "application/pdf"];
 type FieldErrors = Partial<Record<
   | "fullName" | "companyName" | "address" | "email" | "phone"
   | "country" | "state" | "city" | "password" | "confirmPassword"
-  | "passportNumber" | "terms" | "gstProof",
+  | "passportNumber" | "gstProof" | "terms",
   string
 >>;
 
 export function AgentRegistrationForm({ onLogin }: { onLogin: () => void }) {
   const { toast } = useToast();
   const fileRef = useRef<HTMLInputElement>(null);
-
   const [fullName, setFullName] = useState("");
   const [companyName, setCompanyName] = useState("");
   const [address, setAddress] = useState("");
@@ -81,39 +80,14 @@ export function AgentRegistrationForm({ onLogin }: { onLogin: () => void }) {
     });
   }
 
-  function validateClient(): FieldErrors {
-    const next: FieldErrors = {};
-    if (!fullName.trim() || fullName.trim().length < 2) next.fullName = "Enter agent name";
-    if (!companyName.trim() || companyName.trim().length < 2) next.companyName = "Enter company name";
-    if (!address.trim() || address.trim().length < 8) next.address = "Enter a complete business address";
-    if (!email.trim() || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email.trim())) next.email = "Enter a valid agent email id";
-    const phoneErr = validatePhoneDigits(countryCode, phone);
-    if (phoneErr) next.phone = phoneErr;
-    if (!country.trim()) next.country = "Select a country";
-    if (!state.trim()) next.state = "Enter state / province";
-    if (!city.trim()) next.city = "Select or enter a city";
-    if (!passportNumber.trim() || passportNumber.trim().length < 5) {
-      next.passportNumber = "Enter a valid passport number";
-    }
-    if (!password) next.password = "Password is required";
-    else if (password.length < 12) next.password = "Password must be at least 12 characters";
-    else if (!/[A-Z]/.test(password) || !/[a-z]/.test(password) || !/[0-9]/.test(password) || !/[!@#$%^&*()_+\-=[\]{};':"\\|,.<>/?]/.test(password)) {
-      next.password = "Use upper, lower, number and special character";
-    }
-    if (!confirmPassword) next.confirmPassword = "Confirm your password";
-    else if (password !== confirmPassword) next.confirmPassword = "Passwords do not match";
-    if (!termsAccepted) next.terms = "You must accept the Terms & Conditions";
-    return next;
-  }
-
   async function handleProofFile(file: File) {
     clearError("gstProof");
     if (file.size > MAX_PROOF_BYTES) {
-      setErrors((e) => ({ ...e, gstProof: "GST / VAT proof must be under 5MB" }));
+      setErrors((prev) => ({ ...prev, gstProof: "GST / VAT proof must be under 5MB" }));
       return;
     }
     if (!ALLOWED_PROOF_TYPES.includes(file.type)) {
-      setErrors((e) => ({ ...e, gstProof: "Upload JPG, PNG, or PDF only" }));
+      setErrors((prev) => ({ ...prev, gstProof: "Upload JPG, PNG, or PDF only" }));
       return;
     }
     setGstProofUploading(true);
@@ -123,7 +97,7 @@ export function AgentRegistrationForm({ onLogin }: { onLogin: () => void }) {
       setGstProofName(file.name);
       setGstProofSize(file.size);
     } catch (err) {
-      setErrors((e) => ({ ...e, gstProof: err instanceof Error ? err.message : "Upload failed. Try another file." }));
+      setErrors((prev) => ({ ...prev, gstProof: err instanceof Error ? err.message : "Upload failed. Try another file." }));
     } finally {
       setGstProofUploading(false);
     }
@@ -135,6 +109,29 @@ export function AgentRegistrationForm({ onLogin }: { onLogin: () => void }) {
     setGstProofSize(0);
     if (fileRef.current) fileRef.current.value = "";
     clearError("gstProof");
+  }
+
+  function validateClient(): FieldErrors {
+    const next: FieldErrors = {};
+    if (!fullName.trim() || fullName.trim().length < 2) next.fullName = "Enter agent name";
+    if (!companyName.trim() || companyName.trim().length < 2) next.companyName = "Enter company name";
+    if (!address.trim() || address.trim().length < 8) next.address = "Enter a complete business address";
+    if (!email.trim() || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email.trim())) next.email = "Enter a valid agent email id";
+    const phoneErr = validatePhoneDigits(countryCode, phone);
+    if (phoneErr) next.phone = phoneErr;
+    if (!country.trim()) next.country = "Select a country";
+    if (!state.trim()) next.state = "Enter state / province";
+    if (!city.trim()) next.city = "Select or enter a city";
+
+    if (!password) next.password = "Password is required";
+    else if (password.length < 12) next.password = "Password must be at least 12 characters";
+    else if (!/[A-Z]/.test(password) || !/[a-z]/.test(password) || !/[0-9]/.test(password) || !/[!@#$%^&*()_+\-=[\]{};':"\\|,.<>/?]/.test(password)) {
+      next.password = "Use upper, lower, number and special character";
+    }
+    if (!confirmPassword) next.confirmPassword = "Confirm your password";
+    else if (password !== confirmPassword) next.confirmPassword = "Passwords do not match";
+    if (!termsAccepted) next.terms = "You must accept the Terms & Conditions";
+    return next;
   }
 
   async function handleSubmit(e: React.FormEvent) {
@@ -160,7 +157,7 @@ export function AgentRegistrationForm({ onLogin }: { onLogin: () => void }) {
         state: state.trim(),
         city: city.trim(),
         panNumber: panNumber.trim() || undefined,
-        passportNumber: passportNumber.trim(),
+        passportNumber: passportNumber.trim() || undefined,
         password,
         confirmPassword,
         gstNumber: gstNumber.trim() || undefined,
@@ -437,7 +434,7 @@ export function AgentRegistrationForm({ onLogin }: { onLogin: () => void }) {
                 />
               )}
             </Field>
-            <Field label="Passport Number" required error={errors.passportNumber}>
+            <Field label="Passport Number" error={errors.passportNumber}>
               <Input
                 placeholder="Enter passport number"
                 className="h-11 rounded-xl border-slate-200 focus-visible:ring-brand-blue/30"
@@ -518,14 +515,15 @@ export function AgentRegistrationForm({ onLogin }: { onLogin: () => void }) {
                 autoComplete="off"
               />
             </Field>
+
             <Field label="GST / VAT Proof" error={errors.gstProof}>
               <input
                 ref={fileRef}
                 type="file"
                 accept=".jpg,.jpeg,.png,.pdf,image/jpeg,image/png,application/pdf"
                 className="hidden"
-                onChange={(e) => {
-                  const file = e.target.files?.[0];
+                onChange={(event) => {
+                  const file = event.target.files?.[0];
                   if (file) void handleProofFile(file);
                 }}
               />
@@ -539,13 +537,9 @@ export function AgentRegistrationForm({ onLogin }: { onLogin: () => void }) {
                     errors.gstProof && "border-destructive/50",
                   )}
                 >
-                  {gstProofUploading ? (
-                    <Loader2 className="w-7 h-7 mx-auto text-brand-teal mb-2 animate-spin" />
-                  ) : (
-                    <Upload className="w-7 h-7 mx-auto text-brand-blue/70 mb-2" />
-                  )}
+                  {gstProofUploading ? <Loader2 className="w-7 h-7 mx-auto text-brand-blue mb-2 animate-spin" /> : <Upload className="w-7 h-7 mx-auto text-brand-blue/70 mb-2" />}
                   <p className="text-sm font-medium text-slate-800">Click to upload GST / VAT Proof</p>
-                  <p className="text-xs text-slate-500 mt-1">JPG, PNG or PDF • Max 5MB</p>
+                  <p className="text-xs text-slate-500 mt-1">JPG, PNG or PDF · Max 5MB</p>
                 </button>
               ) : (
                 <div className="rounded-xl border border-brand-teal/30 bg-brand-teal/5 px-3 py-3 flex items-start gap-3">
@@ -554,12 +548,8 @@ export function AgentRegistrationForm({ onLogin }: { onLogin: () => void }) {
                     <p className="text-sm font-medium truncate text-slate-800">{gstProofName}</p>
                     <p className="text-xs text-slate-500">{(gstProofSize / 1024).toFixed(0)} KB · Ready</p>
                     <div className="flex gap-2 mt-2">
-                      <Button type="button" variant="outline" size="sm" className="h-7 rounded-lg" onClick={() => fileRef.current?.click()}>
-                        Replace
-                      </Button>
-                      <Button type="button" variant="ghost" size="sm" className="h-7 rounded-lg" onClick={clearProof}>
-                        <X className="w-3.5 h-3.5 mr-1" /> Remove
-                      </Button>
+                      <Button type="button" variant="outline" size="sm" className="h-7 rounded-lg" onClick={() => fileRef.current?.click()}>Replace</Button>
+                      <Button type="button" variant="ghost" size="sm" className="h-7 rounded-lg" onClick={clearProof}><X className="w-3.5 h-3.5 mr-1" />Remove</Button>
                     </div>
                   </div>
                 </div>

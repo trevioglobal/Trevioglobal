@@ -3,7 +3,7 @@
 import { useState, useMemo, useEffect } from "react";
 import {
   Users, UserCheck, UserMinus, Calendar, Plus, Search, Mail, Phone,
-  Eye, Pencil, Briefcase, Building2, Award, Target, TrendingUp, Wallet,
+  Eye, Pencil, Trash2, Briefcase, Building2, Award, Target, TrendingUp, Wallet,
 } from "lucide-react";
 import { Checkbox } from "@/components/ui/checkbox";
 import { useAuthStore } from "@/store/app-store";
@@ -50,6 +50,17 @@ export function EmployeesView() {
   const [selected, setSelected] = useState<Employee | null>(null);
   const [addOpen, setAddOpen] = useState(false);
   const [editing, setEditing] = useState<Employee | null>(null);
+  const deleteEmployee = useDemoDataStore((s) => s.deleteEmployee);
+
+  const handleDeleteEmployee = async (employee: Employee) => {
+    if (!window.confirm(`Delete ${employee.name}? Their login will be disabled and this action cannot be undone.`)) return;
+    try {
+      await deleteEmployee(employee.id);
+      toast({ title: "Employee deleted", description: `${employee.name} was removed from the employee list.` });
+    } catch {
+      toast({ title: "Delete failed", description: "The employee could not be deleted. Please try again.", variant: "destructive" });
+    }
+  };
 
   const filtered = useMemo(() => {
     return employees.filter((e) => {
@@ -266,8 +277,11 @@ export function EmployeesView() {
                           <Button size="icon" variant="ghost" className="h-7 w-7" onClick={() => setSelected(e)}>
                             <Eye className="w-3.5 h-3.5" />
                           </Button>
-                          <Button size="icon" variant="ghost" className="h-7 w-7" onClick={() => setEditing(e)}>
+                          <Button size="icon" variant="ghost" className="h-7 w-7" onClick={() => setEditing(e)} aria-label={`Edit ${e.name}`}>
                             <Pencil className="w-3.5 h-3.5" />
+                          </Button>
+                          <Button size="icon" variant="ghost" className="h-7 w-7 text-destructive hover:text-destructive" onClick={() => handleDeleteEmployee(e)} aria-label={`Delete ${e.name}`}>
+                            <Trash2 className="w-3.5 h-3.5" />
                           </Button>
                         </div>
                       </TableCell>
@@ -309,6 +323,7 @@ function AddEmployeeDialog({ open, onOpenChange }: { open: boolean; onOpenChange
   const [role, setRole] = useState<Role>("employee");
   const [salary, setSalary] = useState("40000");
   const [target, setTarget] = useState("500000");
+  const [password, setPassword] = useState("");
   const [permissions, setPermissions] = useState<Module[]>(ROLE_DEFAULT_PERMISSIONS.employee);
   const [permissionsTouched, setPermissionsTouched] = useState(false);
 
@@ -327,7 +342,7 @@ function AddEmployeeDialog({ open, onOpenChange }: { open: boolean; onOpenChange
   const resetForm = () => {
     setName(""); setEmail(""); setPhone(""); setDesignation("Travel Consultant");
     setDepartment("Sales"); setBranchId(currentUser?.branchId || ""); setRole("employee");
-    setSalary("40000"); setTarget("500000");
+    setSalary("40000"); setTarget("500000"); setPassword("");
     setPermissions(ROLE_DEFAULT_PERMISSIONS.employee); setPermissionsTouched(false);
   };
 
@@ -353,6 +368,7 @@ function AddEmployeeDialog({ open, onOpenChange }: { open: boolean; onOpenChange
       role,
       salary: Number(salary) || 40000,
       target: Number(target) || 500000,
+      password: password || undefined,
       permissions: isBranchManager ? undefined : (permissionsTouched ? permissions : undefined),
     });
     toast({
@@ -423,6 +439,11 @@ function AddEmployeeDialog({ open, onOpenChange }: { open: boolean; onOpenChange
             <Label>Target (₹/month)</Label>
             <Input type="number" placeholder="500000" value={target} onChange={(e) => setTarget(e.target.value)} />
           </div>
+          <div className="col-span-2 space-y-1.5">
+            <Label>Custom password <span className="text-muted-foreground font-normal">(optional)</span></Label>
+            <Input type="password" placeholder="Leave blank to generate a secure password" value={password} onChange={(e) => setPassword(e.target.value)} minLength={12} />
+            <p className="text-[11px] text-muted-foreground">Use 12+ characters with uppercase, lowercase, number and symbol.</p>
+          </div>
         </div>
 
         {!isBranchManager && (
@@ -462,6 +483,7 @@ function EditEmployeeDialog({ employee, onClose }: { employee: Employee | null; 
   const [status, setStatus] = useState<Employee["status"]>("Active");
   const [salary, setSalary] = useState("0");
   const [target, setTarget] = useState("0");
+  const [password, setPassword] = useState("");
   const [permissions, setPermissions] = useState<Module[]>([]);
   const [saving, setSaving] = useState(false);
 
@@ -474,6 +496,7 @@ function EditEmployeeDialog({ employee, onClose }: { employee: Employee | null; 
     setStatus(employee.status);
     setSalary(String(employee.salary));
     setTarget(String(employee.target));
+    setPassword("");
     setPermissions(employee.permissions ?? ROLE_DEFAULT_PERMISSIONS[employee.role]);
     api.getBranches(currentUser?.agencyId)
       .then((res) => setBranches(res.branches.map((b) => ({ id: b.id, name: b.name }))))
@@ -500,6 +523,7 @@ function EditEmployeeDialog({ employee, onClose }: { employee: Employee | null; 
         status,
         salary: Number(salary) || 0,
         target: Number(target) || 0,
+        ...(password.trim() ? { password: password.trim() } : {}),
         permissions: isBranchManager ? undefined : permissions,
       });
       toast({ title: "Employee updated", description: `${employee.name}'s profile has been saved.` });
@@ -564,6 +588,11 @@ function EditEmployeeDialog({ employee, onClose }: { employee: Employee | null; 
           <div className="space-y-1.5">
             <Label>Target (₹/month)</Label>
             <Input type="number" value={target} onChange={(e) => setTarget(e.target.value)} />
+          </div>
+          <div className="col-span-2 space-y-1.5">
+            <Label>Reset custom password</Label>
+            <Input type="password" minLength={8} placeholder="Leave blank to keep current password" value={password} onChange={(e) => setPassword(e.target.value)} />
+            <p className="text-[11px] text-muted-foreground">Use at least 8 characters. Saving activates the employee login.</p>
           </div>
         </div>
 
