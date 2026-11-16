@@ -24,7 +24,7 @@ function HomeContent() {
   const pathname = usePathname();
   const searchParams = useSearchParams();
   const authMode = parseAuthMode(searchParams.get("mode"));
-  const allowPublicRegister = process.env.NEXT_PUBLIC_ALLOW_PUBLIC_REGISTER !== "false";
+  const allowPublicRegister = process.env.NEXT_PUBLIC_ALLOW_PUBLIC_REGISTER === "true";
 
   useEffect(() => {
     const finish = () => setHydrated(true);

@@ -1,24 +1,14 @@
 /** Normalize env so a pasted `=https://...` or trailing slash does not break fetch URLs. */
 function resolveApiBase(): string {
-  const raw = (process.env.NEXT_PUBLIC_API_URL || "").trim();
-  const cleaned = raw
-    .replace(/^[=\s]+/, "")
-    .replace(/\/+$/, "")
-    .replace(/\/api$/i, "");
-
-  // The v0 preview runs the frontend in a browser sandbox where localhost:4000
-  // resolves back to the frontend preview, not the separately running API.
-  // Route local development traffic through the Next.js server-side proxy.
-  if (!cleaned || /^(https?:\/\/)?localhost(?::\d+)?$/i.test(cleaned)) {
-    return "/api/backend";
-  }
-
+  const raw = (process.env.NEXT_PUBLIC_API_URL || "http://localhost:4000").trim();
+  const cleaned = raw.replace(/^[=\s]+/, "").replace(/\/+$/, "");
   if (!/^https?:\/\//i.test(cleaned)) {
-    console.warn(`[api] NEXT_PUBLIC_API_URL must be an absolute URL (got "${raw}")`);
-    return "/api/backend";
+    console.warn(
+      `[api] NEXT_PUBLIC_API_URL must be an absolute URL (got "${raw}"). Falling back to http://localhost:4000`
+    );
+    return "http://localhost:4000";
   }
-
-  return process.env.NODE_ENV === "production" ? "/api/backend" : cleaned;
+  return cleaned;
 }
 
 const API_BASE = resolveApiBase();
@@ -91,7 +81,7 @@ export async function apiFetch<T>(
   });
 
   if (!res.ok) {
-    let message = res.statusText || "The service is temporarily unavailable. Please try again.";
+    let message = res.statusText || "Request failed";
     let code: string | undefined;
     let body: Record<string, unknown> | undefined;
     try {
@@ -132,7 +122,7 @@ export async function apiFetchBlob(path: string): Promise<Blob> {
   });
 
   if (!res.ok) {
-    let message = res.statusText || "The service is temporarily unavailable. Please try again.";
+    let message = res.statusText || "Request failed";
     try {
       const body = await res.json();
       message = body.error || body.message || message;
@@ -156,12 +146,6 @@ export async function checkApiHealth(): Promise<boolean> {
 }
 
 export const api = {
-  changePassword: (currentPassword: string, newPassword: string) =>
-    apiFetch<{ ok: boolean }>("/api/auth/password", {
-      method: "PATCH",
-      body: JSON.stringify({ currentPassword, newPassword }),
-    }),
-
   login: (email: string, password: string) =>
     apiFetch<{ user: ApiUser; token: string }>("/api/auth/login", {
       method: "POST",
@@ -933,9 +917,6 @@ export const api = {
   updateEmployee: (id: string, body: Record<string, unknown>) =>
     apiFetch<{ employee: ApiEmployee }>(`/api/employees/${id}`, { method: "PATCH", body: JSON.stringify(body) }),
 
-  deleteEmployee: (id: string) =>
-    apiFetch<{ success: boolean }>(`/api/employees/${id}`, { method: "DELETE" }),
-
   createBranch: (body: Record<string, unknown>) =>
     apiFetch<{ branch: ApiBranch }>("/api/branches", { method: "POST", body: JSON.stringify(body) }),
 
@@ -1084,7 +1065,7 @@ export interface AgentRegistrationBody {
   state: string;
   city: string;
   panNumber?: string;
-  passportNumber?: string;
+  passportNumber: string;
   password: string;
   confirmPassword: string;
   gstNumber?: string;

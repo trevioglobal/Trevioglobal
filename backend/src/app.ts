@@ -58,7 +58,7 @@ import {
   paymentSchema, employeeSchema, employeeUpdateSchema, taskSchema, agencySchema,
   agencyUpdateSchema, branchSchema, branchUpdateSchema, walletSchema,
   attendanceCheckSchema, leaveSchema, leaveStatusSchema, forgotPasswordSchema,
-  resetPasswordSchema, changePasswordSchema, agentRegistrationSchema,
+  resetPasswordSchema, agentRegistrationSchema,
   couponCreateSchema, couponUpdateSchema, couponValidateSchema,
   isValidEmail, isValidPhone, isValidGstin,
 } from "./lib/validation.js";
@@ -174,14 +174,10 @@ function isProdLike() {
   return process.env.NODE_ENV === "production";
 }
 
-const allowedOrigins = [
-  "http://localhost:3000",
-  "http://localhost:3100",
-  "https://trevioglobal.com",
-  "https://www.trevioglobal.com",
-  "https://trevioglobal-frontend.vercel.app",
-  ...(process.env.CORS_ORIGIN || "").split(","),
-].map((o) => o.trim()).filter(Boolean);
+const allowedOrigins = (process.env.CORS_ORIGIN || "http://localhost:3000")
+  .split(",")
+  .map((o) => o.trim())
+  .filter(Boolean);
 
 // Strict security headers
 app.use(helmet({
@@ -392,22 +388,6 @@ app.post("/api/auth/login", authLimiter, validate(loginSchema), async (req, res)
   }
 });
 
-app.patch("/api/auth/password", requireAuth, validate(changePasswordSchema), async (req: AuthRequest, res) => {
-  try {
-    const user = await db.user.findUnique({ where: { id: req.auth!.userId } });
-    if (!user?.password || !(await bcrypt.compare(req.body.currentPassword, user.password))) {
-      res.status(400).json({ error: "Current password is incorrect" });
-      return;
-    }
-    const password = await bcrypt.hash(req.body.newPassword, 10);
-    await db.user.update({ where: { id: user.id }, data: { password, resetToken: null, resetTokenExpires: null } });
-    res.json({ ok: true });
-  } catch (e) {
-    logger.error(e);
-    res.status(500).json({ error: "Unable to change password" });
-  }
-});
-
 app.get("/api/auth/me", requireAuth, async (req: AuthRequest, res) => {
   try {
     const user = await db.user.findUnique({
@@ -540,6 +520,12 @@ app.post("/api/auth/reset-password", authLimiter, validate(resetPasswordSchema),
 });
 
 app.post("/api/auth/register", authLimiter, validate(agentRegistrationSchema), async (req, res) => {
+  const allowRegister = process.env.ALLOW_PUBLIC_REGISTRATION === "true"
+    || (process.env.ALLOW_PUBLIC_REGISTRATION !== "false" && process.env.NODE_ENV !== "production");
+  if (!allowRegister) {
+    res.status(403).json({ error: "Public registration is disabled. Ask an administrator to create your account." });
+    return;
+  }
   try {
     const body = req.body as {
       fullName: string;
@@ -553,7 +539,7 @@ app.post("/api/auth/register", authLimiter, validate(agentRegistrationSchema), a
       state: string;
       city: string;
       panNumber?: string;
-      passportNumber?: string;
+      passportNumber: string;
       password: string;
       gstNumber?: string;
       gstProofId?: string;
@@ -1373,10 +1359,9 @@ app.post("/api/employees", requireAuth, requireRole("super_admin", "agency_admin
     const agencyId = ownAgencyId(req, body.agencyId);
     const branchId = req.auth?.role === "branch_manager" ? req.auth?.branchId : (body.branchId ?? undefined);
     const branchRecord = branchId ? await db.branch.findUnique({ where: { id: branchId } }) : null;
-  const permissions = req.auth?.role === "branch_manager" ? undefined : (body.permissions ?? undefined);
-  const customPassword = typeof body.password === "string" && body.password.length > 0 ? body.password : null;
+    const permissions = req.auth?.role === "branch_manager" ? undefined : (body.permissions ?? undefined);
 
-  const employee = await db.employee.create({
+    const employee = await db.employee.create({
       data: {
         agencyId,
         branchId,
@@ -2236,7 +2221,7 @@ app.patch("/api/employees/:id", requireAuth, requireRole("super_admin", "agency_
       res.status(404).json({ error: "Not found" });
       return;
     }
-    const { name, email, phone, designation, department, branch, branchId, role, status, salary, target, permissions, password } = req.body;
+    const { name, email, phone, designation, department, branch, branchId, role, status, salary, target, permissions } = req.body;
     // branch managers may only manage employees within their own branch, and can't grant custom permissions
     const isBranchManager = req.auth?.role === "branch_manager";
     const data: Record<string, string | number | object | null | undefined> = {};
@@ -2257,14 +2242,6 @@ app.patch("/api/employees/:id", requireAuth, requireRole("super_admin", "agency_
       data.branch = branch;
     }
     const employee = await db.employee.update({ where: { id: existing.id }, data });
-    if (typeof password === "string" && password.trim()) {
-      if (password.trim().length < 8) {
-        res.status(400).json({ error: "Password must be at least 8 characters" });
-        return;
-      }
-      const passwordHash = await bcrypt.hash(password.trim(), 10);
-      await db.user.updateMany({ where: { email: existing.email }, data: { password: passwordHash, status: "Active" } });
-    }
     if (permissions !== undefined && !isBranchManager) {
       await db.employee.update({ where: { id: employee.id }, data: { permissions: permissions ?? null } }).catch(() => undefined);
       await db.user.updateMany({ where: { email: employee.email }, data: { permissions: permissions ?? null } }).catch(() => undefined);
@@ -2288,25 +2265,6 @@ app.patch("/api/employees/:id", requireAuth, requireRole("super_admin", "agency_
   } catch (e) {
     logger.error(e);
     res.status(500).json({ error: "Server error" });
-  }
-});
-
-app.delete("/api/employees/:id", requireAuth, requireRole("super_admin", "agency_admin", "branch_manager"), async (req: AuthRequest, res) => {
-  try {
-    const id = routeParamId(req);
-    const employee = await db.employee.findFirst({
-      where: { id, ...agencyScope(req), ...branchScope(req) },
-    });
-    if (!employee) {
-      res.status(404).json({ error: "Employee not found" });
-      return;
-    }
-    await db.employee.delete({ where: { id: employee.id } });
-    await db.user.updateMany({ where: { email: employee.email }, data: { status: "Inactive", password: null } });
-    res.json({ success: true });
-  } catch (e) {
-    logger.error(e);
-    res.status(500).json({ error: "Unable to delete employee" });
   }
 });
 
@@ -2554,7 +2512,7 @@ app.patch("/api/branches/:id", requireAuth, requireRole("super_admin", "agency_a
   }
 });
 
-// ── POST /api/agencies ───────────────────────────────────���────────────────────
+// ── POST /api/agencies ────────────────────────────────────────────────────────
 app.post("/api/agencies", requireAuth, requireRole("super_admin"), validate(agencySchema), async (req, res) => {
   try {
     const body = req.body;
@@ -3701,7 +3659,7 @@ app.get("/api/attendance", requireAuth, requirePermission("attendance"), async (
   }
 });
 
-// ── Leaves ──────────────────────────────────────────────────────���──────────
+// ── Leaves ─────────────────────────────────────────────────────────────────
 app.post("/api/leaves", requireAuth, requirePermission("leaves"), validate(leaveSchema), async (req: AuthRequest, res) => {
   try {
     const body = req.body;
