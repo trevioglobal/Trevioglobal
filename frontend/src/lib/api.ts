@@ -9,19 +9,16 @@ function resolveApiBase(): string {
   // The v0 preview runs the frontend in a browser sandbox where localhost:4000
   // resolves back to the frontend preview, not the separately running API.
   // Route local development traffic through the Next.js server-side proxy.
-  if (process.env.NODE_ENV === "production") {
-    return "/api/backend";
-  }
-
   if (!cleaned || /^(https?:\/\/)?localhost(?::\d+)?$/i.test(cleaned)) {
-    return "/backend";
+    return "/api/backend";
   }
 
   if (!/^https?:\/\//i.test(cleaned)) {
     console.warn(`[api] NEXT_PUBLIC_API_URL must be an absolute URL (got "${raw}")`);
-    return "/backend";
+    return "/api/backend";
   }
-  return cleaned;
+
+  return process.env.NODE_ENV === "production" ? "/api/backend" : cleaned;
 }
 
 const API_BASE = resolveApiBase();

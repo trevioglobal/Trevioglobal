@@ -4,11 +4,12 @@ const productionApi = "https://travelpartner-api-v7nt.onrender.com";
 
 function getBackendUrl(path: string[], request: NextRequest) {
   const configured = process.env.NEXT_PUBLIC_API_URL?.trim().replace(/\/+$/, "");
-  const base = configured && !/localhost/i.test(configured)
+  const configuredIsLocal = !!configured && /(?:localhost|127\.0\.0\.1)(?::\d+)?/i.test(configured);
+  const base = configured && !configuredIsLocal
     ? configured.replace(/\/api$/i, "")
-    : process.env.NODE_ENV === "production"
-      ? productionApi
-      : "http://localhost:4000";
+    : configuredIsLocal && process.env.NODE_ENV !== "production"
+      ? configured.replace(/\/api$/i, "")
+      : productionApi;
   return `${base}/${path.join("/")}${request.nextUrl.search}`;
 }
 
