@@ -94,7 +94,7 @@ export async function apiFetch<T>(
   });
 
   if (!res.ok) {
-    let message = res.statusText || "Request failed";
+    let message = res.statusText || "The service is temporarily unavailable. Please try again.";
     let code: string | undefined;
     let body: Record<string, unknown> | undefined;
     try {
@@ -135,7 +135,7 @@ export async function apiFetchBlob(path: string): Promise<Blob> {
   });
 
   if (!res.ok) {
-    let message = res.statusText || "Request failed";
+    let message = res.statusText || "The service is temporarily unavailable. Please try again.";
     try {
       const body = await res.json();
       message = body.error || body.message || message;

@@ -23,8 +23,8 @@ export type AuthScreenMode = "login" | "forgot" | "reset" | "register";
 type Mode = AuthScreenMode;
 
 const HIGHLIGHTS = [
-  { icon: Plane, label: "1M+ Flights" },
-  { icon: Hotel, label: "50K+ Hotels" },
+  { icon: Plane, label: "Flights" },
+  { icon: Hotel, label: "Hotels" },
   { icon: Zap, label: "Real-time Inventory" },
   { icon: Palmtree, label: "Custom Holiday Packages" },
 ];
@@ -428,13 +428,7 @@ export function LoginScreen({
                       />
                       <span className="text-sm text-slate-600">Remember me</span>
                     </label>
-                    <button
-                      type="button"
-                      onClick={() => setMode("forgot")}
-                      className="text-sm font-medium text-brand-blue hover:underline"
-                    >
-                      Need help?
-                    </button>
+
                   </div>
 
                   <Button
